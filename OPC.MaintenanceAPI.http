@@ -1,0 +1,6 @@
+@OPC.MaintenanceAPI_HostAddress = http://localhost:5232
+
+GET {{OPC.MaintenanceAPI_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

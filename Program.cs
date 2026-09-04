@@ -5,11 +5,9 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
 using System.Text;
 using OPC.MaintenanceAPI.Middleware;
-using OPC.MaintenanceAPI.Repositories.Base;
 using OPC.MaintenanceAPI.Repositories.Specific;
 using OPC.MaintenanceAPI.Services.Implementations;
 using OPC.MaintenanceAPI.Services.Interfaces;
-
 var builder = WebApplication.CreateBuilder(args);
 
 // ===== Đăng ký Repository + Service theo đúng 6 nhóm Controller =====
@@ -91,6 +89,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 builder.Services.AddAuthorization();
 
 var app = builder.Build();
+
 
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 

@@ -1,7 +1,7 @@
 using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using OPC.MaintenanceAPI.Data;
-using OPC.MaintenanceAPI.Models;
+using OPC.MaintenanceAPI.Core.Entities;
 
 namespace OPC.MaintenanceAPI.Middleware
 {

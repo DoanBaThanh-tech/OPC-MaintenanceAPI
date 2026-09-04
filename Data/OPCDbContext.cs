@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using Microsoft.EntityFrameworkCore;
-using OPC.MaintenanceAPI.Models;
+using OPC.MaintenanceAPI.Core.Entities;
 
 namespace OPC.MaintenanceAPI.Data;
 

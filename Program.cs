@@ -5,9 +5,41 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
 using System.Text;
 using OPC.MaintenanceAPI.Middleware;
+using OPC.MaintenanceAPI.Repositories.Base;
+using OPC.MaintenanceAPI.Repositories.Specific;
+using OPC.MaintenanceAPI.Services.Implementations;
+using OPC.MaintenanceAPI.Services.Interfaces;
+
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
+// ===== Đăng ký Repository + Service theo đúng 6 nhóm Controller =====
+
+// Auth: QuanLyNguoiDung, NhanVien, XacThucQuenMatKhau
+builder.Services.AddScoped<IQuanLyNguoiDungRepository, QuanLyNguoiDungRepository>();
+builder.Services.AddScoped<INhanVienRepository, NhanVienRepository>();
+builder.Services.AddScoped<IXacThucQuenMatKhauRepository, XacThucQuenMatKhauRepository>();
+builder.Services.AddScoped<IAuthService, AuthService>();
+
+// System: VaiTro, PhanQuyenVaiTro, DanhMucChucNang, NhatKyHeThong
+builder.Services.AddScoped<ISystemRepository, SystemRepository>();
+builder.Services.AddScoped<ISystemService, SystemService>();
+
+// Equipment: ThietBi, LichSuThietBi
+builder.Services.AddScoped<IEquipmentRepository, EquipmentRepository>();
+builder.Services.AddScoped<IEquipmentService, EquipmentService>();
+
+// MaintenancePlan: KeHoachBaoTri, ChiTietKeHoachBaoTri, ChuKyBaoTri
+builder.Services.AddScoped<IMaintenancePlanRepository, MaintenancePlanRepository>();
+builder.Services.AddScoped<IMaintenancePlanService, MaintenancePlanService>();
+
+// WorkOrder: HoSoBaoTri, HoSoSuaChua, PhanCongCongViec, KetQuaThucHien, LichSuPheDuyet
+builder.Services.AddScoped<IWorkOrderRepository, WorkOrderRepository>();
+builder.Services.AddScoped<IWorkOrderService, WorkOrderService>();
+
+// Inventory: VatTu, HoSoYeuCauVatTu, ChiTietYeuCauVatTu, NhapXuatVatTu
+builder.Services.AddScoped<IInventoryRepository, InventoryRepository>();
+builder.Services.AddScoped<IInventoryService, InventoryService>();
+
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
 builder.Services.AddEndpointsApiExplorer();
@@ -23,7 +55,6 @@ builder.Services.AddSwaggerGen(options =>
         Description = "Nhập token theo dạng: Bearer {token}"
     });
 
-    // Cú pháp AddSecurityRequirement đổi hoàn toàn ở v10:
     options.AddSecurityRequirement(document => new OpenApiSecurityRequirement
     {
         [new OpenApiSecuritySchemeReference("Bearer", document)] = new List<string>()
@@ -55,7 +86,6 @@ var app = builder.Build();
 
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 
-// Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();

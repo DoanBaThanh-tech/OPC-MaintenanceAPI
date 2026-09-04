@@ -6,6 +6,6 @@ namespace OPC.MaintenanceAPI.Core.Entities;
         public string MaOTP { get; set; } = null!;
         public DateTime ThoiGianHetHan { get; set; }
         public string TrangThaiXacThuc { get; set; } = null!;
-
+        public DateTime NgayTao { get; set; }
         public QuanLyNguoiDung MaNguoiDungNavigation { get; set; } = null!;
     }

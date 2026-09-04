@@ -7,8 +7,12 @@ using OPC.MaintenanceAPI.Services.Interfaces;
 
 namespace OPC.MaintenanceAPI.Services.Implementations
 {
-    public class AuthService : IAuthService 
+    public class AuthService : IAuthService
     {
+        private const string VaiTroGiamDoc = "Giám đốc";
+        private const string VaiTroPhoGiamDoc = "Phó giám đốc";
+        private const int SoPhutChoOtp = 10;
+
         private readonly IQuanLyNguoiDungRepository _userRepo;
         private readonly INhanVienRepository _nhanVienRepo;
         private readonly IXacThucQuenMatKhauRepository _otpRepo;
@@ -69,13 +73,21 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             };
         }
 
+        // Luồng 4 — nhánh "Tạo mới"
         public async Task<AuthResult> TaoTaiKhoanAsync(TaoTaiKhoanDto dto)
         {
             if (!MatKhauHopLe.IsMatch(dto.MatKhau))
                 return new AuthResult { ThanhCong = false, Message = "Mật khẩu phải có ít nhất 8 ký tự, gồm 1 chữ hoa và 1 ký tự đặc biệt." };
 
+            if (string.IsNullOrWhiteSpace(dto.ChucVu))
+                return new AuthResult { ThanhCong = false, Message = "Vui lòng nhập chức vụ." };
+
             if (await _userRepo.EmailExistsAsync(dto.Email))
                 return new AuthResult { ThanhCong = false, Message = "Email đã tồn tại." };
+
+            var loiGioiHan = await KiemTraGioiHanVaiTroAsync(dto.MaVaiTro);
+            if (loiGioiHan != null)
+                return new AuthResult { ThanhCong = false, Message = loiGioiHan };
 
             var taiKhoan = new QuanLyNguoiDung
             {
@@ -102,10 +114,46 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             return new AuthResult { ThanhCong = true, Data = new { taiKhoan.MaNguoiDung, taiKhoan.Email, taiKhoan.TrangThai } };
         }
 
+        // Luồng 4 — nhánh "Sửa": áp dụng đúng ràng buộc giới hạn vai trò như lúc Tạo mới,
+        // loại trừ chính tài khoản đang sửa để không tự đếm nhầm chính nó
+        public async Task<AuthResult> CapNhatTaiKhoanAsync(int id, CapNhatTaiKhoanDto dto)
+        {
+            var user = await _userRepo.GetByIdAsync(id);
+            if (user == null) return new AuthResult { ThanhCong = false, Message = "Không tìm thấy tài khoản." };
+
+            if (string.IsNullOrWhiteSpace(dto.HoTen))
+                return new AuthResult { ThanhCong = false, Message = "Họ tên không được để trống." };
+
+            if (string.IsNullOrWhiteSpace(dto.ChucVu))
+                return new AuthResult { ThanhCong = false, Message = "Vui lòng nhập chức vụ." };
+
+            var loiGioiHan = await KiemTraGioiHanVaiTroAsync(dto.MaVaiTro, loaiTruMaNguoiDung: id);
+            if (loiGioiHan != null)
+                return new AuthResult { ThanhCong = false, Message = loiGioiHan };
+
+            user.MaVaiTro = dto.MaVaiTro;
+            _userRepo.Update(user);
+
+            var nhanVien = await _nhanVienRepo.GetByMaNguoiDungAsync(id);
+            if (nhanVien != null)
+            {
+                nhanVien.HoTen = dto.HoTen;
+                nhanVien.SoDienThoai = dto.SoDienThoai;
+                nhanVien.ChucVu = dto.ChucVu;
+                _nhanVienRepo.Update(nhanVien);
+            }
+
+            await _userRepo.SaveChangesAsync();
+            return new AuthResult { ThanhCong = true, Message = "Đã cập nhật tài khoản." };
+        }
+
         public async Task<AuthResult> KichHoatAsync(int id)
         {
             var user = await _userRepo.GetByIdAsync(id);
             if (user == null) return new AuthResult { ThanhCong = false, Message = "Không tìm thấy tài khoản." };
+            var loiGioiHan = await KiemTraGioiHanVaiTroAsync(user.MaVaiTro, loaiTruMaNguoiDung: id);
+            if (loiGioiHan != null)
+                return new AuthResult { ThanhCong = false, Message = loiGioiHan };
             user.TrangThai = "Đang hoạt động";
             _userRepo.Update(user);
             await _userRepo.SaveChangesAsync();
@@ -122,10 +170,19 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             return new AuthResult { ThanhCong = true, Message = "Đã khóa tài khoản." };
         }
 
+        // Luồng 2 — Quên mật khẩu, bước Yêu cầu OTP
         public async Task<AuthResult> YeuCauOtpAsync(QuenMatKhauRequestDto dto)
         {
             var user = await _userRepo.GetByEmailAsync(dto.Email);
             if (user == null) return new AuthResult { ThanhCong = false, Message = "Không tìm thấy tài khoản." };
+
+            // Điều kiện: chống spam OTP - cách lần gần nhất chưa đủ 10 phút thì chặn
+            var otpGanNhat = await _otpRepo.GetMoiNhatAsync(user.MaNguoiDung);
+            if (otpGanNhat != null && (DateTime.Now - otpGanNhat.NgayTao).TotalMinutes < SoPhutChoOtp)
+            {
+                var conLai = SoPhutChoOtp - (int)(DateTime.Now - otpGanNhat.NgayTao).TotalMinutes;
+                return new AuthResult { ThanhCong = false, Message = $"Vui lòng chờ thêm {conLai} phút trước khi yêu cầu mã mới." };
+            }
 
             var otp = new Random().Next(100000, 999999).ToString();
             await _otpRepo.AddAsync(new XacThucQuenMatKhau
@@ -133,7 +190,8 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 MaNguoiDung = user.MaNguoiDung,
                 MaOTP = otp,
                 ThoiGianHetHan = DateTime.Now.AddMinutes(5),
-                TrangThaiXacThuc = "Chưa dùng"
+                TrangThaiXacThuc = "Chưa dùng",
+                NgayTao = DateTime.Now
             });
             await _otpRepo.SaveChangesAsync();
 
@@ -183,6 +241,22 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             await _otpRepo.SaveChangesAsync();
 
             return new AuthResult { ThanhCong = true, Message = "Đổi mật khẩu thành công." };
+        }
+
+        // Điều kiện: MaVaiTro là Giám đốc hoặc Phó giám đốc thì chỉ được tối đa 1 tài khoản
+        // (không tính tài khoản đã "Đã khóa" — xem DemTaiKhoanTheoVaiTroAsync)
+        private async Task<string?> KiemTraGioiHanVaiTroAsync(int maVaiTro, int? loaiTruMaNguoiDung = null)
+        {
+            var vaiTro = await _userRepo.GetVaiTroByIdAsync(maVaiTro);
+            if (vaiTro == null) return "Vai trò không tồn tại.";
+
+            if (vaiTro.TenVaiTro == VaiTroGiamDoc || vaiTro.TenVaiTro == VaiTroPhoGiamDoc)
+            {
+                var soLuong = await _userRepo.DemTaiKhoanTheoVaiTroAsync(maVaiTro, loaiTruMaNguoiDung);
+                if (soLuong >= 1)
+                    return $"Đã có tài khoản giữ vai trò {vaiTro.TenVaiTro}, không thể tạo thêm.";
+            }
+            return null;
         }
     }
 }

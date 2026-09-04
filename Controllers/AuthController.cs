@@ -40,6 +40,14 @@ namespace OPC.MaintenanceAPI.Controllers
         }
 
         [Authorize(Roles = "Admin hệ thống")]
+        [HttpPut("{id}")]
+        public async Task<IActionResult> CapNhatTaiKhoan(int id, [FromBody] CapNhatTaiKhoanDto dto)
+        {
+            var r = await _service.CapNhatTaiKhoanAsync(id, dto);
+            return r.ThanhCong ? Ok(new { r.Message }) : BadRequest(new { r.Message });
+        }
+
+        [Authorize(Roles = "Admin hệ thống")]
         [HttpPut("{id}/kich-hoat")]
         public async Task<IActionResult> KichHoat(int id)
         {

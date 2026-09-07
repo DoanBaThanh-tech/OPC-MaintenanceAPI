@@ -4,7 +4,8 @@ using System.Collections.Generic;
 namespace OPC.MaintenanceAPI.Core.Entities;
 
 public partial class VatTu
-{
+{   
+    public byte[] RowVersion { get; set; } = null!;
     public int MaVatTu { get; set; }
 
     public string TenVatTu { get; set; } = null!;

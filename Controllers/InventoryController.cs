@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
 using OPC.MaintenanceAPI.DTOs.Inventory;
 using OPC.MaintenanceAPI.Services.Interfaces;
 using OPC.MaintenanceAPI.DTOs.Common;
@@ -28,7 +29,13 @@ namespace OPC.MaintenanceAPI.Controllers
         public async Task<IActionResult> NhapKho(NhapKhoDto dto) => Result(await _service.NhapKhoAsync(dto));
 
         [HttpPost("yeu-cau/{id}/xuat-kho")]
-        public async Task<IActionResult> XuatKho(int id) => Result(await _service.XuatKhoAsync(id));
+        public async Task<IActionResult> XuatKho(int id)
+        {
+            var maNhanVien = User.FindFirst("MaNguoiDung")?.Value;
+            if (!int.TryParse(maNhanVien, out var maNhanVienGiaoDich))
+                return BadRequest(new { loi = "Không thể xác định nhân viên thực hiện." });
+            return Result(await _service.XuatKhoAsync(id, maNhanVienGiaoDich));
+        }
 
         private IActionResult Result((bool ok, string? loi) r) => r.ok ? Ok(new { canhBao = r.loi }) : BadRequest(new { loi = r.loi });
     }

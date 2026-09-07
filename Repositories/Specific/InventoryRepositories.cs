@@ -11,6 +11,8 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         Task AddChiTietRangeAsync(IEnumerable<ChiTietYeuCauVatTu> chiTiets);
         Task<HoSoYeuCauVatTu?> GetHoSoYeuCauByIdAsync(int id);
         Task<List<ChiTietYeuCauVatTu>> GetChiTietByHoSoAsync(int maHoSo);
+        Task<HoSoSuaChua?> GetHoSoSuaChuaByIdAsync(int id);
+        Task<bool> DaXuatChoYeuCauAsync(int maYeuCauVatTu);
         Task AddGiaoDichAsync(NhapXuatVatTu giaoDich);
         Task AddLichSuPheDuyetAsync(LichSuPheDuyet lichSu);
         Task<int> SaveChangesAsync();
@@ -38,6 +40,12 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
                 .Where(c => c.MaYeuCauVatTu == maHoSo)
                 .ToListAsync();
 
+        public async Task<HoSoSuaChua?> GetHoSoSuaChuaByIdAsync(int id) =>
+            await _context.HoSoSuaChuas.FirstOrDefaultAsync(h => h.MaHoSoSuaChua == id);
+
+        public async Task<bool> DaXuatChoYeuCauAsync(int maYeuCauVatTu) =>
+            await _context.NhapXuatVatTus.AnyAsync(g =>
+                g.MaYeuCauVatTu == maYeuCauVatTu && g.LoaiGiaoDich == "Xuất");
         public async Task AddGiaoDichAsync(NhapXuatVatTu giaoDich) => await _context.NhapXuatVatTus.AddAsync(giaoDich);
 
         public async Task AddLichSuPheDuyetAsync(LichSuPheDuyet lichSu) => await _context.LichSuPheDuyets.AddAsync(lichSu);

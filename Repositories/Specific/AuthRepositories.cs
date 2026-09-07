@@ -12,12 +12,37 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         Task<bool> EmailExistsAsync(string email);
         Task<int> DemTaiKhoanTheoVaiTroAsync(int maVaiTro, int? loaiTruMaNguoiDung = null);
         Task<VaiTro?> GetVaiTroByIdAsync(int maVaiTro);
+        Task<bool> CoQuyenAsync(int maNguoiDung, string tenChucNang, string loaiQuyen);
     }
 
     public class QuanLyNguoiDungRepository : BaseRepository<QuanLyNguoiDung>, IQuanLyNguoiDungRepository
     {
         public QuanLyNguoiDungRepository(OPCDbContext context) : base(context) { }
         
+        public async Task<bool> CoQuyenAsync(int maNguoiDung, string tenChucNang, string loaiQuyen)
+    {
+        var user = await _dbSet.FirstOrDefaultAsync(u => u.MaNguoiDung == maNguoiDung);
+        if (user == null) return false;
+
+        var quyen = await (
+            from pq in _context.PhanQuyenVaiTros
+            join cn in _context.DanhMucChucNangs on pq.MaChucNang equals cn.MaChucNang
+            where pq.MaVaiTro == user.MaVaiTro && cn.TenChucNang == tenChucNang
+            select pq
+        ).FirstOrDefaultAsync();
+
+        if (quyen == null) return false;
+
+        return loaiQuyen switch
+        {
+            "Xem" => quyen.DuocXem,
+            "Tao" => quyen.DuocTao,
+            "Sua" => quyen.DuocSua,
+            "Duyet" => quyen.DuocDuyet,
+            _ => false
+        };
+    }
+
         public Task<QuanLyNguoiDung?> GetByEmailAsync(string email) =>
             _dbSet.Include(u => u.MaVaiTroNavigation).FirstOrDefaultAsync(u => u.Email == email);
 

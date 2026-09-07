@@ -10,7 +10,16 @@ namespace OPC.MaintenanceAPI.Controllers
     {
         private readonly IWorkOrderService _service;
         public WorkOrderController(IWorkOrderService service) => _service = service;
+        [HttpGet("bao-tri")]
+        public async Task<IActionResult> GetBaoTriTheoTrangThai([FromQuery] string trangThai) =>
+            Ok(await _service.GetHoSoBaoTriTheoTrangThaiAsync(trangThai));
 
+        [HttpGet("bao-tri/{id}")]
+        public async Task<IActionResult> GetBaoTriById(int id)
+        {
+            var r = await _service.GetHoSoBaoTriByIdAsync(id);
+            return r == null ? NotFound() : Ok(r);
+        }
         // Bảo trì
         [HttpPost("bao-tri")]
         public async Task<IActionResult> TaoBaoTri(TaoHoSoBaoTriDto dto) => Result(await _service.TaoHoSoBaoTriAsync(dto));

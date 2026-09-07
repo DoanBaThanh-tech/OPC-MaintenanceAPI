@@ -11,10 +11,18 @@ namespace OPC.MaintenanceAPI.Services.Implementations
         public WorkOrderService(IWorkOrderRepository repo) => _repo = repo;
 
         // ===== BẢO TRÌ =====
-
+        
         // Luồng 6B
         public async Task<(bool, string?)> TaoHoSoBaoTriAsync(TaoHoSoBaoTriDto dto)
         {
+            if (dto.MaChiTietKeHoach.HasValue)
+            {
+                var chiTiet = await _repo.GetChiTietKeHoachByIdAsync(dto.MaChiTietKeHoach.Value);
+                if (chiTiet == null)
+                    return (false, "Không tìm thấy dòng kế hoạch bảo trì.");
+                if (chiTiet.MaHoSoBaoTri != null)
+                    return (false, "Dòng kế hoạch này đã có hồ sơ bảo trì, không thể tạo thêm.");
+            }
             var hoSo = new HoSoBaoTri
             {
                 MaThieBi = dto.MaThietBi,
@@ -26,6 +34,12 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             };
             await _repo.AddHoSoBaoTriAsync(hoSo);
             await _repo.SaveChangesAsync();
+            if (dto.MaChiTietKeHoach.HasValue)
+            {
+                var chiTiet = await _repo.GetChiTietKeHoachByIdAsync(dto.MaChiTietKeHoach.Value);
+                chiTiet!.MaHoSoBaoTri = hoSo.MaHoSoBaoTri;
+                await _repo.SaveChangesAsync();
+            }
             return (true, null);
         }
 
@@ -120,7 +134,15 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
             hoSo.TrangThai = "Đã hoàn thành";
             if (hoSo.MaThieBiNavigation != null)
-                hoSo.MaThieBiNavigation.NgayBaoTriGanNhat = DateOnly.FromDateTime(DateTime.Now);
+            {
+                var homNay = DateOnly.FromDateTime(DateTime.Now);
+                hoSo.MaThieBiNavigation.NgayBaoTriGanNhat = homNay;
+
+                // Logic mới: tự tính ngày bảo trì kế tiếp dựa theo chu kỳ của loại thiết bị
+                var soThang = await _repo.GetSoThangChuKyAsync(hoSo.MaThieBiNavigation.LoaiThietBi);
+                if (soThang.HasValue)
+                    hoSo.MaThieBiNavigation.NgayBaoTriTiepTheo = homNay.AddMonths(soThang.Value);
+            }
             await _repo.SaveChangesAsync();
             return (true, null);
         }
@@ -201,7 +223,9 @@ namespace OPC.MaintenanceAPI.Services.Implementations
         {
             var hoSo = await _repo.GetHoSoSuaChuaByIdAsync(maHoSo);
             if (hoSo == null) return (false, "Không tìm thấy hồ sơ.");
-
+            // Điều kiện mới: chưa có kết quả ghi nhận thì không cho đóng hồ sơ
+            if (hoSo.MaPhanCong == null || !await _repo.DaCoKetQuaAsync(hoSo.MaPhanCong.Value))
+            return (false, "Chưa có kết quả thực hiện được ghi nhận, không thể xác nhận hoàn thành.");
             if (!dto.Dat)
             {
                 hoSo.TrangThai = "Đang thực hiện";
@@ -214,6 +238,25 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 hoSo.MaThieBiNavigation.TinhTrangHienTai = "Hoạt động tốt";
             await _repo.SaveChangesAsync();
             return (true, null);
+        }
+        
+        public async Task<List<object>> GetHoSoBaoTriTheoTrangThaiAsync(string trangThai) =>
+        (await _repo.GetHoSoBaoTriByTrangThaiAsync(trangThai)).Select(h => (object)new
+        {
+            h.MaHoSoBaoTri, h.MaThieBi, TenThietBi = h.MaThieBiNavigation?.TenThietBi,
+            h.NoiDungCongViec, h.ThoiGianDuKien, h.TrangThai, h.NgayTao
+        }).ToList();
+
+        public async Task<object?> GetHoSoBaoTriByIdAsync(int id)
+        {
+            var h = await _repo.GetHoSoBaoTriByIdAsync(id);
+            if (h == null) return null;
+            return new
+            {
+                h.MaHoSoBaoTri, h.MaThieBi, TenThietBi = h.MaThieBiNavigation?.TenThietBi,
+                h.NoiDungCongViec, h.ThoiGianDuKien, h.TrangThai, h.LyDoTuChoi,
+                h.NgayTao, h.NgayDuyet, h.MaPhanCong
+            };
         }
     }
 }

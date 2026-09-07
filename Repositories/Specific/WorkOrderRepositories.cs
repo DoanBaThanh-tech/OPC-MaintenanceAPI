@@ -7,9 +7,14 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
     public interface IWorkOrderRepository
     {
         // Hồ sơ bảo trì
+        // Kiểm tra trùng lịch + đã có kết quả — 2 dòng mới cần thêm
+        Task<bool> NhanVienTrungLichAsync(int maNhanVien, DateOnly tuNgay, DateOnly denNgay);
+        Task<bool> DaCoKetQuaAsync(int maPhanCong);
+        Task<int?> GetSoThangChuKyAsync(string? loaiThietBi);
         Task AddHoSoBaoTriAsync(HoSoBaoTri hoSo);
         Task<HoSoBaoTri?> GetHoSoBaoTriByIdAsync(int id);
         Task<List<HoSoBaoTri>> GetHoSoBaoTriByTrangThaiAsync(string trangThai);
+        Task<ChiTietKeHoachBaoTri?> GetChiTietKeHoachByIdAsync(int id);
 
         // Hồ sơ sửa chữa
         Task AddHoSoSuaChuaAsync(HoSoSuaChua hoSo);
@@ -31,7 +36,20 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
     {
         private readonly OPCDbContext _context;
         public WorkOrderRepository(OPCDbContext context) => _context = context;
+        public async Task<int?> GetSoThangChuKyAsync(string? loaiThietBi)
+        {
+            if (loaiThietBi == null) return null;
+            var chuKy = await _context.ChuKyBaoTris.FirstOrDefaultAsync(c => c.LoaiThietBi == loaiThietBi);
+            return chuKy?.SoThangChuKyDeXuat;
+        }
+        public async Task<bool> NhanVienTrungLichAsync(int maNhanVien, DateOnly tuNgay, DateOnly denNgay) =>
+        await _context.PhanCongCongViecs.AnyAsync(p =>
+            p.MaNhanVienThucHien == maNhanVien &&
+            p.TrangThai != "Hoàn thành" &&
+            p.NgayBatDauDuKien <= denNgay && p.NgayKetThucDuKien >= tuNgay);
 
+    public async Task<bool> DaCoKetQuaAsync(int maPhanCong) =>
+        await _context.KetQuaThucHiens.AnyAsync(k => k.MaPhanCong == maPhanCong);
         public async Task AddHoSoBaoTriAsync(HoSoBaoTri hoSo) => await _context.HoSoBaoTris.AddAsync(hoSo);
 
         public async Task<HoSoBaoTri?> GetHoSoBaoTriByIdAsync(int id) =>
@@ -66,5 +84,8 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
             await _context.LichSuPheDuyets.AddAsync(lichSu);
 
         public async Task<int> SaveChangesAsync() => await _context.SaveChangesAsync();
+
+        public async Task<ChiTietKeHoachBaoTri?> GetChiTietKeHoachByIdAsync(int id) =>
+        await _context.ChiTietKeHoachBaoTris.FirstOrDefaultAsync(c => c.MaChiTietKeHoach == id);
     }
 }

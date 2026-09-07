@@ -8,6 +8,8 @@ using OPC.MaintenanceAPI.Middleware;
 using OPC.MaintenanceAPI.Repositories.Specific;
 using OPC.MaintenanceAPI.Services.Implementations;
 using OPC.MaintenanceAPI.Services.Interfaces;
+using OPC.MaintenanceAPI.Core.Authorization;
+using Microsoft.AspNetCore.Authorization;
 var builder = WebApplication.CreateBuilder(args);
 
 // ===== Đăng ký Repository + Service theo đúng 6 nhóm Controller =====
@@ -17,6 +19,10 @@ builder.Services.AddScoped<IQuanLyNguoiDungRepository, QuanLyNguoiDungRepository
 builder.Services.AddScoped<INhanVienRepository, NhanVienRepository>();
 builder.Services.AddScoped<IXacThucQuenMatKhauRepository, XacThucQuenMatKhauRepository>();
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddAuthorization();
+builder.Services.AddSingleton<IAuthorizationPolicyProvider, QuyenPolicyProvider>();
+builder.Services.AddScoped<IAuthorizationHandler, QuyenAuthorizationHandler>();
+
 
 // System: VaiTro, PhanQuyenVaiTro, DanhMucChucNang, NhatKyHeThong
 builder.Services.AddScoped<ISystemRepository, SystemRepository>();

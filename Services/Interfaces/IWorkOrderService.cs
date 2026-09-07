@@ -5,6 +5,8 @@ namespace OPC.MaintenanceAPI.Services.Interfaces
     public interface IWorkOrderService
     {
         // Bảo trì — Luồng 6B, 7, 8, 9
+        Task<List<object>> GetHoSoBaoTriTheoTrangThaiAsync(string trangThai);   // dòng mới
+        Task<object?> GetHoSoBaoTriByIdAsync(int id);
         Task<(bool, string?)> TaoHoSoBaoTriAsync(TaoHoSoBaoTriDto dto);
         Task<(bool, string?)> DuyetHoSoBaoTriAsync(int id, DuyetHoSoDto dto);
         Task<(bool, string?)> PhanCongBaoTriAsync(int maHoSo, PhanCongDto dto);

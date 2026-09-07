@@ -7,7 +7,8 @@ namespace OPC.MaintenanceAPI.DTOs.WorkOrder
         public int MaNhanVienTao { get; set; }
         public string? NoiDungCongViec { get; set; }
         public string? ThoiGianDuKien { get; set; }
-        public bool GuiDuyet { get; set; }   // true = Gửi duyệt, false = Lưu nháp
+        public bool GuiDuyet { get; set; }
+        public int? MaChiTietKeHoach { get; set; }
     }
 
     public class TaoHoSoSuaChuaDto

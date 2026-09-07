@@ -53,15 +53,18 @@ namespace OPC.MaintenanceAPI.Services.Implementations
         }
 
         // Luồng 13 — Giám đốc duyệt
+        // Luồng 13 — Giám đốc duyệt
         public async Task<(bool, string?)> DuyetYeuCauVatTuAsync(int id, DuyetHoSoDto dto)
         {
             var hoSo = await _repo.GetHoSoYeuCauByIdAsync(id);
             if (hoSo == null) return (false, "Không tìm thấy hồ sơ.");
-            if (!dto.Duyet && string.IsNullOrWhiteSpace(dto.LyDoTuChoi))
+            if (dto.QuyetDinh != "Duyệt" && dto.QuyetDinh != "Từ chối")
+                return (false, "QuyetDinh chỉ nhận 'Duyệt' hoặc 'Từ chối'.");
+            if (dto.QuyetDinh == "Từ chối" && string.IsNullOrWhiteSpace(dto.LyDo))
                 return (false, "Vui lòng nhập lý do từ chối.");
 
-            hoSo.TrangThai = dto.Duyet ? "Đã duyệt" : "Từ chối";
-            hoSo.LyDoTuChoi = dto.Duyet ? null : dto.LyDoTuChoi;
+            hoSo.TrangThai = dto.QuyetDinh == "Duyệt" ? "Đã duyệt" : "Từ chối";
+            hoSo.LyDoTuChoi = dto.QuyetDinh == "Từ chối" ? dto.LyDo : null;
             hoSo.NgayDuyet = DateTime.Now;
             hoSo.MaNhanVienDuyet = dto.MaNhanVienDuyet;
 
@@ -70,7 +73,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 MaYeuCauVatTu = id,
                 MaNhanVienDuyet = dto.MaNhanVienDuyet,
                 QuyetDinh = hoSo.TrangThai,
-                LyDo = dto.LyDoTuChoi,
+                LyDo = dto.LyDo,
                 NgayDuyet = DateTime.Now
             });
 

@@ -1,4 +1,6 @@
+using Microsoft.EntityFrameworkCore;
 using OPC.MaintenanceAPI.Core.Entities;
+using OPC.MaintenanceAPI.Core.Exceptions;
 using OPC.MaintenanceAPI.DTOs.WorkOrder;
 using OPC.MaintenanceAPI.Repositories.Specific;
 using OPC.MaintenanceAPI.Services.Interfaces;
@@ -11,8 +13,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
         public WorkOrderService(IWorkOrderRepository repo) => _repo = repo;
 
         // ===== BẢO TRÌ =====
-        
-        // Luồng 6B
+
         public async Task<(bool, string?)> TaoHoSoBaoTriAsync(TaoHoSoBaoTriDto dto)
         {
             if (dto.MaChiTietKeHoach.HasValue)
@@ -43,38 +44,56 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             return (true, null);
         }
 
-        // Luồng 7
+        // Luồng 7 — có Optimistic Concurrency Control qua RowVersion
         public async Task<(bool, string?)> DuyetHoSoBaoTriAsync(int id, DuyetHoSoDto dto)
         {
             var hoSo = await _repo.GetHoSoBaoTriByIdAsync(id);
             if (hoSo == null) return (false, "Không tìm thấy hồ sơ.");
-            if (!dto.Duyet && string.IsNullOrWhiteSpace(dto.LyDoTuChoi))
+            if (hoSo.TrangThai != "Chờ duyệt")
+                return (false, "Hồ sơ đã được xử lý trước đó.");
+            if (dto.QuyetDinh != "Duyệt" && dto.QuyetDinh != "Từ chối")
+                return (false, "QuyetDinh chỉ nhận 'Duyệt' hoặc 'Từ chối'.");
+            if (dto.QuyetDinh == "Từ chối" && string.IsNullOrWhiteSpace(dto.LyDo))
                 return (false, "Vui lòng nhập lý do từ chối.");
 
-            hoSo.TrangThai = dto.Duyet ? "Đã duyệt" : "Từ chối";
-            hoSo.LyDoTuChoi = dto.Duyet ? null : dto.LyDoTuChoi;
-            hoSo.NgayDuyet = DateTime.Now;
+            _repo.SetHoSoBaoTriRowVersion(hoSo, Convert.FromBase64String(dto.RowVersion));
+
             hoSo.MaNhanVienDuyet = dto.MaNhanVienDuyet;
+            hoSo.NgayDuyet = DateTime.Now;
+            hoSo.TrangThai = dto.QuyetDinh == "Duyệt" ? "Đã duyệt" : "Từ chối";
+            hoSo.LyDoTuChoi = dto.QuyetDinh == "Từ chối" ? dto.LyDo : null;
+
+            try
+            {
+                await _repo.SaveChangesAsync();
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                return (false, "Hồ sơ này vừa được người khác xử lý trước bạn. Vui lòng tải lại.");
+            }
 
             await _repo.AddLichSuPheDuyetAsync(new LichSuPheDuyet
             {
-                MaHoSoBaoTri = id,
+                MaHoSoBaoTri = hoSo.MaHoSoBaoTri,
                 MaNhanVienDuyet = dto.MaNhanVienDuyet,
-                QuyetDinh = hoSo.TrangThai,
-                LyDo = dto.LyDoTuChoi,
+                QuyetDinh = dto.QuyetDinh,
+                LyDo = dto.LyDo,
                 NgayDuyet = DateTime.Now
             });
-
             await _repo.SaveChangesAsync();
+
             return (true, null);
         }
 
-        // Luồng 8
         public async Task<(bool, string?)> PhanCongBaoTriAsync(int maHoSo, PhanCongDto dto)
         {
             var hoSo = await _repo.GetHoSoBaoTriByIdAsync(maHoSo);
             if (hoSo == null) return (false, "Không tìm thấy hồ sơ.");
             if (hoSo.TrangThai != "Đã duyệt") return (false, "Hồ sơ chưa được duyệt.");
+
+            if (await _repo.ThietBiDangTrongQuyTrinhKhacAsync(hoSo.MaThieBi, "BaoTri", maHoSo))
+                return (false, "Thiết bị này đang trong quy trình bảo trì/sửa chữa khác, không thể phân công.");
+
             if (dto.NgayKetThucDuKien < dto.NgayBatDauDuKien)
                 return (false, "Ngày kết thúc không được trước ngày bắt đầu.");
 
@@ -82,7 +101,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             {
                 MaNhanVienThucHien = dto.MaNhanVienThucHien,
                 MaNhanVienPhanCong = dto.MaNhanVienPhanCong,
-                NgayBatDauDuKien = DateOnly.FromDateTime(dto.NgayBatDauDuKien),    
+                NgayBatDauDuKien = DateOnly.FromDateTime(dto.NgayBatDauDuKien),
                 NgayKetThucDuKien = DateOnly.FromDateTime(dto.NgayKetThucDuKien),
                 TrangThai = "Đã phân công",
                 NgayPhanCong = DateTime.Now
@@ -96,7 +115,6 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             return (true, null);
         }
 
-        // Luồng 9 — bước ghi nhận (dùng chung được cho cả bảo trì lẫn sửa chữa vì cùng bảng PhanCongCongViec)
         public async Task<(bool, string?)> GhiNhanKetQuaAsync(int maPhanCong, GhiNhanKetQuaDto dto)
         {
             var phanCong = await _repo.GetPhanCongByIdAsync(maPhanCong);
@@ -119,7 +137,6 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             return (true, null);
         }
 
-        // Luồng 9 — Tổ trưởng xác nhận đóng hồ sơ bảo trì
         public async Task<(bool, string?)> XacNhanHoanThanhBaoTriAsync(int maHoSo, XacNhanDto dto)
         {
             var hoSo = await _repo.GetHoSoBaoTriByIdAsync(maHoSo);
@@ -127,7 +144,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
             if (!dto.Dat)
             {
-                hoSo.TrangThai = "Đang thực hiện"; // yêu cầu làm lại
+                hoSo.TrangThai = "Đang thực hiện";
                 await _repo.SaveChangesAsync();
                 return (true, "Yêu cầu nhân viên thực hiện lại.");
             }
@@ -138,7 +155,6 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 var homNay = DateOnly.FromDateTime(DateTime.Now);
                 hoSo.MaThieBiNavigation.NgayBaoTriGanNhat = homNay;
 
-                // Logic mới: tự tính ngày bảo trì kế tiếp dựa theo chu kỳ của loại thiết bị
                 var soThang = await _repo.GetSoThangChuKyAsync(hoSo.MaThieBiNavigation.LoaiThietBi);
                 if (soThang.HasValue)
                     hoSo.MaThieBiNavigation.NgayBaoTriTiepTheo = homNay.AddMonths(soThang.Value);
@@ -149,7 +165,6 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
         // ===== SỬA CHỮA =====
 
-        // Luồng 10
         public async Task<(bool, string?)> TaoHoSoSuaChuaAsync(TaoHoSoSuaChuaDto dto)
         {
             var hoSo = new HoSoSuaChua
@@ -166,37 +181,75 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             return (true, null);
         }
 
-        // Luồng 11
+        public async Task<List<object>> GetHoSoSuaChuaTheoTrangThaiAsync(string trangThai) =>
+        (await _repo.GetHoSoSuaChuaByTrangThaiAsync(trangThai)).Select(h => (object)new
+        {
+            h.MaHoSoSuaChua, h.MaThieBi, TenThietBi = h.MaThieBiNavigation?.TenThietBi,
+            h.MoTaHuHong, h.TrangThai, h.NgayTao
+        }).ToList();
+
+        public async Task<object?> GetChiTietHoSoSuaChuaAsync(int id)
+        {
+            var h = await _repo.GetHoSoSuaChuaByIdAsync(id);
+            if (h == null) return null;
+            return new
+            {
+                h.MaHoSoSuaChua, h.MaThieBi, TenThietBi = h.MaThieBiNavigation?.TenThietBi,
+                h.MoTaHuHong, h.PhuongAnSuaChua, h.TrangThai, h.LyDoTuChoi,
+                h.NgayTao, h.NgayDuyet, h.MaPhanCong,
+                RowVersion = Convert.ToBase64String(h.RowVersion)
+            };
+        }
+
+        // Luồng 11 — cũng áp dụng Optimistic Concurrency Control
         public async Task<(bool, string?)> DuyetHoSoSuaChuaAsync(int id, DuyetHoSoDto dto)
         {
             var hoSo = await _repo.GetHoSoSuaChuaByIdAsync(id);
             if (hoSo == null) return (false, "Không tìm thấy hồ sơ.");
-            if (!dto.Duyet && string.IsNullOrWhiteSpace(dto.LyDoTuChoi))
+            if (hoSo.TrangThai != "Chờ duyệt")
+                return (false, "Hồ sơ đã được xử lý trước đó.");
+            if (dto.QuyetDinh != "Duyệt" && dto.QuyetDinh != "Từ chối")
+                return (false, "QuyetDinh chỉ nhận 'Duyệt' hoặc 'Từ chối'.");
+            if (dto.QuyetDinh == "Từ chối" && string.IsNullOrWhiteSpace(dto.LyDo))
                 return (false, "Vui lòng nhập lý do từ chối.");
 
-            hoSo.TrangThai = dto.Duyet ? "Đã duyệt" : "Từ chối";
-            hoSo.LyDoTuChoi = dto.Duyet ? null : dto.LyDoTuChoi;
-            hoSo.NgayDuyet = DateTime.Now;
+            _repo.SetHoSoSuaChuaRowVersion(hoSo, Convert.FromBase64String(dto.RowVersion));
+
             hoSo.MaNhanVienDuyet = dto.MaNhanVienDuyet;
+            hoSo.NgayDuyet = DateTime.Now;
+            hoSo.TrangThai = dto.QuyetDinh == "Duyệt" ? "Đã duyệt" : "Từ chối";
+            hoSo.LyDoTuChoi = dto.QuyetDinh == "Từ chối" ? dto.LyDo : null;
+
+            try
+            {
+                await _repo.SaveChangesAsync();
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                return (false, "Hồ sơ này vừa được người khác xử lý trước bạn. Vui lòng tải lại.");
+            }
 
             await _repo.AddLichSuPheDuyetAsync(new LichSuPheDuyet
             {
-                MaHoSoSuaChua = id,
+                MaHoSoSuaChua = hoSo.MaHoSoSuaChua,
                 MaNhanVienDuyet = dto.MaNhanVienDuyet,
-                QuyetDinh = hoSo.TrangThai,
-                LyDo = dto.LyDoTuChoi,
+                QuyetDinh = dto.QuyetDinh,
+                LyDo = dto.LyDo,
                 NgayDuyet = DateTime.Now
             });
-
             await _repo.SaveChangesAsync();
+
             return (true, null);
         }
 
-        // Luồng 15
         public async Task<(bool, string?)> PhanCongSuaChuaAsync(int maHoSo, PhanCongDto dto)
         {
             var hoSo = await _repo.GetHoSoSuaChuaByIdAsync(maHoSo);
             if (hoSo == null) return (false, "Không tìm thấy hồ sơ.");
+
+            if (await _repo.ThietBiDangTrongQuyTrinhKhacAsync(hoSo.MaThieBi, "SuaChua", maHoSo))
+                return (false, "Thiết bị này đang trong quy trình bảo trì/sửa chữa khác, không thể phân công.");
+
             if (dto.NgayKetThucDuKien < dto.NgayBatDauDuKien)
                 return (false, "Ngày kết thúc không được trước ngày bắt đầu.");
 
@@ -204,7 +257,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             {
                 MaNhanVienThucHien = dto.MaNhanVienThucHien,
                 MaNhanVienPhanCong = dto.MaNhanVienPhanCong,
-                NgayBatDauDuKien = DateOnly.FromDateTime(dto.NgayBatDauDuKien),    
+                NgayBatDauDuKien = DateOnly.FromDateTime(dto.NgayBatDauDuKien),
                 NgayKetThucDuKien = DateOnly.FromDateTime(dto.NgayKetThucDuKien),
                 TrangThai = "Đã phân công",
                 NgayPhanCong = DateTime.Now
@@ -218,14 +271,14 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             return (true, null);
         }
 
-        // Luồng 16
         public async Task<(bool, string?)> XacNhanHoanThanhSuaChuaAsync(int maHoSo, XacNhanDto dto)
         {
             var hoSo = await _repo.GetHoSoSuaChuaByIdAsync(maHoSo);
             if (hoSo == null) return (false, "Không tìm thấy hồ sơ.");
-            // Điều kiện mới: chưa có kết quả ghi nhận thì không cho đóng hồ sơ
+
             if (hoSo.MaPhanCong == null || !await _repo.DaCoKetQuaAsync(hoSo.MaPhanCong.Value))
-            return (false, "Chưa có kết quả thực hiện được ghi nhận, không thể xác nhận hoàn thành.");
+                return (false, "Chưa có kết quả thực hiện được ghi nhận, không thể xác nhận hoàn thành.");
+
             if (!dto.Dat)
             {
                 hoSo.TrangThai = "Đang thực hiện";
@@ -239,13 +292,15 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             await _repo.SaveChangesAsync();
             return (true, null);
         }
-        
+
+        // ===== TRUY VẤN =====
+
         public async Task<List<object>> GetHoSoBaoTriTheoTrangThaiAsync(string trangThai) =>
-        (await _repo.GetHoSoBaoTriByTrangThaiAsync(trangThai)).Select(h => (object)new
-        {
-            h.MaHoSoBaoTri, h.MaThieBi, TenThietBi = h.MaThieBiNavigation?.TenThietBi,
-            h.NoiDungCongViec, h.ThoiGianDuKien, h.TrangThai, h.NgayTao
-        }).ToList();
+            (await _repo.GetHoSoBaoTriByTrangThaiAsync(trangThai)).Select(h => (object)new
+            {
+                h.MaHoSoBaoTri, h.MaThieBi, TenThietBi = h.MaThieBiNavigation?.TenThietBi,
+                h.NoiDungCongViec, h.ThoiGianDuKien, h.TrangThai, h.NgayTao
+            }).ToList();
 
         public async Task<object?> GetHoSoBaoTriByIdAsync(int id)
         {
@@ -255,7 +310,8 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             {
                 h.MaHoSoBaoTri, h.MaThieBi, TenThietBi = h.MaThieBiNavigation?.TenThietBi,
                 h.NoiDungCongViec, h.ThoiGianDuKien, h.TrangThai, h.LyDoTuChoi,
-                h.NgayTao, h.NgayDuyet, h.MaPhanCong
+                h.NgayTao, h.NgayDuyet, h.MaPhanCong,
+                RowVersion = Convert.ToBase64String(h.RowVersion)
             };
         }
     }

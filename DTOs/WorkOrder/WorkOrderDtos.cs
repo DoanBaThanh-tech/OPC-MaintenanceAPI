@@ -44,4 +44,5 @@ namespace OPC.MaintenanceAPI.DTOs.WorkOrder
     {
         public bool Dat { get; set; }   // true = Đạt yêu cầu, false = Chưa đạt
     }
+    
 }

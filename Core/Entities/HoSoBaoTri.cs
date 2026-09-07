@@ -6,7 +6,7 @@ namespace OPC.MaintenanceAPI.Core.Entities;
 public partial class HoSoBaoTri
 {
     public int MaHoSoBaoTri { get; set; }
-
+    public byte[] RowVersion { get; set; } = null!;
     public int MaThieBi { get; set; }
 
     public int MaNhanVienTao { get; set; }

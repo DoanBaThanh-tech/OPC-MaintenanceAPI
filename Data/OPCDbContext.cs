@@ -127,6 +127,7 @@ public partial class OPCDbContext : DbContext
 
         modelBuilder.Entity<HoSoBaoTri>(entity =>
         {
+            entity.Property(e => e.RowVersion).IsRowVersion();
             entity.HasKey(e => e.MaHoSoBaoTri).HasName("PK__HoSoBaoT__9AAC003672B25F3E");
 
             entity.ToTable("HoSoBaoTri");
@@ -167,6 +168,7 @@ public partial class OPCDbContext : DbContext
 
         modelBuilder.Entity<HoSoSuaChua>(entity =>
         {
+            entity.Property(e => e.RowVersion).IsRowVersion();
             entity.HasKey(e => e.MaHoSoSuaChua).HasName("PK__HoSoSuaC__B9B48E5C63379B32");
 
             entity.ToTable("HoSoSuaChua");
@@ -207,6 +209,7 @@ public partial class OPCDbContext : DbContext
 
         modelBuilder.Entity<HoSoYeuCauVatTu>(entity =>
         {
+            entity.Property(e => e.RowVersion).IsRowVersion();
             entity.HasKey(e => e.MaYeuCauVatTu).HasName("PK__HoSoYeuC__2BB6DC13181B181A");
 
             entity.ToTable("HoSoYeuCauVatTu");

@@ -5,7 +5,9 @@ using OPC.MaintenanceAPI.Data;
 namespace OPC.MaintenanceAPI.Repositories.Specific
 {
     public interface IWorkOrderRepository
-    {
+    {   
+        void SetHoSoBaoTriRowVersion(HoSoBaoTri hoSo, byte[] rowVersion);
+        void SetHoSoSuaChuaRowVersion(HoSoSuaChua hoSo, byte[] rowVersion);
         // Hồ sơ bảo trì
         // Kiểm tra trùng lịch + đã có kết quả — 2 dòng mới cần thêm
         Task<bool> NhanVienTrungLichAsync(int maNhanVien, DateOnly tuNgay, DateOnly denNgay);
@@ -15,12 +17,13 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         Task<HoSoBaoTri?> GetHoSoBaoTriByIdAsync(int id);
         Task<List<HoSoBaoTri>> GetHoSoBaoTriByTrangThaiAsync(string trangThai);
         Task<ChiTietKeHoachBaoTri?> GetChiTietKeHoachByIdAsync(int id);
-
+        // Rule 2: khoá tài nguyên chéo giữa Bảo trì và Sửa chữa
+        Task<bool> ThietBiDangTrongQuyTrinhKhacAsync(int maThietBi, string boQuaLoaiHoSo, int? boQuaMaHoSo);
         // Hồ sơ sửa chữa
         Task AddHoSoSuaChuaAsync(HoSoSuaChua hoSo);
         Task<HoSoSuaChua?> GetHoSoSuaChuaByIdAsync(int id);
         Task<List<HoSoSuaChua>> GetHoSoSuaChuaByTrangThaiAsync(string trangThai);
-
+        
         // Phân công + kết quả
         Task AddPhanCongAsync(PhanCongCongViec phanCong);
         Task<PhanCongCongViec?> GetPhanCongByIdAsync(int id);
@@ -48,6 +51,27 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
             p.TrangThai != "Hoàn thành" &&
             p.NgayBatDauDuKien <= denNgay && p.NgayKetThucDuKien >= tuNgay);
 
+        // Điều kiện: kiểm tra thiết bị có đang "Đang thực hiện" ở hồ sơ bảo trì HOẶC sửa chữa nào khác không
+    // boQuaLoaiHoSo/boQuaMaHoSo dùng để loại trừ chính hồ sơ đang xử lý (tránh tự chặn chính mình)
+        public async Task<bool> ThietBiDangTrongQuyTrinhKhacAsync(int maThietBi, string boQuaLoaiHoSo, int? boQuaMaHoSo)
+        {
+            var coBaoTri = await _context.HoSoBaoTris.AnyAsync(h =>
+                h.MaThieBi == maThietBi &&
+                h.TrangThai == "Đang thực hiện" &&
+                !(boQuaLoaiHoSo == "BaoTri" && h.MaHoSoBaoTri == boQuaMaHoSo));
+
+            var coSuaChua = await _context.HoSoSuaChuas.AnyAsync(h =>
+                h.MaThieBi == maThietBi &&
+                h.TrangThai == "Đang thực hiện" &&
+                !(boQuaLoaiHoSo == "SuaChua" && h.MaHoSoSuaChua == boQuaMaHoSo));
+
+            return coBaoTri || coSuaChua;
+        }
+            public void SetHoSoBaoTriRowVersion(HoSoBaoTri hoSo, byte[] rowVersion) =>
+        _context.Entry(hoSo).Property(x => x.RowVersion).OriginalValue = rowVersion;
+
+        public void SetHoSoSuaChuaRowVersion(HoSoSuaChua hoSo, byte[] rowVersion) =>
+            _context.Entry(hoSo).Property(x => x.RowVersion).OriginalValue = rowVersion;
     public async Task<bool> DaCoKetQuaAsync(int maPhanCong) =>
         await _context.KetQuaThucHiens.AnyAsync(k => k.MaPhanCong == maPhanCong);
         public async Task AddHoSoBaoTriAsync(HoSoBaoTri hoSo) => await _context.HoSoBaoTris.AddAsync(hoSo);
@@ -70,7 +94,11 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
                 .FirstOrDefaultAsync(h => h.MaHoSoSuaChua == id);
 
         public async Task<List<HoSoSuaChua>> GetHoSoSuaChuaByTrangThaiAsync(string trangThai) =>
-            await _context.HoSoSuaChuas.Where(h => h.TrangThai == trangThai).ToListAsync();
+        await _context.HoSoSuaChuas
+            .Include(h => h.MaThieBiNavigation)
+            .Where(h => h.TrangThai == trangThai)
+            .AsNoTracking()
+            .ToListAsync();
 
         public async Task AddPhanCongAsync(PhanCongCongViec phanCong) =>
             await _context.PhanCongCongViecs.AddAsync(phanCong);

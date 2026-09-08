@@ -11,19 +11,28 @@ namespace OPC.MaintenanceAPI.Controllers
         private readonly IMaintenancePlanService _service;
         public MaintenancePlanController(IMaintenancePlanService service) => _service = service;
 
-        [HttpPost]
-        public async Task<IActionResult> LapKeHoach(LapKeHoachDto dto)
-        {
-            var (ok, loi) = await _service.LapKeHoachAsync(dto);
-            return ok ? Ok() : BadRequest(new { loi });
-        }
         [HttpGet]
         public async Task<IActionResult> GetAllKeHoach() => Ok(await _service.GetAllKeHoachAsync());
 
-        [HttpGet("thiet-bi-goi-y")]
-        public async Task<IActionResult> GetThietBiGoiY() => Ok(await _service.GetThietBiGoiYAsync());
-        
+        [HttpGet("{maKeHoach}/chi-tiet")]
+        public async Task<IActionResult> GetChiTiet(int maKeHoach) =>
+            Ok(await _service.GetChiTietTheoKeHoachAsync(maKeHoach));
+
         [HttpGet("cho-tao-ho-so")]
         public async Task<IActionResult> GetChoTaoHoSo() => Ok(await _service.GetChiTietChuaCoHoSoAsync());
+
+        [HttpGet("chu-ky")]
+        public async Task<IActionResult> GetAllChuKy() => Ok(await _service.GetAllChuKyAsync());
+
+        [HttpPost]
+        public async Task<IActionResult> LapKeHoach(LapKeHoachDto dto)
+        {
+            var claim = User.FindFirst("MaNguoiDung")?.Value;
+            if (claim == null || !int.TryParse(claim, out var maNguoiDung))
+                return Unauthorized();
+
+            var (ok, loi) = await _service.LapKeHoachAsync(maNguoiDung, dto);
+            return ok ? Ok() : BadRequest(new { loi });
+        }
     }
 }

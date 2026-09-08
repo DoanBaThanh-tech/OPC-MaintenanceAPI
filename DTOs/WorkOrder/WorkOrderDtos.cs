@@ -4,11 +4,11 @@ namespace OPC.MaintenanceAPI.DTOs.WorkOrder
     public class TaoHoSoBaoTriDto
     {
         public int MaThietBi { get; set; }
-        public int MaNhanVienTao { get; set; }
         public string? NoiDungCongViec { get; set; }
-        public string? ThoiGianDuKien { get; set; }
+        public string? ThoiGianDuKien { get; set; }   // string, không phải int
         public bool GuiDuyet { get; set; }
         public int? MaChiTietKeHoach { get; set; }
+        // Không có MaNhanVienTao — lấy từ JWT
     }
 
     public class TaoHoSoSuaChuaDto

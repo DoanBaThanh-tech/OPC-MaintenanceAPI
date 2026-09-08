@@ -27,6 +27,7 @@ namespace OPC.MaintenanceAPI.DTOs.Equipment
         public string? TinhTrangHienTai { get; set; }
         public DateOnly? NgayBaoTriGanNhat { get; set; }
         public DateOnly? NgayBaoTriTiepTheo { get; set; }
+        public int? MaChuKy { get; set; }
     }
 
     public class LichSuThietBiDto

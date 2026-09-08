@@ -12,7 +12,8 @@ namespace OPC.MaintenanceAPI.Controllers
         public EquipmentController(IEquipmentService service) => _service = service;
 
         [HttpGet]
-        public async Task<IActionResult> GetAll() => Ok(await _service.GetAllAsync());
+        public async Task<IActionResult> GetAll([FromQuery] int? maChuKy = null) =>
+            Ok(await _service.GetAllAsync(maChuKy));
 
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(int id)

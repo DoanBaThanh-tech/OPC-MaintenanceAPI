@@ -10,8 +10,12 @@ namespace OPC.MaintenanceAPI.Services.Implementations
         private readonly IEquipmentRepository _repo;
         public EquipmentService(IEquipmentRepository repo) => _repo = repo;
 
-        public async Task<List<ThietBiResponseDto>> GetAllAsync() =>
-            (await _repo.GetAllAsync()).Select(MapToDto).ToList();
+        public async Task<List<ThietBiResponseDto>> GetAllAsync(int? maChuKy = null)
+        {
+            var list = await _repo.GetAllAsync();
+            if (maChuKy.HasValue) list = list.Where(t => t.MaChuKy == maChuKy).ToList();
+            return list.Select(MapToDto).ToList();
+        }
 
         public async Task<ThietBiResponseDto?> GetByIdAsync(int id)
         {
@@ -83,7 +87,8 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             ViTriLapDat = t.ViTriLapDat,
             TinhTrangHienTai = t.TinhTrangHienTai,
             NgayBaoTriGanNhat = t.NgayBaoTriGanNhat,
-            NgayBaoTriTiepTheo = t.NgayBaoTriTiepTheo
+            NgayBaoTriTiepTheo = t.NgayBaoTriTiepTheo,
+            MaChuKy = t.MaChuKy
         };
     }
 }

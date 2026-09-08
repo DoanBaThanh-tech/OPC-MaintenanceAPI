@@ -22,7 +22,14 @@ namespace OPC.MaintenanceAPI.Controllers
         }
         // Bảo trì
         [HttpPost("bao-tri")]
-        public async Task<IActionResult> TaoBaoTri(TaoHoSoBaoTriDto dto) => Result(await _service.TaoHoSoBaoTriAsync(dto));
+        public async Task<IActionResult> TaoBaoTri(TaoHoSoBaoTriDto dto)
+        {
+            var claim = User.FindFirst("MaNguoiDung")?.Value;
+            if (claim == null || !int.TryParse(claim, out var maNguoiDung))
+                return Unauthorized();
+
+            return Result(await _service.TaoHoSoBaoTriAsync(maNguoiDung, dto));
+        }
 
         [HttpPut("bao-tri/{id}/duyet")]
         public async Task<IActionResult> DuyetBaoTri(int id, DuyetHoSoDto dto) => Result(await _service.DuyetHoSoBaoTriAsync(id, dto));

@@ -10,24 +10,32 @@ namespace OPC.MaintenanceAPI.Services.Implementations
     public class WorkOrderService : IWorkOrderService
     {
         private readonly IWorkOrderRepository _repo;
-        public WorkOrderService(IWorkOrderRepository repo) => _repo = repo;
+        private readonly INhanVienRepository _nhanVienRepo;
+
+        public WorkOrderService(IWorkOrderRepository repo, INhanVienRepository nhanVienRepo)
+        {
+            _repo = repo;
+            _nhanVienRepo = nhanVienRepo;
+        }
 
         // ===== BẢO TRÌ =====
 
-        public async Task<(bool, string?)> TaoHoSoBaoTriAsync(TaoHoSoBaoTriDto dto)
+        public async Task<(bool, string?)> TaoHoSoBaoTriAsync(int maNguoiDungTao, TaoHoSoBaoTriDto dto)
         {
+            var nhanVien = await _nhanVienRepo.GetByMaNguoiDungAsync(maNguoiDungTao);
+            if (nhanVien == null) return (false, "Không xác định được người tạo hồ sơ.");
+
             if (dto.MaChiTietKeHoach.HasValue)
             {
                 var chiTiet = await _repo.GetChiTietKeHoachByIdAsync(dto.MaChiTietKeHoach.Value);
-                if (chiTiet == null)
-                    return (false, "Không tìm thấy dòng kế hoạch bảo trì.");
-                if (chiTiet.MaHoSoBaoTri != null)
-                    return (false, "Dòng kế hoạch này đã có hồ sơ bảo trì, không thể tạo thêm.");
+                if (chiTiet == null) return (false, "Không tìm thấy dòng kế hoạch bảo trì.");
+                if (chiTiet.MaHoSoBaoTri != null) return (false, "Dòng kế hoạch này đã có hồ sơ bảo trì.");
             }
+
             var hoSo = new HoSoBaoTri
             {
                 MaThieBi = dto.MaThietBi,
-                MaNhanVienTao = dto.MaNhanVienTao,
+                MaNhanVienTao = nhanVien.MaNhanVien,
                 NoiDungCongViec = dto.NoiDungCongViec,
                 ThoiGianDuKien = dto.ThoiGianDuKien,
                 NgayTao = DateTime.Now,
@@ -35,6 +43,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             };
             await _repo.AddHoSoBaoTriAsync(hoSo);
             await _repo.SaveChangesAsync();
+
             if (dto.MaChiTietKeHoach.HasValue)
             {
                 var chiTiet = await _repo.GetChiTietKeHoachByIdAsync(dto.MaChiTietKeHoach.Value);
@@ -295,12 +304,14 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
         // ===== TRUY VẤN =====
 
-        public async Task<List<object>> GetHoSoBaoTriTheoTrangThaiAsync(string? trangThai) =>
-            (await _repo.GetHoSoBaoTriByTrangThaiAsync(trangThai)).Select(h => (object)new
-            {
-                h.MaHoSoBaoTri, h.MaThieBi, TenThietBi = h.MaThieBiNavigation?.TenThietBi,
-                h.NoiDungCongViec, h.ThoiGianDuKien, h.TrangThai, h.NgayTao
-            }).ToList();
+        public async Task<List<object>> GetHoSoBaoTriTheoTrangThaiAsync(string trangThai) =>
+        (await _repo.GetHoSoBaoTriByTrangThaiAsync(trangThai)).Select(h => (object)new
+        {
+            h.MaHoSoBaoTri,
+            MaThietBi = h.MaThieBi,   // alias đúng chính tả cho JSON
+            TenThietBi = h.MaThieBiNavigation?.TenThietBi,
+            h.NoiDungCongViec, h.ThoiGianDuKien, h.TrangThai, h.NgayTao
+        }).ToList();
 
         public async Task<object?> GetHoSoBaoTriByIdAsync(int id)
         {
@@ -308,7 +319,9 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (h == null) return null;
             return new
             {
-                h.MaHoSoBaoTri, h.MaThieBi, TenThietBi = h.MaThieBiNavigation?.TenThietBi,
+                h.MaHoSoBaoTri,
+                MaThietBi = h.MaThieBi,   // alias đúng chính tả
+                TenThietBi = h.MaThieBiNavigation?.TenThietBi,
                 h.NoiDungCongViec, h.ThoiGianDuKien, h.TrangThai, h.LyDoTuChoi,
                 h.NgayTao, h.NgayDuyet, h.MaPhanCong,
                 RowVersion = Convert.ToBase64String(h.RowVersion)

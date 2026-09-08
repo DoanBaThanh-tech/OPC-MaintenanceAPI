@@ -6,5 +6,7 @@ namespace OPC.MaintenanceAPI.Services.Interfaces
     {
         Task<(bool ThanhCong, string? Loi)> LapKeHoachAsync(LapKeHoachDto dto);
         Task<List<ChiTietKeHoachDto>> GetChiTietChuaCoHoSoAsync();
+        Task<List<KeHoachResponseDto>> GetAllKeHoachAsync();     
+        Task<List<ThietBiGoiYDto>> GetThietBiGoiYAsync(); 
     }
 }

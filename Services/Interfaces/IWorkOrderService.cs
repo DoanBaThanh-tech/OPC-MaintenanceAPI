@@ -5,7 +5,7 @@ namespace OPC.MaintenanceAPI.Services.Interfaces
     public interface IWorkOrderService
     {
         // Bảo trì — Luồng 6B, 7, 8, 9
-        Task<List<object>> GetHoSoBaoTriTheoTrangThaiAsync(string trangThai);   // dòng mới
+        Task<List<object>> GetHoSoBaoTriTheoTrangThaiAsync(string? trangThai);   // dòng mới
         Task<object?> GetHoSoBaoTriByIdAsync(int id);
         Task<(bool, string?)> TaoHoSoBaoTriAsync(TaoHoSoBaoTriDto dto);
         Task<(bool, string?)> DuyetHoSoBaoTriAsync(int id, DuyetHoSoDto dto);
@@ -13,7 +13,7 @@ namespace OPC.MaintenanceAPI.Services.Interfaces
         Task<(bool, string?)> GhiNhanKetQuaAsync(int maPhanCong, GhiNhanKetQuaDto dto);
         Task<(bool, string?)> XacNhanHoanThanhBaoTriAsync(int maHoSo, XacNhanDto dto);
 
-        // Sửa chữa — Luồng 10, 11, 15, 16
+        // Sửa chữa — Luồng 10, 11, 15, 16  
         Task<List<object>> GetHoSoSuaChuaTheoTrangThaiAsync(string trangThai);
         Task<object?> GetChiTietHoSoSuaChuaAsync(int id);   
         Task<(bool, string?)> TaoHoSoSuaChuaAsync(TaoHoSoSuaChuaDto dto);

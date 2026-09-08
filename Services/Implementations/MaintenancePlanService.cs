@@ -46,5 +46,26 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 TenThietBi = c.MaThietBiNavigation?.TenThietBi,
                 NgayDuKienBaoTri = c.NgayDuKienBaoTri
             }).ToList();
-    }
+
+        public async Task<List<KeHoachResponseDto>> GetAllKeHoachAsync() =>
+            (await _repo.GetAllKeHoachAsync()).Select(k => new KeHoachResponseDto
+            {
+                MaKeHoach = k.MaKeHoach,
+                Nam = k.Nam,
+                TenNhanVienLap = k.MaNhanVienLapNavigation?.HoTen ?? null,
+                NgayLapKeHoach = k.NgayLapKeHoach,
+                TrangThai = k.TrangThai ?? "Chưa xác định",
+                SoThietBi = k.ChiTietKeHoachBaoTris?.Count ?? 0
+            }).ToList();
+
+        public async Task<List<ThietBiGoiYDto>> GetThietBiGoiYAsync() =>
+            (await _repo.GetThietBiGoiYAsync()).Select(t => new ThietBiGoiYDto
+            {
+                MaThietBi = t.MaThietBi,
+                TenThietBi = t.TenThietBi,
+                LoaiThietBi = t.LoaiThietBi,
+                NgayBaoTriGanNhat = t.NgayBaoTriGanNhat,
+                NgayGoiY = t.NgayBaoTriTiepTheo
+            }).ToList();
+        }
 }

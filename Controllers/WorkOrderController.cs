@@ -11,7 +11,7 @@ namespace OPC.MaintenanceAPI.Controllers
         private readonly IWorkOrderService _service;
         public WorkOrderController(IWorkOrderService service) => _service = service;
         [HttpGet("bao-tri")]
-        public async Task<IActionResult> GetBaoTriTheoTrangThai([FromQuery] string trangThai) =>
+        public async Task<IActionResult> GetBaoTriTheoTrangThai([FromQuery] string? trangThai = null) =>
             Ok(await _service.GetHoSoBaoTriTheoTrangThaiAsync(trangThai));
 
         [HttpGet("bao-tri/{id}")]

@@ -11,6 +11,8 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         Task AddChiTietRangeAsync(IEnumerable<ChiTietKeHoachBaoTri> chiTiets);
         Task<List<ChiTietKeHoachBaoTri>> GetChiTietChuaCoHoSoAsync();
         Task<ChiTietKeHoachBaoTri?> GetChiTietByIdAsync(int id);
+        Task<List<KeHoachBaoTri>> GetAllKeHoachAsync();
+        Task<List<ThietBi>> GetThietBiGoiYAsync();
         Task<int> SaveChangesAsync();
     }
 
@@ -19,6 +21,15 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         private readonly OPCDbContext _context;
         public MaintenancePlanRepository(OPCDbContext context) => _context = context;
 
+        public async Task<List<KeHoachBaoTri>> GetAllKeHoachAsync() =>
+        await _context.KeHoachBaoTris
+            .Include(k => k.MaNhanVienLapNavigation)
+            .Include(k => k.ChiTietKeHoachBaoTris)   // để đếm SoThietBi bên Service
+            .OrderByDescending(k => k.Nam)
+            .ToListAsync();
+
+        public async Task<List<ThietBi>> GetThietBiGoiYAsync() =>
+        await _context.ThietBis.ToListAsync();
         // Query phức tạp: join ThietBi với ChuKyBaoTri theo LoaiThietBi để tính ngày dự kiến
         public async Task<List<ThietBi>> GetThietBiKemChuKyAsync() =>
             await _context.ThietBis.ToListAsync(); // Chu kỳ được ráp bên Service theo LoaiThietBi

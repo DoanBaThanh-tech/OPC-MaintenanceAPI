@@ -17,7 +17,12 @@ namespace OPC.MaintenanceAPI.Controllers
             var (ok, loi) = await _service.LapKeHoachAsync(dto);
             return ok ? Ok() : BadRequest(new { loi });
         }
+        [HttpGet]
+        public async Task<IActionResult> GetAllKeHoach() => Ok(await _service.GetAllKeHoachAsync());
 
+        [HttpGet("thiet-bi-goi-y")]
+        public async Task<IActionResult> GetThietBiGoiY() => Ok(await _service.GetThietBiGoiYAsync());
+        
         [HttpGet("cho-tao-ho-so")]
         public async Task<IActionResult> GetChoTaoHoSo() => Ok(await _service.GetChiTietChuaCoHoSoAsync());
     }

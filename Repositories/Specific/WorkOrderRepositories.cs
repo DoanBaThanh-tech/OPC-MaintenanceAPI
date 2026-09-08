@@ -15,7 +15,7 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         Task<int?> GetSoThangChuKyAsync(string? loaiThietBi);
         Task AddHoSoBaoTriAsync(HoSoBaoTri hoSo);
         Task<HoSoBaoTri?> GetHoSoBaoTriByIdAsync(int id);
-        Task<List<HoSoBaoTri>> GetHoSoBaoTriByTrangThaiAsync(string trangThai);
+        Task<List<HoSoBaoTri>> GetHoSoBaoTriByTrangThaiAsync(string? trangThai);
         Task<ChiTietKeHoachBaoTri?> GetChiTietKeHoachByIdAsync(int id);
         // Rule 2: khoá tài nguyên chéo giữa Bảo trì và Sửa chữa
         Task<bool> ThietBiDangTrongQuyTrinhKhacAsync(int maThietBi, string boQuaLoaiHoSo, int? boQuaMaHoSo);
@@ -82,8 +82,11 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
                 .Include(h => h.MaPhanCongNavigation)
                 .FirstOrDefaultAsync(h => h.MaHoSoBaoTri == id);
 
-        public async Task<List<HoSoBaoTri>> GetHoSoBaoTriByTrangThaiAsync(string trangThai) =>
-            await _context.HoSoBaoTris.Where(h => h.TrangThai == trangThai).ToListAsync();
+        public async Task<List<HoSoBaoTri>> GetHoSoBaoTriByTrangThaiAsync(string? trangThai) =>
+            await _context.HoSoBaoTris
+            .Include(h => h.MaThieBiNavigation)
+            .Where(h => trangThai == null || h.TrangThai == trangThai)
+            .ToListAsync();
 
         public async Task AddHoSoSuaChuaAsync(HoSoSuaChua hoSo) => await _context.HoSoSuaChuas.AddAsync(hoSo);
 

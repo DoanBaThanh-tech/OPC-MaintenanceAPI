@@ -21,9 +21,15 @@ namespace OPC.MaintenanceAPI.Services.Implementations
         {
             if (dto.ThietBiDuocChon == null || dto.ThietBiDuocChon.Count == 0)
                 return (false, "Vui lòng chọn ít nhất 1 thiết bị.");
+            if (dto.ThietBiDuocChon.Count != 1)
+                return (false, "Mỗi kế hoạch chỉ được gắn với 1 thiết bị để tránh nhầm lẫn.");
 
             var nhanVien = await _nhanVienRepo.GetByMaNguoiDungAsync(maNguoiDungTao);
             if (nhanVien == null) return (false, "Không xác định được người lập kế hoạch.");
+
+            var thietBi = dto.ThietBiDuocChon[0];
+            if (await _repo.TonTaiKeHoachTheoThietBiNamAsync(thietBi.MaThietBi, dto.Nam))
+                return (false, "Thiết bị này đã có kế hoạch trong năm đã chọn.");
 
             var keHoach = new KeHoachBaoTri
             {
@@ -60,6 +66,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 MaKeHoach = k.MaKeHoach,
                 MaChuKy = k.MaChuKy,
                 TenChuKy = k.MaChuKyNavigation?.LoaiThietBi,
+                TenThietBi = k.ChiTietKeHoachBaoTris.FirstOrDefault()?.MaThietBiNavigation?.TenThietBi,
                 Nam = k.Nam,
                 TenNhanVienLap = k.MaNhanVienLapNavigation?.HoTen,
                 NgayLapKeHoach = k.NgayLapKeHoach,

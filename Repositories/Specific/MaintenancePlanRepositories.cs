@@ -13,6 +13,7 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         Task<ChiTietKeHoachBaoTri?> GetChiTietKeHoachByIdAsync(int id);
         Task<List<KeHoachBaoTri>> GetAllKeHoachAsync();
         Task<List<ChuKyBaoTri>> GetAllChuKyAsync();
+        Task<bool> TonTaiKeHoachTheoThietBiNamAsync(int maThietBi, int nam);
         Task<int> SaveChangesAsync();
     }
 
@@ -48,11 +49,16 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
                 .Include(k => k.MaNhanVienLapNavigation)
                 .Include(k => k.MaChuKyNavigation)
                 .Include(k => k.ChiTietKeHoachBaoTris)
+                    .ThenInclude(c => c.MaThietBiNavigation)
                 .OrderByDescending(k => k.Nam)
                 .ToListAsync();
 
         public async Task<List<ChuKyBaoTri>> GetAllChuKyAsync() =>
             await _context.ChuKyBaoTris.ToListAsync();
+
+        public async Task<bool> TonTaiKeHoachTheoThietBiNamAsync(int maThietBi, int nam) =>
+            await _context.ChiTietKeHoachBaoTris.AnyAsync(c =>
+                c.MaThietBi == maThietBi && c.MaKeHoachNavigation.Nam == nam);
 
         public async Task<int> SaveChangesAsync() => await _context.SaveChangesAsync();
     }

@@ -32,7 +32,7 @@ namespace OPC.MaintenanceAPI.Controllers
                 return Unauthorized();
 
             var (ok, loi) = await _service.LapKeHoachAsync(maNguoiDung, dto);
-            return ok ? Ok() : BadRequest(new { loi });
+            return ok ? Ok(new { message = "Đã lập kế hoạch bảo trì thành công." }) : BadRequest(new { loi });
         }
     }
 }

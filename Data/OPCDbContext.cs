@@ -67,7 +67,9 @@ public partial class OPCDbContext : DbContext
 
             entity.ToTable("ChiTietKeHoachBaoTri");
 
-            entity.HasIndex(e => e.MaHoSoBaoTri, "UQ__ChiTietK__9AAC00375C21B2F0").IsUnique();
+            entity.HasIndex(e => e.MaHoSoBaoTri, "UQ__ChiTietK__9AAC00375C21B2F0")
+                .IsUnique()
+                .HasFilter("[MaHoSoBaoTri] IS NOT NULL");
 
             entity.Property(e => e.GhiChu).HasMaxLength(255);
             entity.Property(e => e.TrangThai).HasMaxLength(30);
@@ -134,7 +136,9 @@ public partial class OPCDbContext : DbContext
 
             entity.HasIndex(e => e.TrangThai, "IX_HoSoBaoTri_TrangThai");
 
-            entity.HasIndex(e => e.MaPhanCong, "UQ__HoSoBaoT__C279D917ECC83AEB").IsUnique();
+            entity.HasIndex(e => e.MaPhanCong, "UQ__HoSoBaoT__C279D917ECC83AEB")
+                .IsUnique()
+                .HasFilter("[MaPhanCong] IS NOT NULL");
 
             entity.Property(e => e.LyDoTuChoi).HasMaxLength(255);
             entity.Property(e => e.NgayDuyet).HasColumnType("datetime");
@@ -175,7 +179,9 @@ public partial class OPCDbContext : DbContext
 
             entity.HasIndex(e => e.TrangThai, "IX_HoSoSuaChua_TrangThai");
 
-            entity.HasIndex(e => e.MaPhanCong, "UQ__HoSoSuaC__C279D91736C9DBA8").IsUnique();
+            entity.HasIndex(e => e.MaPhanCong, "UQ__HoSoSuaC__C279D91736C9DBA8")
+                .IsUnique()
+                .HasFilter("[MaPhanCong] IS NOT NULL");
 
             entity.Property(e => e.LyDoTuChoi).HasMaxLength(255);
             entity.Property(e => e.MoTaHuHong).HasMaxLength(500);

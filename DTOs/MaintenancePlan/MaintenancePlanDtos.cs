@@ -28,6 +28,7 @@ namespace OPC.MaintenanceAPI.DTOs.MaintenancePlan
         public int MaKeHoach { get; set; }
         public int MaChuKy { get; set; }
         public string? TenChuKy { get; set; }
+        public string? TenThietBi { get; set; }
         public int Nam { get; set; }
         public string? TenNhanVienLap { get; set; }
         public DateOnly NgayLapKeHoach { get; set; }

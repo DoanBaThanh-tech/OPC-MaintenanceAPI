@@ -71,6 +71,40 @@ namespace OPC.MaintenanceAPI.Services.Implementations
         public async Task<List<ChiTietKeHoachDto>> GetChiTietTheoKeHoachAsync(int maKeHoach) =>
             (await _repo.GetChiTietTheoKeHoachAsync(maKeHoach)).Select(MapChiTiet).ToList();
 
+        public async Task<(bool, string?)> ThemLanBaoTriAsync(int maKeHoach, ThemLanBaoTriDto dto)
+        {
+            var keHoach = await _repo.GetKeHoachByIdAsync(maKeHoach);
+            if (keHoach == null) return (false, "Không tìm thấy kế hoạch.");
+
+            if (dto.NgayDuKienBaoTri.Year != keHoach.Nam)
+                return (false, $"Ngày dự kiến bảo trì phải thuộc năm {keHoach.Nam}.");
+
+            var thietBi = await _repo.GetThietBiAsync(dto.MaThietBi);
+            if (thietBi == null) return (false, "Không tìm thấy thiết bị.");
+
+            // Điều kiện: thiết bị phải đã tồn tại trong kế hoạch này rồi (không cho thêm thiết bị lạ
+            // qua đường này — thiết bị mới phải đi qua nút "Lập kế hoạch mới")
+            var ngayGanNhat = await _repo.GetNgayBaoTriGanNhatAsync(maKeHoach, dto.MaThietBi);
+            if (ngayGanNhat == null)
+                return (false, "Thiết bị này chưa có trong kế hoạch, vui lòng lập kế hoạch mới thay vì thêm lần bảo trì.");
+
+            // Điều kiện: lần bảo trì mới phải sau lần gần nhất, không được trùng/lùi ngày
+            if (dto.NgayDuKienBaoTri <= ngayGanNhat.Value)
+                return (false, $"Ngày bảo trì mới phải sau ngày gần nhất ({ngayGanNhat.Value:dd/MM/yyyy}).");
+
+            await _repo.AddChiTietRangeAsync(new[]
+            {
+                new ChiTietKeHoachBaoTri
+                {
+                    MaKeHoach = maKeHoach,
+                    MaThietBi = dto.MaThietBi,
+                    NgayDuKienBaoTri = dto.NgayDuKienBaoTri
+                }
+            });
+            await _repo.SaveChangesAsync();
+            return (true, null);
+        }
+
         public async Task<List<KeHoachResponseDto>> GetAllKeHoachAsync() =>
             (await _repo.GetAllKeHoachAsync()).Select(k => new KeHoachResponseDto
             {

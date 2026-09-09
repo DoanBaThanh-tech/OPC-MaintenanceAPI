@@ -54,4 +54,10 @@ namespace OPC.MaintenanceAPI.DTOs.MaintenancePlan
         public DateOnly? NgayGoiY { get; set; }
         public int? SoThangChuKy { get; set; }
     }
+
+    public class ThemLanBaoTriDto
+    {
+        public int MaThietBi { get; set; }
+        public DateOnly NgayDuKienBaoTri { get; set; }
+    }
 }

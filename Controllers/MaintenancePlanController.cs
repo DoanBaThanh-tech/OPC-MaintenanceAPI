@@ -38,5 +38,13 @@ namespace OPC.MaintenanceAPI.Controllers
             var (ok, loi) = await _service.TaoKeHoachAsync(maNguoiDung, dto);
             return ok ? Ok(new { message = "Đã lập kế hoạch bảo trì thành công." }) : BadRequest(new { loi });
         }
+
+        [Authorize(Roles = "Tổ trưởng kỹ thuật")]
+        [HttpPost("{maKeHoach}/them-lan-bao-tri")]
+        public async Task<IActionResult> ThemLanBaoTri(int maKeHoach, ThemLanBaoTriDto dto)
+        {
+            var (ok, loi) = await _service.ThemLanBaoTriAsync(maKeHoach, dto);
+            return ok ? Ok(new { message = "Đã thêm lần bảo trì mới." }) : BadRequest(new { loi });
+        }
     }
 }

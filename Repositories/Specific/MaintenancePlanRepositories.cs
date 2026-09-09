@@ -15,6 +15,8 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         Task<List<ChuKyBaoTri>> GetAllChuKyAsync();
         Task<bool> TonTaiKeHoachTheoThietBiNamAsync(int maThietBi, int nam);
         Task<ThietBi?> GetThietBiAsync(int maThietBi);
+        Task<KeHoachBaoTri?> GetKeHoachByIdAsync(int maKeHoach);
+        Task<DateOnly?> GetNgayBaoTriGanNhatAsync(int maKeHoach, int maThietBi);
         Task<int> SaveChangesAsync();
     }
 
@@ -22,6 +24,20 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
     {
         private readonly OPCDbContext _context;
         public MaintenancePlanRepository(OPCDbContext context) => _context = context;
+        
+        public async Task<KeHoachBaoTri?> GetKeHoachByIdAsync(int maKeHoach) =>
+        await _context.KeHoachBaoTris
+            .Include(k => k.MaChuKyNavigation)
+            .FirstOrDefaultAsync(k => k.MaKeHoach == maKeHoach);
+        
+                // Lấy ngày dự kiến bảo trì gần nhất (mới nhất) của thiết bị trong đúng kế hoạch này,
+        // dùng để gợi ý ngày cho lần bảo trì tiếp theo
+        public async Task<DateOnly?> GetNgayBaoTriGanNhatAsync(int maKeHoach, int maThietBi) =>
+            await _context.ChiTietKeHoachBaoTris
+                .Where(c => c.MaKeHoach == maKeHoach && c.MaThietBi == maThietBi)
+                .OrderByDescending(c => c.NgayDuKienBaoTri)
+                .Select(c => (DateOnly?)c.NgayDuKienBaoTri)
+                .FirstOrDefaultAsync();
 
         public async Task AddKeHoachAsync(KeHoachBaoTri keHoach) => await _context.KeHoachBaoTris.AddAsync(keHoach);
 

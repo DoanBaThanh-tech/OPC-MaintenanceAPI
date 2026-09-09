@@ -14,6 +14,11 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         Task<List<KeHoachBaoTri>> GetAllKeHoachAsync();
         Task<List<ChuKyBaoTri>> GetAllChuKyAsync();
         Task<bool> TonTaiKeHoachTheoThietBiNamAsync(int maThietBi, int nam);
+        Task<ThietBi?> GetThietBiAsync(int maThietBi);
+        Task<bool> TonTaiYeuCauTheoThietBiNamAsync(int maThietBi, int nam);
+        Task AddYeuCauAsync(YeuCauNgayBaoTri yeuCau);
+        Task<List<YeuCauNgayBaoTri>> GetYeuCauChoLapKeHoachAsync();
+        Task<YeuCauNgayBaoTri?> GetYeuCauAsync(int maYeuCau);
         Task<int> SaveChangesAsync();
     }
 
@@ -58,7 +63,31 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
 
         public async Task<bool> TonTaiKeHoachTheoThietBiNamAsync(int maThietBi, int nam) =>
             await _context.ChiTietKeHoachBaoTris.AnyAsync(c =>
-                c.MaThietBi == maThietBi && c.MaKeHoachNavigation.Nam == nam);
+                c.MaThietBi == maThietBi && c.MaKeHoachNavigation != null && c.MaKeHoachNavigation.Nam == nam);
+
+        public Task<ThietBi?> GetThietBiAsync(int maThietBi) =>
+            _context.ThietBis.Include(t => t.MaChuKyNavigation)
+                .FirstOrDefaultAsync(t => t.MaThietBi == maThietBi);
+
+        public Task<bool> TonTaiYeuCauTheoThietBiNamAsync(int maThietBi, int nam) =>
+            _context.YeuCauNgayBaoTris.AnyAsync(x => x.MaThietBi == maThietBi && x.Nam == nam);
+
+        public async Task AddYeuCauAsync(YeuCauNgayBaoTri yeuCau) =>
+            await _context.YeuCauNgayBaoTris.AddAsync(yeuCau);
+
+        public Task<List<YeuCauNgayBaoTri>> GetYeuCauChoLapKeHoachAsync() =>
+            _context.YeuCauNgayBaoTris
+                .Include(x => x.MaThietBiNavigation)
+                    .ThenInclude(t => t!.MaChuKyNavigation)
+                .Where(x => x.TrangThai == "Chờ lập kế hoạch")
+                .OrderBy(x => x.NgayBaoTri)
+                .ToListAsync();
+
+        public Task<YeuCauNgayBaoTri?> GetYeuCauAsync(int maYeuCau) =>
+            _context.YeuCauNgayBaoTris
+                .Include(x => x.MaThietBiNavigation)
+                    .ThenInclude(t => t!.MaChuKyNavigation)
+                .FirstOrDefaultAsync(x => x.MaYeuCauNgayBaoTri == maYeuCau);
 
         public async Task<int> SaveChangesAsync() => await _context.SaveChangesAsync();
     }

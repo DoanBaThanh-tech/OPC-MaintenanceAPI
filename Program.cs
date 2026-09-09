@@ -9,6 +9,7 @@ using OPC.MaintenanceAPI.Repositories.Specific;
 using OPC.MaintenanceAPI.Services.Implementations;
 using OPC.MaintenanceAPI.Services.Interfaces;
 using OPC.MaintenanceAPI.Core.Authorization;
+using OPC.MaintenanceAPI.Data.Seed;
 using Microsoft.AspNetCore.Authorization;
 var builder = WebApplication.CreateBuilder(args);
 
@@ -95,6 +96,8 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 builder.Services.AddAuthorization();
 
 var app = builder.Build();
+
+await VaiTroSeeder.SeedAsync(app.Services);
 
 
 app.UseMiddleware<ExceptionHandlingMiddleware>();

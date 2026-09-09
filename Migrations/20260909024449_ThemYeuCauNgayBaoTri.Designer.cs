@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using OPC.MaintenanceAPI.Data;
 
@@ -11,9 +12,11 @@ using OPC.MaintenanceAPI.Data;
 namespace OPC.MaintenanceAPI.Migrations
 {
     [DbContext(typeof(OPCDbContext))]
-    partial class OPCDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260909024449_ThemYeuCauNgayBaoTri")]
+    partial class ThemYeuCauNgayBaoTri
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -941,6 +944,49 @@ namespace OPC.MaintenanceAPI.Migrations
                     b.ToTable("XacThucQuenMatKhau", (string)null);
                 });
 
+            modelBuilder.Entity("OPC.MaintenanceAPI.Core.Entities.YeuCauNgayBaoTri", b =>
+                {
+                    b.Property<int>("MaYeuCauNgayBaoTri")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("MaYeuCauNgayBaoTri"));
+
+                    b.Property<int>("MaNguoiDungTao")
+                        .HasColumnType("int");
+
+                    b.Property<int>("MaThietBi")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Nam")
+                        .HasColumnType("int");
+
+                    b.Property<DateOnly>("NgayBaoTri")
+                        .HasColumnType("date");
+
+                    b.Property<DateTime>("NgayTao")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime")
+                        .HasDefaultValueSql("(getdate())");
+
+                    b.Property<string>("TrangThai")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)")
+                        .HasDefaultValue("Chờ lập kế hoạch");
+
+                    b.HasKey("MaYeuCauNgayBaoTri");
+
+                    b.HasIndex("MaNguoiDungTao");
+
+                    b.HasIndex("MaThietBi", "Nam")
+                        .IsUnique()
+                        .HasDatabaseName("UQ_YeuCauNgayBaoTri_ThietBi_Nam");
+
+                    b.ToTable("YeuCauNgayBaoTri", (string)null);
+                });
+
             modelBuilder.Entity("OPC.MaintenanceAPI.Core.Entities.ChiTietKeHoachBaoTri", b =>
                 {
                     b.HasOne("OPC.MaintenanceAPI.Core.Entities.HoSoBaoTri", "MaHoSoBaoTriNavigation")
@@ -1292,6 +1338,25 @@ namespace OPC.MaintenanceAPI.Migrations
                     b.Navigation("MaNguoiDungNavigation");
                 });
 
+            modelBuilder.Entity("OPC.MaintenanceAPI.Core.Entities.YeuCauNgayBaoTri", b =>
+                {
+                    b.HasOne("OPC.MaintenanceAPI.Core.Entities.QuanLyNguoiDung", "MaNguoiDungTaoNavigation")
+                        .WithMany("YeuCauNgayBaoTriDaTao")
+                        .HasForeignKey("MaNguoiDungTao")
+                        .IsRequired()
+                        .HasConstraintName("FK_YeuCauNgayBaoTri_NguoiDung");
+
+                    b.HasOne("OPC.MaintenanceAPI.Core.Entities.ThietBi", "MaThietBiNavigation")
+                        .WithMany("YeuCauNgayBaoTris")
+                        .HasForeignKey("MaThietBi")
+                        .IsRequired()
+                        .HasConstraintName("FK_YeuCauNgayBaoTri_ThietBi");
+
+                    b.Navigation("MaNguoiDungTaoNavigation");
+
+                    b.Navigation("MaThietBiNavigation");
+                });
+
             modelBuilder.Entity("OPC.MaintenanceAPI.Core.Entities.ChuKyBaoTri", b =>
                 {
                     b.Navigation("KeHoachBaoTris");
@@ -1377,6 +1442,8 @@ namespace OPC.MaintenanceAPI.Migrations
             modelBuilder.Entity("OPC.MaintenanceAPI.Core.Entities.QuanLyNguoiDung", b =>
                 {
                     b.Navigation("NhanVien");
+
+                    b.Navigation("YeuCauNgayBaoTriDaTao");
                 });
 
             modelBuilder.Entity("OPC.MaintenanceAPI.Core.Entities.ThietBi", b =>
@@ -1388,6 +1455,8 @@ namespace OPC.MaintenanceAPI.Migrations
                     b.Navigation("HoSoSuaChuas");
 
                     b.Navigation("LichSuThietBis");
+
+                    b.Navigation("YeuCauNgayBaoTris");
                 });
 
             modelBuilder.Entity("OPC.MaintenanceAPI.Core.Entities.VaiTro", b =>

@@ -35,5 +35,7 @@ public partial class ThietBi
 
     public virtual ICollection<LichSuThietBi> LichSuThietBis { get; set; } = new List<LichSuThietBi>();
 
+    public virtual ICollection<YeuCauNgayBaoTri> YeuCauNgayBaoTris { get; set; } = new List<YeuCauNgayBaoTri>();
+
     public virtual ChuKyBaoTri MaChuKyNavigation { get; set; } = null!;
 }

@@ -34,6 +34,17 @@ namespace OPC.MaintenanceAPI.Data.Seed
                 taiKhoanTest.TrangThai = "Đã khóa";
                 await db.SaveChangesAsync();
             }
+
+            if (!await db.VaiTros.AnyAsync(v => v.TenVaiTro == "Tổ trưởng xưởng sản xuất"))
+            {
+                db.VaiTros.Add(new VaiTro
+                {
+                    TenVaiTro = "Tổ trưởng xưởng sản xuất",
+                    CapDoQuyen = 2,
+                    MoTa = "Đăng ký ngày bảo trì cho thiết bị sản xuất"
+                });
+                await db.SaveChangesAsync();
+            }
         }
     }
 }

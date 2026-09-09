@@ -304,7 +304,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
         // ===== TRUY VẤN =====
 
-        public async Task<List<object>> GetHoSoBaoTriTheoTrangThaiAsync(string trangThai) =>
+        public async Task<List<object>> GetHoSoBaoTriTheoTrangThaiAsync(string? trangThai) =>
         (await _repo.GetHoSoBaoTriByTrangThaiAsync(trangThai)).Select(h => (object)new
         {
             h.MaHoSoBaoTri,

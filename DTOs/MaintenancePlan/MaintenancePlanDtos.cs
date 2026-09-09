@@ -1,31 +1,12 @@
 namespace OPC.MaintenanceAPI.DTOs.MaintenancePlan
 {
-    public class LapKeHoachDto
+    // Gộp 2 bước cũ (TaoYeuCauNgayBaoTri + LapKeHoach) thành 1 request duy nhất.
+    // Khớp đúng với body mà Flutter (MaintenancePlanService.taoKeHoach) đang gửi lên.
+    public class TaoKeHoachDto
     {
-        public int MaYeuCauNgayBaoTri { get; set; }
-        public int Nam { get; set; }
-        // Không nhận MaNhanVienLap — server tự lấy từ JWT
-        public List<ChiTietKeHoachInputDto> ThietBiDuocChon { get; set; } = new();
-    }
-
-    public class TaoYeuCauNgayBaoTriDto
-    {
-        public int MaThietBi { get; set; }
-        public int Nam { get; set; }
-        public DateOnly NgayBaoTri { get; set; }
-    }
-
-    public class YeuCauNgayBaoTriResponseDto
-    {
-        public int MaYeuCauNgayBaoTri { get; set; }
-        public int MaThietBi { get; set; }
-        public string TenThietBi { get; set; } = null!;
-        public string? LoaiThietBi { get; set; }
         public int MaChuKy { get; set; }
-        public int SoThangChuKy { get; set; }
         public int Nam { get; set; }
-        public DateOnly NgayBaoTri { get; set; }
-        public string TrangThai { get; set; } = null!;
+        public List<ChiTietKeHoachInputDto> ThietBiDuocChon { get; set; } = new();
     }
 
     public class ChiTietKeHoachInputDto

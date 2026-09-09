@@ -19,7 +19,6 @@ public partial class OPCDbContext : DbContext
     public virtual DbSet<ChiTietKeHoachBaoTri> ChiTietKeHoachBaoTris { get; set; }
 
     public virtual DbSet<ChiTietYeuCauVatTu> ChiTietYeuCauVatTus { get; set; }
-    public DbSet<YeuCauNgayBaoTri> YeuCauNgayBaoTris { get; set; }
     public virtual DbSet<ChuKyBaoTri> ChuKyBaoTris { get; set; }
 
     public virtual DbSet<DanhMucChucNang> DanhMucChucNangs { get; set; }
@@ -520,24 +519,6 @@ public partial class OPCDbContext : DbContext
                 .HasConstraintName("FK_ThietBi_ChuKy");
         });
 
-        modelBuilder.Entity<YeuCauNgayBaoTri>(entity =>
-        {
-            entity.HasKey(e => e.MaYeuCauNgayBaoTri);
-            entity.ToTable("YeuCauNgayBaoTri");
-            entity.Property(e => e.TrangThai).HasMaxLength(30);
-
-            entity.HasOne(e => e.MaThietBiNavigation)
-                .WithMany().HasForeignKey(e => e.MaThietBi)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            entity.HasOne(e => e.MaNhanVienTaoNavigation)
-                .WithMany().HasForeignKey(e => e.MaNhanVienTao)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            entity.HasOne(e => e.MaKeHoachNavigation)
-                .WithMany().HasForeignKey(e => e.MaKeHoach)
-                .OnDelete(DeleteBehavior.Restrict);
-        });
 
         modelBuilder.Entity<VaiTro>(entity =>
         {

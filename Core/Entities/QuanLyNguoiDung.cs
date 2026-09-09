@@ -22,6 +22,4 @@ public partial class QuanLyNguoiDung
     public virtual VaiTro MaVaiTroNavigation { get; set; } = null!;
 
     public virtual NhanVien? NhanVien { get; set; }
-
-    public virtual ICollection<YeuCauNgayBaoTri> YeuCauNgayBaoTriDaTao { get; set; } = new List<YeuCauNgayBaoTri>();
 }

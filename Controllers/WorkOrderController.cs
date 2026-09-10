@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using OPC.MaintenanceAPI.DTOs.WorkOrder;
 using OPC.MaintenanceAPI.Services.Interfaces;
 using OPC.MaintenanceAPI.DTOs.Common;
+using Microsoft.AspNetCore.Authorization;
 namespace OPC.MaintenanceAPI.Controllers
 {
     [ApiController]
@@ -31,8 +32,16 @@ namespace OPC.MaintenanceAPI.Controllers
             return Result(await _service.TaoHoSoBaoTriAsync(maNguoiDung, dto));
         }
 
+        [Authorize(Roles = "Giám đốc,Phó giám đốc")]
         [HttpPut("bao-tri/{id}/duyet")]
-        public async Task<IActionResult> DuyetBaoTri(int id, DuyetHoSoDto dto) => Result(await _service.DuyetHoSoBaoTriAsync(id, dto));
+        public async Task<IActionResult> DuyetBaoTri(int id, DuyetHoSoDto dto)
+        {
+            var claim = User.FindFirst("MaNguoiDung")?.Value;
+            if (claim == null || !int.TryParse(claim, out var maNguoiDung))
+                return Unauthorized();
+
+            return Result(await _service.DuyetHoSoBaoTriAsync(id, maNguoiDung, dto));
+        }
 
         [HttpPost("bao-tri/{id}/phan-cong")]
         public async Task<IActionResult> PhanCongBaoTri(int id, PhanCongDto dto) => Result(await _service.PhanCongBaoTriAsync(id, dto));
@@ -45,7 +54,15 @@ namespace OPC.MaintenanceAPI.Controllers
         public async Task<IActionResult> TaoSuaChua(TaoHoSoSuaChuaDto dto) => Result(await _service.TaoHoSoSuaChuaAsync(dto));
 
         [HttpPut("sua-chua/{id}/duyet")]
-        public async Task<IActionResult> DuyetSuaChua(int id, DuyetHoSoDto dto) => Result(await _service.DuyetHoSoSuaChuaAsync(id, dto));
+        [Authorize(Roles = "Giám đốc,Phó giám đốc")]
+        public async Task<IActionResult> DuyetSuaChua(int id, DuyetHoSoDto dto)
+        {
+            var claim = User.FindFirst("MaNguoiDung")?.Value;
+            if (claim == null || !int.TryParse(claim, out var maNguoiDung))
+                return Unauthorized();
+
+            return Result(await _service.DuyetHoSoSuaChuaAsync(id, maNguoiDung, dto));
+        }
 
         [HttpPost("sua-chua/{id}/phan-cong")]
         public async Task<IActionResult> PhanCongSuaChua(int id, PhanCongDto dto) => Result(await _service.PhanCongSuaChuaAsync(id, dto));

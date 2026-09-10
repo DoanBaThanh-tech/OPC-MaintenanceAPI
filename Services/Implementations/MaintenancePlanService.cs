@@ -2,7 +2,6 @@ using OPC.MaintenanceAPI.Core.Entities;
 using OPC.MaintenanceAPI.DTOs.MaintenancePlan;
 using OPC.MaintenanceAPI.Repositories.Specific;
 using OPC.MaintenanceAPI.Services.Interfaces;
-
 namespace OPC.MaintenanceAPI.Services.Implementations
 {
     public class MaintenancePlanService : IMaintenancePlanService
@@ -64,7 +63,8 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
             return (true, null);
         }
-        public async Task<List<int>> GetDanhSachNamDaLapAsync() => await _repo.GetDistinctNamAsync();
+        public async Task<List<int>> GetDanhSachNamDaLapAsync() =>
+            (await _repo.GetAllKeHoachAsync()).Select(k => k.Nam).Distinct().OrderByDescending(n => n).ToList();
         public async Task<List<ChiTietKeHoachDto>> GetChiTietChuaCoHoSoAsync() =>
             (await _repo.GetChiTietChuaCoHoSoAsync()).Select(MapChiTiet).ToList();
 

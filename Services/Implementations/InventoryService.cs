@@ -9,7 +9,13 @@ namespace OPC.MaintenanceAPI.Services.Implementations
     public class InventoryService : IInventoryService 
     {   
         private readonly IInventoryRepository _repo;
-        public InventoryService(IInventoryRepository repo) => _repo = repo;
+        private readonly INhanVienRepository _nhanVienRepo;
+
+        public InventoryService(IInventoryRepository repo, INhanVienRepository nhanVienRepo)
+        {
+            _repo = repo;
+            _nhanVienRepo = nhanVienRepo;
+        }
 
         // Luồng 12
         public async Task<(bool, string?, bool)> KiemTraTonKhoAsync(List<KiemTraVatTuDto> danhSach)
@@ -61,13 +67,16 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
         // Luồng 13 — Giám đốc duyệt
         // Luồng 13 — Giám đốc duyệt
-        public async Task<(bool, string?)> DuyetYeuCauVatTuAsync(int id, DuyetHoSoDto dto)
+        public async Task<(bool, string?)> DuyetYeuCauVatTuAsync(int id, int maNguoiDungDuyet, DuyetHoSoDto dto)
         {
+            var nhanVienDuyet = await _nhanVienRepo.GetByMaNguoiDungAsync(maNguoiDungDuyet);
+            if (nhanVienDuyet == null) return (false, "Không xác định được người duyệt.");
+
             var hoSo = await _repo.GetHoSoYeuCauByIdAsync(id);
             if (hoSo == null) return (false, "Không tìm thấy hồ sơ.");
             if (hoSo.TrangThai != "Chờ duyệt")
                 return (false, "Hồ sơ đã được xử lý trước đó.");
-            if (dto.MaNhanVienDuyet == hoSo.MaNhanVienTao)
+            if (nhanVienDuyet.MaNhanVien == hoSo.MaNhanVienTao)
                 return (false, "Người duyệt không được là người tạo hồ sơ.");
             if (dto.QuyetDinh != "Duyệt" && dto.QuyetDinh != "Từ chối")
                 return (false, "QuyetDinh chỉ nhận 'Duyệt' hoặc 'Từ chối'.");
@@ -77,12 +86,12 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             hoSo.TrangThai = dto.QuyetDinh == "Duyệt" ? "Đã duyệt" : "Từ chối";
             hoSo.LyDoTuChoi = dto.QuyetDinh == "Từ chối" ? dto.LyDo : null;
             hoSo.NgayDuyet = DateTime.Now;
-            hoSo.MaNhanVienDuyet = dto.MaNhanVienDuyet;
+            hoSo.MaNhanVienDuyet = nhanVienDuyet.MaNhanVien;
 
             await _repo.AddLichSuPheDuyetAsync(new LichSuPheDuyet
             {
                 MaYeuCauVatTu = id,
-                MaNhanVienDuyet = dto.MaNhanVienDuyet,
+                MaNhanVienDuyet = nhanVienDuyet.MaNhanVien,
                 QuyetDinh = hoSo.TrangThai,
                 LyDo = dto.LyDo,
                 NgayDuyet = DateTime.Now

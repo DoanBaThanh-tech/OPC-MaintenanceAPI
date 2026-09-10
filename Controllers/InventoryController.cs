@@ -3,6 +3,7 @@ using System.Security.Claims;
 using OPC.MaintenanceAPI.DTOs.Inventory;
 using OPC.MaintenanceAPI.Services.Interfaces;
 using OPC.MaintenanceAPI.DTOs.Common;
+using Microsoft.AspNetCore.Authorization;
 namespace OPC.MaintenanceAPI.Controllers
 {
     [ApiController]
@@ -22,8 +23,17 @@ namespace OPC.MaintenanceAPI.Controllers
         [HttpPost("yeu-cau")]
         public async Task<IActionResult> TaoYeuCau(TaoYeuCauVatTuDto dto) => Result(await _service.TaoYeuCauVatTuAsync(dto));
 
-        [HttpPut("yeu-cau/{id}/duyet")]
-        public async Task<IActionResult> DuyetYeuCau(int id, DuyetHoSoDto dto) => Result(await _service.DuyetYeuCauVatTuAsync(id, dto));
+        [Authorize(Roles = "Giám đốc,Phó giám đốc")]
+        [HttpPut("yeu-cau-vat-tu/{id}/duyet")]
+        public async Task<IActionResult> DuyetYeuCauVatTu(int id, DuyetHoSoDto dto)
+        {
+            var claim = User.FindFirst("MaNguoiDung")?.Value;
+            if (claim == null || !int.TryParse(claim, out var maNguoiDung))
+                return Unauthorized();
+
+            var (ok, loi) = await _service.DuyetYeuCauVatTuAsync(id, maNguoiDung, dto);
+            return ok ? Ok(new { message = loi ?? "Đã xử lý." }) : BadRequest(new { loi });
+        }
 
         [HttpPost("nhap-kho")]
         public async Task<IActionResult> NhapKho(NhapKhoDto dto) => Result(await _service.NhapKhoAsync(dto));

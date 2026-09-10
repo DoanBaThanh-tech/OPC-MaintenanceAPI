@@ -14,6 +14,7 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         Task<bool> DaCoKetQuaAsync(int maPhanCong);
         Task<int?> GetSoThangChuKyAsync(string? loaiThietBi);
         Task AddHoSoBaoTriAsync(HoSoBaoTri hoSo);
+        Task<DateOnly?> GetNgayDuKienBaoTriTheoHoSoBaoTriAsync(int maHoSoBaoTri);
         Task<HoSoBaoTri?> GetHoSoBaoTriByIdAsync(int id);
         Task<List<HoSoBaoTri>> GetHoSoBaoTriByTrangThaiAsync(string? trangThai);
         Task<ChiTietKeHoachBaoTri?> GetChiTietKeHoachByIdAsync(int id);
@@ -40,6 +41,12 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
     {
         private readonly OPCDbContext _context;
         public WorkOrderRepository(OPCDbContext context) => _context = context;
+
+        public async Task<DateOnly?> GetNgayDuKienBaoTriTheoHoSoBaoTriAsync(int maHoSoBaoTri) =>
+        await _context.ChiTietKeHoachBaoTris
+            .Where(c => c.MaHoSoBaoTri == maHoSoBaoTri)
+            .Select(c => (DateOnly?)c.NgayDuKienBaoTri)
+            .FirstOrDefaultAsync();
 
         public async Task<int?> GetNamKeHoachTheoHoSoBaoTriAsync(int maHoSoBaoTri) =>
             await _context.ChiTietKeHoachBaoTris
@@ -89,11 +96,13 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
             await _context.HoSoBaoTris
                 .Include(h => h.MaThieBiNavigation)
                 .Include(h => h.MaPhanCongNavigation)
+                .Include(h => h.MaNhanVienTaoNavigation)   // ← 
                 .FirstOrDefaultAsync(h => h.MaHoSoBaoTri == id);
 
         public async Task<List<HoSoBaoTri>> GetHoSoBaoTriByTrangThaiAsync(string? trangThai) =>
             await _context.HoSoBaoTris
             .Include(h => h.MaThieBiNavigation)
+            .Include(h => h.MaNhanVienTaoNavigation)
             .Where(h => trangThai == null || h.TrangThai == trangThai)
             .ToListAsync();
 

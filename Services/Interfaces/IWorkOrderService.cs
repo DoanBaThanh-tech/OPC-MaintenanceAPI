@@ -8,7 +8,7 @@ namespace OPC.MaintenanceAPI.Services.Interfaces
         Task<List<object>> GetHoSoBaoTriTheoTrangThaiAsync(string? trangThai);   // dòng mới
         Task<object?> GetHoSoBaoTriByIdAsync(int id);
         Task<(bool, string?)> TaoHoSoBaoTriAsync(int maNguoiDungTao, TaoHoSoBaoTriDto dto);
-        Task<(bool, string?)> DuyetHoSoBaoTriAsync(int id, DuyetHoSoDto dto);
+        Task<(bool, string?)> DuyetHoSoBaoTriAsync(int id, int maNguoiDungDuyet, DuyetHoSoDto dto);
         Task<(bool, string?)> PhanCongBaoTriAsync(int maHoSo, PhanCongDto dto);
         Task<(bool, string?)> GhiNhanKetQuaAsync(int maPhanCong, GhiNhanKetQuaDto dto);
         Task<(bool, string?)> XacNhanHoanThanhBaoTriAsync(int maHoSo, XacNhanDto dto);
@@ -18,7 +18,7 @@ namespace OPC.MaintenanceAPI.Services.Interfaces
         Task<List<object>> GetHoSoSuaChuaTheoTrangThaiAsync(string trangThai);
         Task<object?> GetChiTietHoSoSuaChuaAsync(int id);   
         Task<(bool, string?)> TaoHoSoSuaChuaAsync(TaoHoSoSuaChuaDto dto);
-        Task<(bool, string?)> DuyetHoSoSuaChuaAsync(int id, DuyetHoSoDto dto);
+        Task<(bool, string?)> DuyetHoSoSuaChuaAsync(int id, int maNguoiDungDuyet, DuyetHoSoDto dto);
         Task<(bool, string?)> PhanCongSuaChuaAsync(int maHoSo, PhanCongDto dto);
         Task<(bool, string?)> XacNhanHoanThanhSuaChuaAsync(int maHoSo, XacNhanDto dto);
     }

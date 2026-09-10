@@ -5,6 +5,7 @@ using OPC.MaintenanceAPI.DTOs.WorkOrder;
 using OPC.MaintenanceAPI.Repositories.Specific;
 using OPC.MaintenanceAPI.Services.Interfaces;
 using OPC.MaintenanceAPI.DTOs.Common;
+
 namespace OPC.MaintenanceAPI.Services.Implementations
 {
     public class WorkOrderService : IWorkOrderService
@@ -78,8 +79,11 @@ namespace OPC.MaintenanceAPI.Services.Implementations
         }
 
         // Luồng 7 — có Optimistic Concurrency Control qua RowVersion
-        public async Task<(bool, string?)> DuyetHoSoBaoTriAsync(int id, DuyetHoSoDto dto)
+        public async Task<(bool, string?)> DuyetHoSoBaoTriAsync(int id, int maNguoiDungDuyet, DuyetHoSoDto dto)
         {
+            var nhanVienDuyet = await _nhanVienRepo.GetByMaNguoiDungAsync(maNguoiDungDuyet);
+            if (nhanVienDuyet == null) return (false, "Không xác định được người duyệt.");
+
             var hoSo = await _repo.GetHoSoBaoTriByIdAsync(id);
             if (hoSo == null) return (false, "Không tìm thấy hồ sơ.");
             if (hoSo.TrangThai != "Chờ duyệt")
@@ -91,7 +95,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
             _repo.SetHoSoBaoTriRowVersion(hoSo, Convert.FromBase64String(dto.RowVersion));
 
-            hoSo.MaNhanVienDuyet = dto.MaNhanVienDuyet;
+            hoSo.MaNhanVienDuyet = nhanVienDuyet.MaNhanVien;   // ← lấy từ JWT, không nhận từ dto nữa
             hoSo.NgayDuyet = DateTime.Now;
             hoSo.TrangThai = dto.QuyetDinh == "Duyệt" ? "Đã duyệt" : "Từ chối";
             hoSo.LyDoTuChoi = dto.QuyetDinh == "Từ chối" ? dto.LyDo : null;
@@ -108,7 +112,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             await _repo.AddLichSuPheDuyetAsync(new LichSuPheDuyet
             {
                 MaHoSoBaoTri = hoSo.MaHoSoBaoTri,
-                MaNhanVienDuyet = dto.MaNhanVienDuyet,
+                MaNhanVienDuyet = nhanVienDuyet.MaNhanVien,
                 QuyetDinh = dto.QuyetDinh,
                 LyDo = dto.LyDo,
                 NgayDuyet = DateTime.Now
@@ -235,8 +239,11 @@ namespace OPC.MaintenanceAPI.Services.Implementations
         }
 
         // Luồng 11 — cũng áp dụng Optimistic Concurrency Control
-        public async Task<(bool, string?)> DuyetHoSoSuaChuaAsync(int id, DuyetHoSoDto dto)
+        public async Task<(bool, string?)> DuyetHoSoSuaChuaAsync(int id, int maNguoiDungDuyet, DuyetHoSoDto dto)
         {
+            var nhanVienDuyet = await _nhanVienRepo.GetByMaNguoiDungAsync(maNguoiDungDuyet);
+            if (nhanVienDuyet == null) return (false, "Không xác định được người duyệt.");
+
             var hoSo = await _repo.GetHoSoSuaChuaByIdAsync(id);
             if (hoSo == null) return (false, "Không tìm thấy hồ sơ.");
             if (hoSo.TrangThai != "Chờ duyệt")
@@ -248,7 +255,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
             _repo.SetHoSoSuaChuaRowVersion(hoSo, Convert.FromBase64String(dto.RowVersion));
 
-            hoSo.MaNhanVienDuyet = dto.MaNhanVienDuyet;
+            hoSo.MaNhanVienDuyet = nhanVienDuyet.MaNhanVien;
             hoSo.NgayDuyet = DateTime.Now;
             hoSo.TrangThai = dto.QuyetDinh == "Duyệt" ? "Đã duyệt" : "Từ chối";
             hoSo.LyDoTuChoi = dto.QuyetDinh == "Từ chối" ? dto.LyDo : null;
@@ -265,7 +272,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             await _repo.AddLichSuPheDuyetAsync(new LichSuPheDuyet
             {
                 MaHoSoSuaChua = hoSo.MaHoSoSuaChua,
-                MaNhanVienDuyet = dto.MaNhanVienDuyet,
+                MaNhanVienDuyet = nhanVienDuyet.MaNhanVien,
                 QuyetDinh = dto.QuyetDinh,
                 LyDo = dto.LyDo,
                 NgayDuyet = DateTime.Now
@@ -328,27 +335,41 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
         // ===== TRUY VẤN =====
 
-        public async Task<List<object>> GetHoSoBaoTriTheoTrangThaiAsync(string? trangThai) =>
-        (await _repo.GetHoSoBaoTriByTrangThaiAsync(trangThai)).Select(h => (object)new
+        public async Task<List<object>> GetHoSoBaoTriTheoTrangThaiAsync(string? trangThai)
         {
-            h.MaHoSoBaoTri,
-            MaThietBi = h.MaThieBi,   // alias đúng chính tả cho JSON
-            TenThietBi = h.MaThieBiNavigation?.TenThietBi,
-            h.NoiDungCongViec, h.ThoiGianDuKien, h.TrangThai, h.NgayTao
-        }).ToList();
+            var list = await _repo.GetHoSoBaoTriByTrangThaiAsync(trangThai);
+            var ketQua = new List<object>();
+            foreach (var h in list)
+            {
+                var ngayDuKien = await _repo.GetNgayDuKienBaoTriTheoHoSoBaoTriAsync(h.MaHoSoBaoTri);
+                ketQua.Add(new
+                {
+                    h.MaHoSoBaoTri,
+                    MaThietBi = h.MaThieBi,
+                    TenThietBi = h.MaThieBiNavigation?.TenThietBi,
+                    TenNhanVienTao = h.MaNhanVienTaoNavigation?.HoTen,   // ← THÊM
+                    h.NoiDungCongViec, h.ThoiGianDuKien, h.TrangThai, h.NgayTao,
+                    NgayDuKienBaoTri = ngayDuKien   // ← THÊM
+                });
+            }
+            return ketQua;
+        }
 
         public async Task<object?> GetHoSoBaoTriByIdAsync(int id)
         {
             var h = await _repo.GetHoSoBaoTriByIdAsync(id);
             if (h == null) return null;
             var namTuKeHoach = await _repo.GetNamKeHoachTheoHoSoBaoTriAsync(h.MaHoSoBaoTri);
+            var ngayDuKien = await _repo.GetNgayDuKienBaoTriTheoHoSoBaoTriAsync(h.MaHoSoBaoTri);
             return new
             {
                 h.MaHoSoBaoTri,
                 MaThietBi = h.MaThieBi,
                 TenThietBi = h.MaThieBiNavigation?.TenThietBi,
+                TenNhanVienTao = h.MaNhanVienTaoNavigation?.HoTen,   // ← THÊM
                 h.NoiDungCongViec, h.ThoiGianDuKien, h.TrangThai, h.LyDoTuChoi,
                 h.NgayTao, h.NgayDuyet, h.MaPhanCong,
+                NgayDuKienBaoTri = ngayDuKien,   // ← THÊM
                 RowVersion = Convert.ToBase64String(h.RowVersion),
                 Nam = namTuKeHoach ?? h.NgayTao.Year,
                 NamTuKeHoach = namTuKeHoach != null

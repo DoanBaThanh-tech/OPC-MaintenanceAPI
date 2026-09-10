@@ -11,6 +11,7 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         Task<List<ChiTietKeHoachBaoTri>> GetChiTietChuaCoHoSoAsync();
         Task<List<ChiTietKeHoachBaoTri>> GetChiTietTheoKeHoachAsync(int maKeHoach);
         Task<ChiTietKeHoachBaoTri?> GetChiTietKeHoachByIdAsync(int id);
+        Task<List<int>> GetDistinctNamAsync();
         Task<List<KeHoachBaoTri>> GetAllKeHoachAsync();
         Task<List<ChuKyBaoTri>> GetAllChuKyAsync();
         Task<bool> TonTaiKeHoachTheoThietBiNamAsync(int maThietBi, int nam);
@@ -32,6 +33,13 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         
                 // Lấy ngày dự kiến bảo trì gần nhất (mới nhất) của thiết bị trong đúng kế hoạch này,
         // dùng để gợi ý ngày cho lần bảo trì tiếp theo
+
+        public async Task<List<int>> GetDistinctNamAsync() =>
+        await _context.KeHoachBaoTris
+            .Select(k => k.Nam)
+            .Distinct()
+            .OrderByDescending(n => n)
+            .ToListAsync();
         public async Task<DateOnly?> GetNgayBaoTriGanNhatAsync(int maKeHoach, int maThietBi) =>
             await _context.ChiTietKeHoachBaoTris
                 .Where(c => c.MaKeHoach == maKeHoach && c.MaThietBi == maThietBi)

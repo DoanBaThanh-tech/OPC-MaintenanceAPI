@@ -46,5 +46,8 @@ namespace OPC.MaintenanceAPI.Controllers
             var (ok, loi) = await _service.ThemLanBaoTriAsync(maKeHoach, dto);
             return ok ? Ok(new { message = "Đã thêm lần bảo trì mới." }) : BadRequest(new { loi });
         }
+
+        [HttpGet("nam-da-lap")]
+        public async Task<IActionResult> GetNamDaLap() => Ok(await _service.GetDanhSachNamDaLapAsync());
     }
 }

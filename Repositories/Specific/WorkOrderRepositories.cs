@@ -17,6 +17,7 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         Task<HoSoBaoTri?> GetHoSoBaoTriByIdAsync(int id);
         Task<List<HoSoBaoTri>> GetHoSoBaoTriByTrangThaiAsync(string? trangThai);
         Task<ChiTietKeHoachBaoTri?> GetChiTietKeHoachByIdAsync(int id);
+        Task<int?> GetNamKeHoachTheoHoSoBaoTriAsync(int maHoSoBaoTri);
         // Rule 2: khoá tài nguyên chéo giữa Bảo trì và Sửa chữa
         Task<bool> ThietBiDangTrongQuyTrinhKhacAsync(int maThietBi, string boQuaLoaiHoSo, int? boQuaMaHoSo);
         // Hồ sơ sửa chữa
@@ -39,6 +40,14 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
     {
         private readonly OPCDbContext _context;
         public WorkOrderRepository(OPCDbContext context) => _context = context;
+
+        public async Task<int?> GetNamKeHoachTheoHoSoBaoTriAsync(int maHoSoBaoTri) =>
+            await _context.ChiTietKeHoachBaoTris
+                .Where(c => c.MaHoSoBaoTri == maHoSoBaoTri)
+                .Include(c => c.MaKeHoachNavigation)
+                .Select(c => (int?)c.MaKeHoachNavigation!.Nam)
+                .FirstOrDefaultAsync();
+
         public async Task<int?> GetSoThangChuKyAsync(string? loaiThietBi)
         {
             if (loaiThietBi == null) return null;

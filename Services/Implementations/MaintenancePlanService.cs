@@ -64,7 +64,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
             return (true, null);
         }
-
+        public async Task<List<int>> GetDanhSachNamDaLapAsync() => await _repo.GetDistinctNamAsync();
         public async Task<List<ChiTietKeHoachDto>> GetChiTietChuaCoHoSoAsync() =>
             (await _repo.GetChiTietChuaCoHoSoAsync()).Select(MapChiTiet).ToList();
 

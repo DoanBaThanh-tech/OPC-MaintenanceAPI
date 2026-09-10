@@ -53,6 +53,30 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             return (true, null);
         }
 
+        public async Task<List<object>> GetHoSoBaoTriTheoTrangThaiAsync(string? trangThai, int? nam)
+        {
+            var list = await _repo.GetHoSoBaoTriByTrangThaiAsync(trangThai);
+            var ketQua = new List<object>();
+            foreach (var h in list)
+            {
+                var namTuKeHoach = await _repo.GetNamKeHoachTheoHoSoBaoTriAsync(h.MaHoSoBaoTri);
+                var namThucTe = namTuKeHoach ?? h.NgayTao.Year;
+                if (nam.HasValue && namThucTe != nam.Value) continue;
+
+                ketQua.Add(new
+                {
+                    h.MaHoSoBaoTri,
+                    MaThietBi = h.MaThieBi,
+                    TenThietBi = h.MaThieBiNavigation?.TenThietBi,
+                    h.NoiDungCongViec, h.ThoiGianDuKien, h.TrangThai, h.NgayTao,
+                    h.MaPhanCong,
+                    Nam = namThucTe,
+                    NamTuKeHoach = namTuKeHoach != null
+                });
+            }
+            return ketQua;
+        }
+
         // Luồng 7 — có Optimistic Concurrency Control qua RowVersion
         public async Task<(bool, string?)> DuyetHoSoBaoTriAsync(int id, DuyetHoSoDto dto)
         {
@@ -317,14 +341,17 @@ namespace OPC.MaintenanceAPI.Services.Implementations
         {
             var h = await _repo.GetHoSoBaoTriByIdAsync(id);
             if (h == null) return null;
+            var namTuKeHoach = await _repo.GetNamKeHoachTheoHoSoBaoTriAsync(h.MaHoSoBaoTri);
             return new
             {
                 h.MaHoSoBaoTri,
-                MaThietBi = h.MaThieBi,   // alias đúng chính tả
+                MaThietBi = h.MaThieBi,
                 TenThietBi = h.MaThieBiNavigation?.TenThietBi,
                 h.NoiDungCongViec, h.ThoiGianDuKien, h.TrangThai, h.LyDoTuChoi,
                 h.NgayTao, h.NgayDuyet, h.MaPhanCong,
-                RowVersion = Convert.ToBase64String(h.RowVersion)
+                RowVersion = Convert.ToBase64String(h.RowVersion),
+                Nam = namTuKeHoach ?? h.NgayTao.Year,
+                NamTuKeHoach = namTuKeHoach != null
             };
         }
     }

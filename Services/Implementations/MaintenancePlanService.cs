@@ -77,7 +77,8 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (keHoach == null) return (false, "Không tìm thấy kế hoạch.");
 
             if (dto.NgayDuKienBaoTri.Year != keHoach.Nam)
-                return (false, $"Ngày dự kiến bảo trì phải thuộc năm {keHoach.Nam}.");
+                return (false, $"Lần bảo trì tiếp theo đã vượt qua năm {keHoach.Nam}. " +
+                   $"Vui lòng lập kế hoạch bảo trì cho năm {dto.NgayDuKienBaoTri.Year} để tiếp tục.");
 
             var thietBi = await _repo.GetThietBiAsync(dto.MaThietBi);
             if (thietBi == null) return (false, "Không tìm thấy thiết bị.");

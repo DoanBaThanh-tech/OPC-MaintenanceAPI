@@ -335,24 +335,25 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
         // ===== TRUY VẤN =====
 
-        public async Task<List<object>> GetHoSoBaoTriTheoTrangThaiAsync(string? trangThai)
+        // Helper dùng chung: tính Nam cho từng hồ sơ 1 lần, tái sử dụng cho cả lọc lẫn liệt kê năm có dữ liệu
+        private async Task<List<(HoSoBaoTri hoSo, int nam, bool namTuKeHoach)>> LayDanhSachKemNamAsync(string? trangThai)
         {
             var list = await _repo.GetHoSoBaoTriByTrangThaiAsync(trangThai);
-            var ketQua = new List<object>();
+            var ketQua = new List<(HoSoBaoTri, int, bool)>();
             foreach (var h in list)
             {
-                var ngayDuKien = await _repo.GetNgayDuKienBaoTriTheoHoSoBaoTriAsync(h.MaHoSoBaoTri);
-                ketQua.Add(new
-                {
-                    h.MaHoSoBaoTri,
-                    MaThietBi = h.MaThieBi,
-                    TenThietBi = h.MaThieBiNavigation?.TenThietBi,
-                    TenNhanVienTao = h.MaNhanVienTaoNavigation?.HoTen,   // ← THÊM
-                    h.NoiDungCongViec, h.ThoiGianDuKien, h.TrangThai, h.NgayTao,
-                    NgayDuKienBaoTri = ngayDuKien   // ← THÊM
-                });
+                var namTuKeHoach = await _repo.GetNamKeHoachTheoHoSoBaoTriAsync(h.MaHoSoBaoTri);
+                ketQua.Add((h, namTuKeHoach ?? h.NgayTao.Year, namTuKeHoach != null));
             }
             return ketQua;
+        }
+
+
+        // Danh sách năm THẬT SỰ có hồ sơ ở trạng thái này — dùng để đổ vào bộ lọc, không phải dải năm cố định
+        public async Task<List<int>> GetCacNamCoHoSoBaoTriAsync(string? trangThai)
+        {
+            var list = await LayDanhSachKemNamAsync(trangThai);
+            return list.Select(x => x.nam).Distinct().OrderByDescending(n => n).ToList();
         }
 
         public async Task<object?> GetHoSoBaoTriByIdAsync(int id)

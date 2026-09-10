@@ -21,6 +21,9 @@ namespace OPC.MaintenanceAPI.Controllers
             var r = await _service.GetHoSoBaoTriByIdAsync(id);
             return r == null ? NotFound() : Ok(r);
         }
+        [HttpGet("bao-tri/nam-co-du-lieu")]
+        public async Task<IActionResult> GetCacNamCoHoSoBaoTri([FromQuery] string? trangThai = null) =>
+            Ok(await _service.GetCacNamCoHoSoBaoTriAsync(trangThai));
         // Bảo trì
         [HttpPost("bao-tri")]
         public async Task<IActionResult> TaoBaoTri(TaoHoSoBaoTriDto dto)

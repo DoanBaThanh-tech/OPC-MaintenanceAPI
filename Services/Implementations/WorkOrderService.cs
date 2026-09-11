@@ -141,8 +141,8 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             {
                 MaNhanVienThucHien = dto.MaNhanVienThucHien,
                 MaNhanVienPhanCong = nhanVienPhanCong.MaNhanVien,   // lấy từ JWT
-                NgayBatDauDuKien = DateOnly.FromDateTime(dto.NgayBatDauDuKien),
-                NgayKetThucDuKien = DateOnly.FromDateTime(dto.NgayKetThucDuKien),
+                NgayBatDauDuKien = dto.NgayBatDauDuKien,   // giữ đủ ngày + giờ
+                NgayKetThucDuKien = dto.NgayKetThucDuKien,
                 TrangThai = "Đã phân công",
                 NgayPhanCong = DateTime.Now
             };
@@ -153,6 +153,21 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             hoSo.TrangThai = "Đang thực hiện";
             await _repo.SaveChangesAsync();
             return (true, null);
+        }
+
+        public async Task<List<object>> GetLichSuPhanCongAsync()
+        {
+            var list = await _repo.GetLichSuPhanCongAsync();
+            return list.Select(p => (object)new
+            {
+                p.MaPhanCong,
+                TenNhanVienPhanCong = p.MaNhanVienPhanCongNavigation?.HoTen,
+                TenNhanVienThucHien = p.MaNhanVienThucHienNavigation?.HoTen,
+                p.TrangThai,
+                p.NgayPhanCong,
+                GioBatDau = p.NgayBatDauDuKien,
+                GioKetThuc = p.NgayKetThucDuKien,
+            }).ToList();
         }
 
         public async Task<(bool, string?)> GhiNhanKetQuaAsync(int maPhanCong, GhiNhanKetQuaDto dto)
@@ -300,8 +315,8 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             {
                 MaNhanVienThucHien = dto.MaNhanVienThucHien,
                 MaNhanVienPhanCong = dto.MaNhanVienPhanCong,
-                NgayBatDauDuKien = DateOnly.FromDateTime(dto.NgayBatDauDuKien),
-                NgayKetThucDuKien = DateOnly.FromDateTime(dto.NgayKetThucDuKien),
+                NgayBatDauDuKien = dto.NgayBatDauDuKien,
+                NgayKetThucDuKien = dto.NgayKetThucDuKien,
                 TrangThai = "Đã phân công",
                 NgayPhanCong = DateTime.Now
             };

@@ -25,6 +25,11 @@ namespace OPC.MaintenanceAPI.Controllers
         public async Task<IActionResult> GetDanhSachNhanVien([FromQuery] string? vaiTro = null) =>
             Ok(await _systemService.GetDanhSachNhanVienAsync(vaiTro));
 
+        /// Lịch sử phân công công việc
+        [HttpGet("phan-cong")]
+        public async Task<IActionResult> GetLichSuPhanCong() =>
+            Ok(await _service.GetLichSuPhanCongAsync());
+
         [HttpGet("bao-tri")]
         public async Task<IActionResult> GetBaoTriTheoTrangThai([FromQuery] string? trangThai = null, [FromQuery] int? nam = null) =>
             Ok(await _service.GetHoSoBaoTriTheoTrangThaiAsync(trangThai, nam));

@@ -11,9 +11,8 @@ public partial class PhanCongCongViec
 
     public int MaNhanVienPhanCong { get; set; }
 
-    public DateOnly? NgayBatDauDuKien { get; set; }
-
-    public DateOnly? NgayKetThucDuKien { get; set; }
+    public DateTime? NgayBatDauDuKien { get; set; }
+    public DateTime? NgayKetThucDuKien { get; set; }
 
     public string? TrangThai { get; set; }
 

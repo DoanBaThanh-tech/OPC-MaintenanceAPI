@@ -10,7 +10,7 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         void SetHoSoSuaChuaRowVersion(HoSoSuaChua hoSo, byte[] rowVersion);
         // Hồ sơ bảo trì
         // Kiểm tra trùng lịch + đã có kết quả — 2 dòng mới cần thêm
-        Task<bool> NhanVienTrungLichAsync(int maNhanVien, DateOnly tuNgay, DateOnly denNgay);
+        Task<bool> NhanVienTrungLichAsync(int maNhanVien, DateTime tu, DateTime den);
         Task<bool> DaCoKetQuaAsync(int maPhanCong);
         Task<int?> GetSoThangChuKyAsync(string? loaiThietBi);
         Task AddHoSoBaoTriAsync(HoSoBaoTri hoSo);
@@ -29,6 +29,7 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         // Phân công + kết quả
         Task AddPhanCongAsync(PhanCongCongViec phanCong);
         Task<PhanCongCongViec?> GetPhanCongByIdAsync(int id);
+        Task<List<PhanCongCongViec>> GetLichSuPhanCongAsync();
         Task AddKetQuaAsync(KetQuaThucHien ketQua);
 
         // Lịch sử phê duyệt
@@ -61,11 +62,12 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
             var chuKy = await _context.ChuKyBaoTris.FirstOrDefaultAsync(c => c.LoaiThietBi == loaiThietBi);
             return chuKy?.SoThangChuKyDeXuat;
         }
-        public async Task<bool> NhanVienTrungLichAsync(int maNhanVien, DateOnly tuNgay, DateOnly denNgay) =>
+        public async Task<bool> NhanVienTrungLichAsync(int maNhanVien, DateTime tu, DateTime den) =>
         await _context.PhanCongCongViecs.AnyAsync(p =>
             p.MaNhanVienThucHien == maNhanVien &&
             p.TrangThai != "Hoàn thành" &&
-            p.NgayBatDauDuKien <= denNgay && p.NgayKetThucDuKien >= tuNgay);
+            p.NgayBatDauDuKien != null && p.NgayKetThucDuKien != null &&
+            p.NgayBatDauDuKien <= den && p.NgayKetThucDuKien >= tu);
 
         // Điều kiện: kiểm tra thiết bị có đang "Đang thực hiện" ở hồ sơ bảo trì HOẶC sửa chữa nào khác không
     // boQuaLoaiHoSo/boQuaMaHoSo dùng để loại trừ chính hồ sơ đang xử lý (tránh tự chặn chính mình)
@@ -126,6 +128,14 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
 
         public async Task<PhanCongCongViec?> GetPhanCongByIdAsync(int id) =>
             await _context.PhanCongCongViecs.FirstOrDefaultAsync(p => p.MaPhanCong == id);
+
+        public async Task<List<PhanCongCongViec>> GetLichSuPhanCongAsync() =>
+            await _context.PhanCongCongViecs
+                .Include(p => p.MaNhanVienPhanCongNavigation)
+                .Include(p => p.MaNhanVienThucHienNavigation)
+                .OrderByDescending(p => p.NgayPhanCong)
+                .AsNoTracking()
+                .ToListAsync();
 
         public async Task AddKetQuaAsync(KetQuaThucHien ketQua) => await _context.KetQuaThucHiens.AddAsync(ketQua);
 

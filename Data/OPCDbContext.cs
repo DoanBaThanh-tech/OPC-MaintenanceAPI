@@ -440,6 +440,8 @@ public partial class OPCDbContext : DbContext
 
             entity.ToTable("PhanCongCongViec");
 
+            entity.Property(e => e.NgayBatDauDuKien).HasColumnType("datetime");
+            entity.Property(e => e.NgayKetThucDuKien).HasColumnType("datetime");
             entity.Property(e => e.NgayPhanCong)
                 .HasDefaultValueSql("(getdate())")
                 .HasColumnType("datetime");

@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using OPC.MaintenanceAPI.Data;
 
@@ -11,9 +12,11 @@ using OPC.MaintenanceAPI.Data;
 namespace OPC.MaintenanceAPI.Migrations
 {
     [DbContext(typeof(OPCDbContext))]
-    partial class OPCDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260911055623_PhanCongLuuDateTime")]
+    partial class PhanCongLuuDateTime
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

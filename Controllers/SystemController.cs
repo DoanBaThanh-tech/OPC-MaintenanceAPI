@@ -11,24 +11,36 @@ namespace OPC.MaintenanceAPI.Controllers
     /// (lỗi được ném bằng NotFoundException/BusinessRuleException, ExceptionHandlingMiddleware xử lý)
     [ApiController]
     [Route("api/system")]
-    [Authorize(Roles = "Admin hệ thống")]
     public class SystemController : ControllerBase
     {
         private readonly ISystemService _service;
         public SystemController(ISystemService service) => _service = service;
 
-        // ---------- VAI TRÒ ----------
+        // ---------- NHÂN VIÊN (dùng cho phân công — Tổ trưởng / Giám đốc / Admin đều cần) ----------
+        [Authorize]
+        [HttpGet("nhan-vien")]
+        public async Task<IActionResult> GetDanhSachNhanVien([FromQuery] string? vaiTro = null)
+        {
+            var list = await _service.GetDanhSachNhanVienAsync(vaiTro);
+            return Ok(list);
+        }
+
+        // ---------- VAI TRÒ (chỉ Admin) ----------
+        [Authorize(Roles = "Admin hệ thống")]
         [HttpGet("vaitro")]
         public async Task<IActionResult> GetAllVaiTro() => Ok(await _service.GetAllVaiTroAsync());
 
+        [Authorize(Roles = "Admin hệ thống")]
         [HttpPost("vaitro")]
         public async Task<IActionResult> TaoVaiTro([FromBody] VaiTroDto dto) =>
             Ok(await _service.TaoVaiTroAsync(dto));
 
+        [Authorize(Roles = "Admin hệ thống")]
         [HttpPut("vaitro/{maVaiTro}")]
         public async Task<IActionResult> CapNhatVaiTro(int maVaiTro, [FromBody] VaiTroDto dto) =>
             Ok(await _service.CapNhatVaiTroAsync(maVaiTro, dto));
 
+        [Authorize(Roles = "Admin hệ thống")]
         [HttpDelete("vaitro/{maVaiTro}")]
         public async Task<IActionResult> XoaVaiTro(int maVaiTro)
         {
@@ -36,11 +48,13 @@ namespace OPC.MaintenanceAPI.Controllers
             return Ok(new { Message = "Đã xoá vai trò." });
         }
 
-        // ---------- PHÂN QUYỀN ----------
+        // ---------- PHÂN QUYỀN (chỉ Admin) ----------
+        [Authorize(Roles = "Admin hệ thống")]
         [HttpGet("phanquyen/{maVaiTro}")]
         public async Task<IActionResult> GetMaTranPhanQuyen(int maVaiTro) =>
             Ok(await _service.GetMaTranPhanQuyenAsync(maVaiTro));
 
+        [Authorize(Roles = "Admin hệ thống")]
         [HttpPut("phanquyen/{maVaiTro}")]
         public async Task<IActionResult> LuuPhanQuyen(int maVaiTro, [FromBody] CapNhatPhanQuyenDto dto)
         {
@@ -48,7 +62,8 @@ namespace OPC.MaintenanceAPI.Controllers
             return Ok(new { Message = "Đã lưu phân quyền." });
         }
 
-        // ---------- NHẬT KÝ HỆ THỐNG ----------
+        // ---------- NHẬT KÝ HỆ THỐNG (chỉ Admin) ----------
+        [Authorize(Roles = "Admin hệ thống")]
         [HttpGet("nhatky")]
         public async Task<IActionResult> TimNhatKy([FromQuery] NhatKyFilterDto filter) =>
             Ok(await _service.TimNhatKyAsync(filter));

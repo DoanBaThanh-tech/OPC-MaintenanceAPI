@@ -98,18 +98,28 @@ builder.Services.AddAuthorization();
 var app = builder.Build();
 
 await VaiTroSeeder.SeedAsync(app.Services);
-
+await NhanVienKyThuatSeeder.SeedAsync(app.Services);
 
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
-    app.UseSwaggerUI();
+    app.UseSwaggerUI(c =>
+    {
+        c.SwaggerEndpoint("/swagger/v1/swagger.json", "OPC Maintenance API v1");
+        c.RoutePrefix = "swagger"; // http://localhost:5232/swagger
+    });
     app.MapOpenApi();
 }
 
-app.UseHttpsRedirection();
+// Chỉ redirect HTTPS khi thật sự có https port (tránh lỗi khi chạy --urls http://0.0.0.0:5232)
+var httpsPort = Environment.GetEnvironmentVariable("ASPNETCORE_HTTPS_PORT");
+if (!string.IsNullOrEmpty(httpsPort) || app.Configuration["HTTPS_PORT"] != null)
+{
+    app.UseHttpsRedirection();
+}
+
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseMiddleware<RequestLoggingMiddleware>();

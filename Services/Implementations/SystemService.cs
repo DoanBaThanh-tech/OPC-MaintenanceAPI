@@ -23,7 +23,12 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 SoNguoiDung = x.SoNguoiDung
             }).ToList();
         }
- 
+
+        public async Task<List<object>> GetDanhSachNhanVienAsync(string? vaiTro = null)
+        {
+            return await _repo.GetDanhSachNhanVienAsync(vaiTro);
+        }
+
         public async Task<VaiTro> TaoVaiTroAsync(VaiTroDto dto)
         {
             var vaiTro = new VaiTro { TenVaiTro = dto.TenVaiTro, CapDoQuyen = dto.CapDoQuyen };
@@ -43,7 +48,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             await _repo.SaveChangesAsync();
             return vaiTro;
         }
- 
+
         public async Task XoaVaiTroAsync(int maVaiTro)
         {
             var vaiTro = await _repo.GetByIdAsync(maVaiTro)

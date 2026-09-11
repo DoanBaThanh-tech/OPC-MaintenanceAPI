@@ -10,6 +10,7 @@ namespace OPC.MaintenanceAPI.Services.Interfaces
         Task<VaiTro> TaoVaiTroAsync(VaiTroDto dto);
         Task<VaiTro> CapNhatVaiTroAsync(int maVaiTro, VaiTroDto dto);
         Task XoaVaiTroAsync(int maVaiTro);
+        Task<List<object>> GetDanhSachNhanVienAsync(string? vaiTro = null);
 
         // Phân quyền
         Task<List<ChucNangQuyenDto>> GetMaTranPhanQuyenAsync(int maVaiTro);

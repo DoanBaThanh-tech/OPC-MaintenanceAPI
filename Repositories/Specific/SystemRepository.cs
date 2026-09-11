@@ -10,7 +10,7 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         Task<bool> VaiTroDangCoNguoiDungAsync(int maVaiTro);
  
         Task<List<DanhMucChucNang>> GetChucNangGroupedAsync();
- 
+        Task<List<object>> GetDanhSachNhanVienAsync(string? vaiTro = null);
         Task<List<PhanQuyenVaiTro>> GetPhanQuyenByVaiTroAsync(int maVaiTro);
         Task XoaPhanQuyenTheoVaiTroAsync(int maVaiTro);
         Task ThemDanhSachPhanQuyenAsync(List<PhanQuyenVaiTro> danhSach);
@@ -21,6 +21,34 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
     public class SystemRepository : BaseRepository<VaiTro>, ISystemRepository
     {
         public SystemRepository(OPCDbContext context) : base(context) { }
+
+
+        public async Task<List<object>> GetDanhSachNhanVienAsync(string? vaiTro = null)
+        {
+            var query = _context.NhanViens
+                .Include(nv => nv.MaNguoiDungNavigation)
+                    .ThenInclude(nd => nd.MaVaiTroNavigation)
+                .AsQueryable();
+
+            if (!string.IsNullOrWhiteSpace(vaiTro))
+            {
+                query = query.Where(nv =>
+                    nv.MaNguoiDungNavigation.MaVaiTroNavigation.TenVaiTro.Contains(vaiTro));
+            }
+
+            return await query
+                .Select(nv => (object)new
+                {
+                    maNhanVien = nv.MaNhanVien,
+                    hoTen = nv.HoTen,
+                    email = nv.Email,
+                    soDienThoai = nv.SoDienThoai,
+                    chucVu = nv.ChucVu,
+                    trangThai = nv.TrangThai,
+                    tenVaiTro = nv.MaNguoiDungNavigation.MaVaiTroNavigation.TenVaiTro
+                })
+                .ToListAsync();
+        }
  
         public async Task<List<(VaiTro, int)>> GetAllVaiTroWithUserCountAsync()
         {

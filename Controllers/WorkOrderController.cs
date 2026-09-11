@@ -7,10 +7,24 @@ namespace OPC.MaintenanceAPI.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [Authorize] // mọi endpoint cần đăng nhập; các action cụ thể có thể siết thêm Roles
     public class WorkOrderController : ControllerBase
     {
         private readonly IWorkOrderService _service;
-        public WorkOrderController(IWorkOrderService service) => _service = service;
+        private readonly ISystemService _systemService;
+
+        public WorkOrderController(IWorkOrderService service, ISystemService systemService)
+        {
+            _service = service;
+            _systemService = systemService;
+        }
+
+        /// Danh sách nhân viên (lọc theo vai trò) — dùng cho màn Phân công.
+        /// Đặt ở WorkOrder để Tổ trưởng gọi được (không bị chặn bởi quyền Admin của SystemController).
+        [HttpGet("nhan-vien")]
+        public async Task<IActionResult> GetDanhSachNhanVien([FromQuery] string? vaiTro = null) =>
+            Ok(await _systemService.GetDanhSachNhanVienAsync(vaiTro));
+
         [HttpGet("bao-tri")]
         public async Task<IActionResult> GetBaoTriTheoTrangThai([FromQuery] string? trangThai = null, [FromQuery] int? nam = null) =>
             Ok(await _service.GetHoSoBaoTriTheoTrangThaiAsync(trangThai, nam));

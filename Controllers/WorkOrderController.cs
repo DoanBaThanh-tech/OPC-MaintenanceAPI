@@ -47,7 +47,14 @@ namespace OPC.MaintenanceAPI.Controllers
         }
 
         [HttpPost("bao-tri/{id}/phan-cong")]
-        public async Task<IActionResult> PhanCongBaoTri(int id, PhanCongDto dto) => Result(await _service.PhanCongBaoTriAsync(id, dto));
+        public async Task<IActionResult> PhanCongBaoTri(int id, PhanCongDto dto)
+        {
+            var claim = User.FindFirst("MaNguoiDung")?.Value;
+            if (claim == null || !int.TryParse(claim, out var maNguoiDung))
+                return Unauthorized();
+
+            return Result(await _service.PhanCongBaoTriAsync(id, maNguoiDung, dto));
+        }
 
         [HttpPut("bao-tri/{id}/xac-nhan")]
         public async Task<IActionResult> XacNhanBaoTri(int id, XacNhanDto dto) => Result(await _service.XacNhanHoanThanhBaoTriAsync(id, dto));

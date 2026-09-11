@@ -122,8 +122,11 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             return (true, null);
         }
 
-        public async Task<(bool, string?)> PhanCongBaoTriAsync(int maHoSo, PhanCongDto dto)
+        public async Task<(bool, string?)> PhanCongBaoTriAsync(int maHoSo, int maNguoiDungPhanCong, PhanCongDto dto)
         {
+            var nhanVienPhanCong = await _nhanVienRepo.GetByMaNguoiDungAsync(maNguoiDungPhanCong);
+            if (nhanVienPhanCong == null) return (false, "Không xác định được người phân công.");
+
             var hoSo = await _repo.GetHoSoBaoTriByIdAsync(maHoSo);
             if (hoSo == null) return (false, "Không tìm thấy hồ sơ.");
             if (hoSo.TrangThai != "Đã duyệt") return (false, "Hồ sơ chưa được duyệt.");
@@ -137,7 +140,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             var phanCong = new PhanCongCongViec
             {
                 MaNhanVienThucHien = dto.MaNhanVienThucHien,
-                MaNhanVienPhanCong = dto.MaNhanVienPhanCong,
+                MaNhanVienPhanCong = nhanVienPhanCong.MaNhanVien,   // lấy từ JWT
                 NgayBatDauDuKien = DateOnly.FromDateTime(dto.NgayBatDauDuKien),
                 NgayKetThucDuKien = DateOnly.FromDateTime(dto.NgayKetThucDuKien),
                 TrangThai = "Đã phân công",

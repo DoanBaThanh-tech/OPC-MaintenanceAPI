@@ -120,6 +120,7 @@ if (!string.IsNullOrEmpty(httpsPort) || app.Configuration["HTTPS_PORT"] != null)
     app.UseHttpsRedirection();
 }
 
+app.UseCors("AllowApp");
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseMiddleware<RequestLoggingMiddleware>();

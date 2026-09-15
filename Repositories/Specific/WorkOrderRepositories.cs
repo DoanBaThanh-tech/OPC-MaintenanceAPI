@@ -11,11 +11,13 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         // Hồ sơ bảo trì
         // Kiểm tra trùng lịch + đã có kết quả — 2 dòng mới cần thêm
         Task<bool> NhanVienTrungLichAsync(int maNhanVien, DateTime tu, DateTime den);
+        /// <summary>Số hồ sơ BT + SC đang "Đang thực hiện" của nhân viên (tối đa 3).</summary>
+        Task<int> DemCongViecDangThucHienAsync(int maNhanVien);
         /// <summary>
-        /// Nhân viên đang được phân công hồ sơ bảo trì/sửa chữa ở trạng thái "Đang thực hiện".
-        /// Chỉ rảnh lại khi hồ sơ hoàn thành (không còn "Đang thực hiện").
+        /// Không nhận thêm khi đã khóa (đủ 3 chưa xong hết) hoặc đang đủ 3 việc.
+        /// Chỉ nhận lại sau khi hoàn thành hết cả 3 (KhoaPhanCong = false, số việc = 0).
         /// </summary>
-        Task<bool> NhanVienDangBanAsync(int maNhanVien);
+        Task<bool> NhanVienKhongTheNhanThemAsync(int maNhanVien);
         Task<bool> DaCoKetQuaAsync(int maPhanCong);
         Task<int?> GetSoThangChuKyAsync(string? loaiThietBi);
         Task AddHoSoBaoTriAsync(HoSoBaoTri hoSo);
@@ -76,30 +78,39 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
             p.NgayBatDauDuKien != null && p.NgayKetThucDuKien != null &&
             p.NgayBatDauDuKien <= den && p.NgayKetThucDuKien >= tu);
 
-        public async Task<bool> NhanVienDangBanAsync(int maNhanVien)
+        /// <summary>Giới hạn số thiết bị mỗi NV được đảm nhận đồng thời (bảo trì + sửa chữa).</summary>
+        public const int SoThietBiToiDaMoiNhanVien = 3;
+
+        public async Task<int> DemCongViecDangThucHienAsync(int maNhanVien)
         {
-            // Đang thực hiện bảo trì
-            var banBaoTri = await _context.HoSoBaoTris.AnyAsync(h =>
+            var soBaoTri = await _context.HoSoBaoTris.CountAsync(h =>
                 h.TrangThai == "Đang thực hiện"
                 && h.MaPhanCong != null
                 && _context.PhanCongCongViecs.Any(p =>
                     p.MaPhanCong == h.MaPhanCong
                     && p.MaNhanVienThucHien == maNhanVien));
 
-            if (banBaoTri) return true;
-
-            // Đang thực hiện sửa chữa
-            var banSuaChua = await _context.HoSoSuaChuas.AnyAsync(h =>
+            var soSuaChua = await _context.HoSoSuaChuas.CountAsync(h =>
                 h.TrangThai == "Đang thực hiện"
                 && h.MaPhanCong != null
                 && _context.PhanCongCongViecs.Any(p =>
                     p.MaPhanCong == h.MaPhanCong
                     && p.MaNhanVienThucHien == maNhanVien));
 
-            return banSuaChua;
+            return soBaoTri + soSuaChua;
         }
 
+        public async Task<bool> NhanVienKhongTheNhanThemAsync(int maNhanVien)
+        {
+            // Chỉ được phân công khi đang 0 việc (0/3).
+            // 1/3, 2/3, 3/3 đều không chọn — phải về 0 mới nhận thiết bị tiếp theo.
+            var so = await DemCongViecDangThucHienAsync(maNhanVien);
+            return so > 0;
+        }
+
+
         // Điều kiện: kiểm tra thiết bị có đang "Đang thực hiện" ở hồ sơ bảo trì HOẶC sửa chữa nào khác không
+
     // boQuaLoaiHoSo/boQuaMaHoSo dùng để loại trừ chính hồ sơ đang xử lý (tránh tự chặn chính mình)
         public async Task<bool> ThietBiDangTrongQuyTrinhKhacAsync(int maThietBi, string boQuaLoaiHoSo, int? boQuaMaHoSo)
 

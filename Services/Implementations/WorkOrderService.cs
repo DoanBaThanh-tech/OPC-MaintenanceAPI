@@ -146,10 +146,15 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (dto.NgayKetThucDuKien < dto.NgayBatDauDuKien)
                 return (false, "Ngày kết thúc không được trước ngày bắt đầu.");
 
-            // Nhân viên đang bận (đang thực hiện bảo trì/sửa chữa khác) → không cho chọn
-            if (await _repo.NhanVienDangBanAsync(dto.MaNhanVienThucHien))
+            // Chỉ chọn NV khi đang 0 việc; 1/3–3/3 đều không được
+            if (await _repo.NhanVienKhongTheNhanThemAsync(dto.MaNhanVienThucHien))
+            {
+                var soCv = await _repo.DemCongViecDangThucHienAsync(dto.MaNhanVienThucHien);
                 return (false,
-                    "Nhân viên này đang đảm nhận nhiệm vụ bảo trì hoặc sửa chữa chưa hoàn thành. Vui lòng chọn nhân viên khác hoặc đợi hoàn thành công việc hiện tại.");
+                    $"Nhân viên này đang đảm nhận {soCv}/{WorkOrderRepository.SoThietBiToiDaMoiNhanVien} thiết bị. " +
+                    "Chỉ được chọn lại khi đã hoàn thành hết (về 0/3).");
+            }
+
 
             var phanCong = new PhanCongCongViec
             {
@@ -173,6 +178,8 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             await _repo.SaveChangesAsync();
             return (true, null);
         }
+
+
 
 
         public async Task<List<object>> GetLichSuPhanCongAsync()
@@ -237,6 +244,21 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     hoSo.MaThieBiNavigation.NgayBaoTriTiepTheo = homNay.AddMonths(soThang.Value);
             }
             await _repo.SaveChangesAsync();
+
+            // Hết việc đang làm (0) → mở khóa phân công
+            if (hoSo.MaPhanCong != null)
+            {
+                var pc = await _repo.GetPhanCongByIdAsync(hoSo.MaPhanCong.Value);
+                if (pc != null)
+                {
+                    var conLai = await _repo.DemCongViecDangThucHienAsync(pc.MaNhanVienThucHien);
+                    if (conLai == 0)
+                    {
+                        await _repo.SaveChangesAsync();
+                    }
+                }
+            }
+
             return (true, null);
         }
 
@@ -333,9 +355,13 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (dto.NgayKetThucDuKien < dto.NgayBatDauDuKien)
                 return (false, "Ngày kết thúc không được trước ngày bắt đầu.");
 
-            if (await _repo.NhanVienDangBanAsync(dto.MaNhanVienThucHien))
+            if (await _repo.NhanVienKhongTheNhanThemAsync(dto.MaNhanVienThucHien))
+            {
+                var soCv = await _repo.DemCongViecDangThucHienAsync(dto.MaNhanVienThucHien);
                 return (false,
-                    "Nhân viên này đang đảm nhận nhiệm vụ bảo trì hoặc sửa chữa chưa hoàn thành. Vui lòng chọn nhân viên khác hoặc đợi hoàn thành công việc hiện tại.");
+                    $"Nhân viên này đang đảm nhận {soCv}/{WorkOrderRepository.SoThietBiToiDaMoiNhanVien} thiết bị. " +
+                    "Chỉ được chọn lại khi đã hoàn thành hết (về 0/3).");
+            }
 
             var phanCong = new PhanCongCongViec
             {
@@ -360,6 +386,8 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             return (true, null);
         }
 
+
+
         public async Task<(bool, string?)> XacNhanHoanThanhSuaChuaAsync(int maHoSo, XacNhanDto dto)
         {
             var hoSo = await _repo.GetHoSoSuaChuaByIdAsync(maHoSo);
@@ -380,10 +408,25 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (hoSo.MaThieBiNavigation != null)
                 hoSo.MaThieBiNavigation.TinhTrangHienTai = "Sản xuất";
             await _repo.SaveChangesAsync();
+
+            if (hoSo.MaPhanCong != null)
+            {
+                var pc = await _repo.GetPhanCongByIdAsync(hoSo.MaPhanCong.Value);
+                if (pc != null)
+                {
+                    var conLai = await _repo.DemCongViecDangThucHienAsync(pc.MaNhanVienThucHien);
+                    if (conLai == 0)
+                    {
+                        await _repo.SaveChangesAsync();
+                    }
+                }
+            }
+
             return (true, null);
         }
 
         // ===== TRUY VẤN =====
+
 
         // Helper dùng chung: tính Nam cho từng hồ sơ 1 lần, tái sử dụng cho cả lọc lẫn liệt kê năm có dữ liệu
         private async Task<List<(HoSoBaoTri hoSo, int nam, bool namTuKeHoach)>> LayDanhSachKemNamAsync(string? trangThai)

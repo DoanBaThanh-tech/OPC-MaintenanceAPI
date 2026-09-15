@@ -36,14 +36,16 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
                     nv.MaNguoiDungNavigation.MaVaiTroNavigation.TenVaiTro.Contains(vaiTro));
             }
 
-            // Nhân viên đang bận = đang là người thực hiện của hồ sơ BT/SC "Đang thực hiện"
-            var maNvDangBan = await _context.HoSoBaoTris
+            // Đếm số công việc BT + SC "Đang thực hiện" theo từng NV (tối đa 3)
+            const int toiDa = WorkOrderRepository.SoThietBiToiDaMoiNhanVien;
+
+            var demTheoNv = await _context.HoSoBaoTris
                 .Where(h => h.TrangThai == "Đang thực hiện" && h.MaPhanCong != null)
                 .Join(_context.PhanCongCongViecs,
                     h => h.MaPhanCong,
                     p => p.MaPhanCong,
                     (h, p) => p.MaNhanVienThucHien)
-                .Union(
+                .Concat(
                     _context.HoSoSuaChuas
                         .Where(h => h.TrangThai == "Đang thực hiện" && h.MaPhanCong != null)
                         .Join(_context.PhanCongCongViecs,
@@ -51,8 +53,11 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
                             p => p.MaPhanCong,
                             (h, p) => p.MaNhanVienThucHien)
                 )
-                .Distinct()
+                .GroupBy(maNv => maNv)
+                .Select(g => new { MaNhanVien = g.Key, SoCongViec = g.Count() })
                 .ToListAsync();
+
+            var demMap = demTheoNv.ToDictionary(x => x.MaNhanVien, x => x.SoCongViec);
 
             var list = await query
                 .Select(nv => new
@@ -68,22 +73,33 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
                 .ToListAsync();
 
             return list
-                .Select(nv => (object)new
+                .Select(nv =>
                 {
-                    nv.maNhanVien,
-                    nv.hoTen,
-                    nv.email,
-                    nv.soDienThoai,
-                    nv.chucVu,
-                    nv.trangThai,
-                    nv.tenVaiTro,
-                    dangBan = maNvDangBan.Contains(nv.maNhanVien),
-                    ghiChuBan = maNvDangBan.Contains(nv.maNhanVien)
-                        ? "Đang đảm nhận bảo trì/sửa chữa — không thể phân công thêm"
-                        : (string?)null
+                    var soCv = demMap.TryGetValue(nv.maNhanVien, out var n) ? n : 0;
+                    // Chỉ rảnh khi 0/3 — 1/3, 2/3, 3/3 đều không chọn
+                    var khongNhanThem = soCv > 0;
+                    return (object)new
+                    {
+                        nv.maNhanVien,
+                        nv.hoTen,
+                        nv.email,
+                        nv.soDienThoai,
+                        nv.chucVu,
+                        nv.trangThai,
+                        nv.tenVaiTro,
+                        soCongViecDangLam = soCv,
+                        soCongViecToiDa = toiDa,
+                        dangBan = khongNhanThem,
+                        ghiChuBan = khongNhanThem
+                            ? $"Đang đảm nhận {soCv}/{toiDa} thiết bị — hoàn thành hết (về 0/{toiDa}) mới được phân công thêm"
+                            : (string?)null
+                    };
                 })
                 .ToList();
         }
+
+
+
 
  
         public async Task<List<(VaiTro, int)>> GetAllVaiTroWithUserCountAsync()

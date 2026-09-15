@@ -7,7 +7,7 @@ public partial class KeHoachBaoTri
 {
     public int MaKeHoach { get; set; }
 
-    public int MaChuKy { get; set; }
+    public int? MaChuKy { get; set; }
 
     public int MaNhanVienLap { get; set; }
 

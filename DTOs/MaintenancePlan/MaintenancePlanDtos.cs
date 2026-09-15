@@ -60,4 +60,16 @@ namespace OPC.MaintenanceAPI.DTOs.MaintenancePlan
         public int MaThietBi { get; set; }
         public DateOnly NgayDuKienBaoTri { get; set; }
     }
+
+    public class TaoNamMoiDto
+    {
+        public int Nam { get; set; }
+    }   
+
+public class ThemThietBiVaoNamDto
+    {
+        public int Nam { get; set; }
+        public int MaThietBi { get; set; }
+        public DateOnly NgayDuKienBaoTri { get; set; }
+    }
 }

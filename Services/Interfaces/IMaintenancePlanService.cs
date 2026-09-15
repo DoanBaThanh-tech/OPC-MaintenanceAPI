@@ -9,6 +9,8 @@ namespace OPC.MaintenanceAPI.Services.Interfaces
         Task<List<KeHoachResponseDto>> GetAllKeHoachAsync();
         Task<List<ChuKyResponseDto>> GetAllChuKyAsync();
         Task<List<int>> GetDanhSachNamDaLapAsync();
+        Task<(bool, string?)> TaoNamMoiAsync(int maNguoiDungTao, TaoNamMoiDto dto);
+        Task<(bool, string?)> ThemThietBiVaoNamAsync(ThemThietBiVaoNamDto dto);
         Task<(bool ThanhCong, string? Loi)> ThemLanBaoTriAsync(int maKeHoach, ThemLanBaoTriDto dto);
         // Gộp bước "đăng ký ngày" + "lập kế hoạch" cũ thành 1 hàm duy nhất
         Task<(bool ThanhCong, string? Loi)> TaoKeHoachAsync(int maNguoiDungTao, TaoKeHoachDto dto);

@@ -18,6 +18,8 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         Task<ThietBi?> GetThietBiAsync(int maThietBi);
         Task<KeHoachBaoTri?> GetKeHoachByIdAsync(int maKeHoach);
         Task<DateOnly?> GetNgayBaoTriGanNhatAsync(int maKeHoach, int maThietBi);
+        Task<KeHoachBaoTri?> GetKeHoachByNamAsync(int nam);
+        Task<bool> NamDaTonTaiAsync(int nam);
         Task<int> SaveChangesAsync();
     }
 
@@ -26,6 +28,11 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         private readonly OPCDbContext _context;
         public MaintenancePlanRepository(OPCDbContext context) => _context = context;
         
+        public Task<KeHoachBaoTri?> GetKeHoachByNamAsync(int nam) =>
+            _context.KeHoachBaoTris.FirstOrDefaultAsync(k => k.Nam == nam);
+
+        public Task<bool> NamDaTonTaiAsync(int nam) =>
+            _context.KeHoachBaoTris.AnyAsync(k => k.Nam == nam);
         public async Task<KeHoachBaoTri?> GetKeHoachByIdAsync(int maKeHoach) =>
         await _context.KeHoachBaoTris
             .Include(k => k.MaChuKyNavigation)

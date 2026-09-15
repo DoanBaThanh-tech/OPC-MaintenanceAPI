@@ -46,8 +46,24 @@ namespace OPC.MaintenanceAPI.Controllers
             var (ok, loi) = await _service.ThemLanBaoTriAsync(maKeHoach, dto);
             return ok ? Ok(new { message = "Đã thêm lần bảo trì mới." }) : BadRequest(new { loi });
         }
+        [HttpPost("nam-moi")]
+        public async Task<IActionResult> TaoNamMoi(TaoNamMoiDto dto)
+        {
+            var claim = User.FindFirst("MaNguoiDung")?.Value;
+            if (claim == null || !int.TryParse(claim, out var maNguoiDung)) return Unauthorized();
 
+            var (ok, loi) = await _service.TaoNamMoiAsync(maNguoiDung, dto);
+            return ok ? Ok() : BadRequest(new { loi });
+        }
+
+        [HttpPost("them-thiet-bi")]
+        public async Task<IActionResult> ThemThietBi(ThemThietBiVaoNamDto dto)
+        {
+            var (ok, loi) = await _service.ThemThietBiVaoNamAsync(dto);
+            return ok ? Ok() : BadRequest(new { loi });
+        }
         [HttpGet("nam-da-lap")]
-        public async Task<IActionResult> GetNamDaLap() => Ok(await _service.GetDanhSachNamDaLapAsync());
+        public async Task<IActionResult> GetNamDaLap() =>
+            Ok((await _service.GetAllKeHoachAsync()).Select(k => k.Nam).Distinct().OrderByDescending(n => n));
     }
 }

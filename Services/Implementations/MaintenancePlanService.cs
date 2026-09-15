@@ -15,6 +15,52 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             _nhanVienRepo = nhanVienRepo;
         }
 
+        public async Task<(bool, string?)> TaoNamMoiAsync(int maNguoiDungTao, TaoNamMoiDto dto)
+        {
+            if (dto.Nam < 2000 || dto.Nam > 9999)
+                return (false, "Năm áp dụng không hợp lệ.");
+
+            if (await _repo.NamDaTonTaiAsync(dto.Nam))
+                return (false, $"Kế hoạch năm {dto.Nam} đã tồn tại.");
+
+            var nhanVien = await _nhanVienRepo.GetByMaNguoiDungAsync(maNguoiDungTao);
+            if (nhanVien == null) return (false, "Không xác định được người lập.");
+
+            var keHoach = new KeHoachBaoTri
+            {
+                Nam = dto.Nam,
+                MaNhanVienLap = nhanVien.MaNhanVien,
+                NgayLapKeHoach = DateOnly.FromDateTime(DateTime.Now),
+                TrangThai = "Đang lập"
+                // MaChuKy để trống — kế hoạch năm không gắn cứng 1 chu kỳ nào
+            };
+            await _repo.AddKeHoachAsync(keHoach);
+            await _repo.SaveChangesAsync();
+            return (true, null);
+        }
+
+        public async Task<(bool, string?)> ThemThietBiVaoNamAsync(ThemThietBiVaoNamDto dto)
+        {
+            var keHoach = await _repo.GetKeHoachByNamAsync(dto.Nam);
+            if (keHoach == null)
+                return (false, $"Chưa có kế hoạch cho năm {dto.Nam}. Vui lòng tạo kế hoạch năm trước.");
+
+            if (dto.NgayDuKienBaoTri.Year != dto.Nam)
+                return (false, "Ngày dự kiến phải thuộc năm của kế hoạch.");
+
+            await _repo.AddChiTietRangeAsync(new[]
+            {
+                new ChiTietKeHoachBaoTri
+                {
+                    MaKeHoach = keHoach.MaKeHoach,
+                    MaThietBi = dto.MaThietBi,
+                    NgayDuKienBaoTri = dto.NgayDuKienBaoTri
+                }
+            });
+            await _repo.SaveChangesAsync();
+            return (true, null);
+        }
+
         // Thay thế TaoYeuCauNgayBaoTriAsync + LapKeHoachTuYeuCauAsync cũ.
         // Tổ trưởng chọn chu kỳ + năm + danh sách thiết bị (kèm ngày dự kiến) trong 1 lần.
         public async Task<(bool, string?)> TaoKeHoachAsync(int maNguoiDungTao, TaoKeHoachDto dto)
@@ -110,7 +156,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             (await _repo.GetAllKeHoachAsync()).Select(k => new KeHoachResponseDto
             {
                 MaKeHoach = k.MaKeHoach,
-                MaChuKy = k.MaChuKy,
+                MaChuKy = k.MaChuKy ?? 0,
                 TenChuKy = k.MaChuKyNavigation?.LoaiThietBi,
                 TenThietBi = k.ChiTietKeHoachBaoTris.FirstOrDefault()?.MaThietBiNavigation?.TenThietBi,
                 Nam = k.Nam,

@@ -256,10 +256,11 @@ public partial class OPCDbContext : DbContext
                 .HasColumnType("datetime");
             entity.Property(e => e.TrangThai).HasMaxLength(30);
 
-            entity.HasOne(d => d.MaChuKyNavigation).WithMany(p => p.KeHoachBaoTris)
-                .HasForeignKey(d => d.MaChuKy)
-                .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("FK_KeHoach_ChuKy");
+            entity.HasOne(k => k.MaChuKyNavigation)
+                .WithMany(c => c.KeHoachBaoTris)
+                .HasForeignKey(k => k.MaChuKy)
+                .OnDelete(DeleteBehavior.Restrict)
+                .IsRequired(false);   // ← thêm dòng này
 
             entity.HasOne(d => d.MaNhanVienLapNavigation).WithMany(p => p.KeHoachBaoTris)
                 .HasForeignKey(d => d.MaNhanVienLap)

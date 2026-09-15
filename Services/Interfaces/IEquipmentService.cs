@@ -8,6 +8,8 @@ namespace OPC.MaintenanceAPI.Services.Interfaces
         Task<(bool ThanhCong, string? Loi)> TaoMoiAsync(TaoThietBiDto dto);
         Task<(bool ThanhCong, string? Loi)> CapNhatAsync(int id, CapNhatThietBiDto dto);
         Task<List<LichSuThietBiDto>> GetLichSuAsync(int maThietBi);
-        Task<List<ThietBiResponseDto>> GetAllAsync(int? maChuKy = null);
+        Task<List<ThietBiResponseDto>> GetAllAsync(int? maChuKy = null, string? trangThai = null);
+        Task<List<NhomThietBiDto>> GetTheoDanhMucAsync(string? trangThai = null);
+        Task<ThongKeThietBiDto> GetThongKeAsync();
     }
 }

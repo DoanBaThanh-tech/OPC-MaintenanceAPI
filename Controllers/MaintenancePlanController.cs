@@ -53,15 +53,22 @@ namespace OPC.MaintenanceAPI.Controllers
             if (claim == null || !int.TryParse(claim, out var maNguoiDung)) return Unauthorized();
 
             var (ok, loi) = await _service.TaoNamMoiAsync(maNguoiDung, dto);
-            return ok ? Ok() : BadRequest(new { loi });
+            return ok
+                ? Ok(new { Message = "Tạo kế hoạch năm mới thành công." })
+                : BadRequest(new { Message = loi, loi });
         }
+
 
         [HttpPost("them-thiet-bi")]
         public async Task<IActionResult> ThemThietBi(ThemThietBiVaoNamDto dto)
         {
             var (ok, loi) = await _service.ThemThietBiVaoNamAsync(dto);
-            return ok ? Ok() : BadRequest(new { loi });
+            // Luôn trả JSON để client mobile parse ổn định (tránh Ok() body rỗng)
+            return ok
+                ? Ok(new { Message = "Thêm thiết bị vào kế hoạch thành công." })
+                : BadRequest(new { Message = loi, loi });
         }
+
         [HttpGet("nam-da-lap")]
         public async Task<IActionResult> GetNamDaLap() =>
             Ok((await _service.GetAllKeHoachAsync()).Select(k => k.Nam).Distinct().OrderByDescending(n => n));

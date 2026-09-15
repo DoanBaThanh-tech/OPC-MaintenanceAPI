@@ -1,7 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using OPC.MaintenanceAPI.Core.Entities;
 using OPC.MaintenanceAPI.Data;
-using OPC.MaintenanceAPI.Repositories.Base;
+
 namespace OPC.MaintenanceAPI.Repositories.Specific
 {
     public interface IEquipmentRepository
@@ -21,15 +21,23 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         private readonly OPCDbContext _context;
         public EquipmentRepository(OPCDbContext context) => _context = context;
 
-        public async Task<List<ThietBi>> GetAllAsync() => await _context.ThietBis.ToListAsync();
+        public async Task<List<ThietBi>> GetAllAsync() =>
+            await _context.ThietBis
+                .Include(t => t.MaChuKyNavigation)
+                .AsNoTracking()
+                .OrderBy(t => t.LoaiThietBi)
+                .ThenBy(t => t.TenThietBi)
+                .ToListAsync();
 
         public async Task<ThietBi?> GetByIdAsync(int id) =>
-            await _context.ThietBis.FirstOrDefaultAsync(t => t.MaThietBi == id);
+            await _context.ThietBis
+                .Include(t => t.MaChuKyNavigation)
+                .FirstOrDefaultAsync(t => t.MaThietBi == id);
 
         public async Task<bool> ExistsAsync(string tenThietBi, string viTriLapDat) =>
             await _context.ThietBis.AnyAsync(t => t.TenThietBi == tenThietBi && t.ViTriLapDat == viTriLapDat);
 
-        // Query phức tạp: kiểm tra thiết bị có hồ sơ bảo trì HOẶC sửa chữa đang "Đang thực hiện" không
+        // Kiểm tra thiết bị có hồ sơ bảo trì HOẶC sửa chữa đang "Đang thực hiện"
         public async Task<bool> DangCoHoSoDangThucHienAsync(int maThietBi)
         {
             var coBaoTri = await _context.HoSoBaoTris
@@ -45,6 +53,7 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
             await _context.LichSuThietBis
                 .Where(l => l.MaThietBi == maThietBi)
                 .OrderByDescending(l => l.NgayHoanThanh)
+                .AsNoTracking()
                 .ToListAsync();
 
         public async Task AddLichSuAsync(LichSuThietBi lichSu) => await _context.LichSuThietBis.AddAsync(lichSu);

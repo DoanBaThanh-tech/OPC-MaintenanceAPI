@@ -151,6 +151,11 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
             hoSo.MaPhanCong = phanCong.MaPhanCong;
             hoSo.TrangThai = "Đang thực hiện";
+
+            // Khi phân công bảo trì → trạng thái thiết bị = "Bảo trì"
+            if (hoSo.MaThieBiNavigation != null)
+                hoSo.MaThieBiNavigation.TinhTrangHienTai = "Bảo trì";
+
             await _repo.SaveChangesAsync();
             return (true, null);
         }
@@ -209,6 +214,8 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             {
                 var homNay = DateOnly.FromDateTime(DateTime.Now);
                 hoSo.MaThieBiNavigation.NgayBaoTriGanNhat = homNay;
+                // Hoàn thành bảo trì → trở về Sản xuất
+                hoSo.MaThieBiNavigation.TinhTrangHienTai = "Sản xuất";
 
                 var soThang = await _repo.GetSoThangChuKyAsync(hoSo.MaThieBiNavigation.LoaiThietBi);
                 if (soThang.HasValue)
@@ -325,6 +332,11 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
             hoSo.MaPhanCong = phanCong.MaPhanCong;
             hoSo.TrangThai = "Đang thực hiện";
+
+            // Khi phân công sửa chữa → trạng thái thiết bị = "Sửa chữa"
+            if (hoSo.MaThieBiNavigation != null)
+                hoSo.MaThieBiNavigation.TinhTrangHienTai = "Sửa chữa";
+
             await _repo.SaveChangesAsync();
             return (true, null);
         }
@@ -345,8 +357,9 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             }
 
             hoSo.TrangThai = "Đã hoàn thành";
+            // Hoàn thành sửa chữa → trở về Sản xuất
             if (hoSo.MaThieBiNavigation != null)
-                hoSo.MaThieBiNavigation.TinhTrangHienTai = "Hoạt động tốt";
+                hoSo.MaThieBiNavigation.TinhTrangHienTai = "Sản xuất";
             await _repo.SaveChangesAsync();
             return (true, null);
         }

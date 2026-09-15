@@ -10,11 +10,59 @@ namespace OPC.MaintenanceAPI.Services.Implementations
         private readonly IEquipmentRepository _repo;
         public EquipmentService(IEquipmentRepository repo) => _repo = repo;
 
-        public async Task<List<ThietBiResponseDto>> GetAllAsync(int? maChuKy = null)
+        public async Task<List<ThietBiResponseDto>> GetAllAsync(int? maChuKy = null, string? trangThai = null)
         {
             var list = await _repo.GetAllAsync();
-            if (maChuKy.HasValue) list = list.Where(t => t.MaChuKy == maChuKy).ToList();
-            return list.Select(MapToDto).ToList();
+            if (maChuKy.HasValue)
+                list = list.Where(t => t.MaChuKy == maChuKy.Value).ToList();
+
+            var mapped = list.Select(MapToDto).ToList();
+
+            if (!string.IsNullOrWhiteSpace(trangThai))
+            {
+                var tt = TrangThaiThietBiConst.ChuanHoa(trangThai);
+                mapped = mapped.Where(t => t.TinhTrangHienTai == tt).ToList();
+            }
+
+            return mapped;
+        }
+
+        public async Task<List<NhomThietBiDto>> GetTheoDanhMucAsync(string? trangThai = null)
+        {
+            var all = await GetAllAsync(trangThai: trangThai);
+
+            return all
+                .GroupBy(t => new
+                {
+                    DanhMuc = string.IsNullOrWhiteSpace(t.TenDanhMuc) ? "Chưa phân loại" : t.TenDanhMuc!,
+                    t.MaChuKy,
+                    t.SoThangDeXuat
+                })
+                .OrderBy(g => g.Key.DanhMuc)
+                .Select(g => new NhomThietBiDto
+                {
+                    TenDanhMuc = g.Key.DanhMuc,
+                    MaChuKy = g.Key.MaChuKy,
+                    SoThangChuKy = g.Key.SoThangDeXuat,
+                    SoLuong = g.Count(),
+                    SoSanXuat = g.Count(x => x.TinhTrangHienTai == TrangThaiThietBiConst.SanXuat),
+                    SoBaoTri = g.Count(x => x.TinhTrangHienTai == TrangThaiThietBiConst.BaoTri),
+                    SoSuaChua = g.Count(x => x.TinhTrangHienTai == TrangThaiThietBiConst.SuaChua),
+                    DanhSach = g.OrderBy(x => x.TenThietBi).ToList()
+                })
+                .ToList();
+        }
+
+        public async Task<ThongKeThietBiDto> GetThongKeAsync()
+        {
+            var all = await GetAllAsync();
+            return new ThongKeThietBiDto
+            {
+                TongSo = all.Count,
+                SoSanXuat = all.Count(x => x.TinhTrangHienTai == TrangThaiThietBiConst.SanXuat),
+                SoBaoTri = all.Count(x => x.TinhTrangHienTai == TrangThaiThietBiConst.BaoTri),
+                SoSuaChua = all.Count(x => x.TinhTrangHienTai == TrangThaiThietBiConst.SuaChua)
+            };
         }
 
         public async Task<ThietBiResponseDto?> GetByIdAsync(int id)
@@ -23,7 +71,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             return t == null ? null : MapToDto(t);
         }
 
-        // Luồng 5A
+        // Luồng 5A — mặc định trạng thái "Sản xuất"
         public async Task<(bool, string?)> TaoMoiAsync(TaoThietBiDto dto)
         {
             if (string.IsNullOrWhiteSpace(dto.TenThietBi) || string.IsNullOrWhiteSpace(dto.ViTriLapDat))
@@ -37,19 +85,20 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
             var thietBi = new ThietBi
             {
-                TenThietBi = dto.TenThietBi,
+                TenThietBi = dto.TenThietBi.Trim(),
                 LoaiThietBi = dto.LoaiThietBi,
-                ViTriLapDat = dto.ViTriLapDat,
-                NgayLapDat = dto.NgayLapDat.Value,   // .Value vì đã chắc chắn khác null ở check trên
+                ViTriLapDat = dto.ViTriLapDat.Trim(),
+                NgayLapDat = dto.NgayLapDat.Value,
                 GhiChu = dto.GhiChu,
-                TinhTrangHienTai = "Đang hoạt động"
+                MaChuKy = dto.MaChuKy ?? 0,
+                TinhTrangHienTai = TrangThaiThietBiConst.SanXuat
             };
             await _repo.AddAsync(thietBi);
             await _repo.SaveChangesAsync();
             return (true, null);
         }
 
-        // Luồng 5B — Decision: đang có hồ sơ Đang thực hiện thì chỉ cho sửa 2 trường mô tả
+        // Luồng 5B — đang có hồ sơ Đang thực hiện thì chỉ cho sửa Vị trí / Ghi chú
         public async Task<(bool, string?)> CapNhatAsync(int id, CapNhatThietBiDto dto)
         {
             var thietBi = await _repo.GetByIdAsync(id);
@@ -68,7 +117,9 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             }
 
             await _repo.SaveChangesAsync();
-            return (true, dangXuLy ? "Chỉ cập nhật được Vị trí/Ghi chú vì thiết bị đang có hồ sơ xử lý." : null);
+            return (true, dangXuLy
+                ? "Chỉ cập nhật được Vị trí/Ghi chú vì thiết bị đang có hồ sơ xử lý."
+                : null);
         }
 
         public async Task<List<LichSuThietBiDto>> GetLichSuAsync(int maThietBi) =>
@@ -76,19 +127,32 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             {
                 MaLichSu = l.MaLichSu,
                 NgayHoanThanh = l.NgayHoanThanh,
-                KetQua = l.KetQua
+                KetQua = l.KetQua,
+                GhiChu = l.GhiChu
             }).ToList();
 
-        private static ThietBiResponseDto MapToDto(ThietBi t) => new()
+        private static ThietBiResponseDto MapToDto(ThietBi t)
         {
-            MaThietBi = t.MaThietBi,
-            TenThietBi = t.TenThietBi,
-            LoaiThietBi = t.LoaiThietBi,
-            ViTriLapDat = t.ViTriLapDat,
-            TinhTrangHienTai = t.TinhTrangHienTai,
-            NgayBaoTriGanNhat = t.NgayBaoTriGanNhat,
-            NgayBaoTriTiepTheo = t.NgayBaoTriTiepTheo,
-            MaChuKy = t.MaChuKy
-        };
+            var tenDanhMuc = t.MaChuKyNavigation?.LoaiThietBi
+                ?? t.LoaiThietBi
+                ?? "Chưa phân loại";
+
+            return new ThietBiResponseDto
+            {
+                MaThietBi = t.MaThietBi,
+                TenThietBi = t.TenThietBi,
+                LoaiThietBi = t.LoaiThietBi,
+                ViTriLapDat = t.ViTriLapDat,
+                NgayLapDat = t.NgayLapDat,
+                TinhTrangHienTai = TrangThaiThietBiConst.ChuanHoa(t.TinhTrangHienTai),
+                GhiChu = t.GhiChu,
+                NgayBaoTriGanNhat = t.NgayBaoTriGanNhat,
+                NgayBaoTriTiepTheo = t.NgayBaoTriTiepTheo,
+                SoThangDeXuat = t.SoThangDeXuat ?? t.MaChuKyNavigation?.SoThangChuKyDeXuat,
+                MaChuKy = t.MaChuKy,
+                TenDanhMuc = tenDanhMuc,
+                MoTaChuKy = t.MaChuKyNavigation?.MoTa
+            };
+        }
     }
 }

@@ -11,32 +11,54 @@ namespace OPC.MaintenanceAPI.Controllers
         private readonly IEquipmentService _service;
         public EquipmentController(IEquipmentService service) => _service = service;
 
+        /// <summary>
+        /// GET /api/Equipment
+        /// Query: maChuKy, trangThai (Sản xuất | Bảo trì | Sửa chữa)
+        /// </summary>
         [HttpGet]
-        public async Task<IActionResult> GetAll([FromQuery] int? maChuKy = null) =>
-            Ok(await _service.GetAllAsync(maChuKy));
+        public async Task<IActionResult> GetAll(
+            [FromQuery] int? maChuKy = null,
+            [FromQuery] string? trangThai = null) =>
+            Ok(await _service.GetAllAsync(maChuKy, trangThai));
 
-        [HttpGet("{id}")]
+        /// <summary>
+        /// GET /api/Equipment/theo-danh-muc
+        /// Trả về danh sách đã nhóm theo danh mục (Loại thiết bị / Chu kỳ)
+        /// </summary>
+        [HttpGet("theo-danh-muc")]
+        public async Task<IActionResult> GetTheoDanhMuc([FromQuery] string? trangThai = null) =>
+            Ok(await _service.GetTheoDanhMucAsync(trangThai));
+
+        /// <summary>GET /api/Equipment/thong-ke</summary>
+        [HttpGet("thong-ke")]
+        public async Task<IActionResult> GetThongKe() =>
+            Ok(await _service.GetThongKeAsync());
+
+        [HttpGet("{id:int}")]
         public async Task<IActionResult> GetById(int id)
         {
             var r = await _service.GetByIdAsync(id);
-            return r == null ? NotFound() : Ok(r);
+            return r == null ? NotFound(new { Message = "Không tìm thấy thiết bị." }) : Ok(r);
         }
 
         [HttpPost]
         public async Task<IActionResult> Create(TaoThietBiDto dto)
         {
             var (ok, loi) = await _service.TaoMoiAsync(dto);
-            return ok ? Ok() : BadRequest(new { loi });
+            return ok ? Ok(new { Message = "Tạo thiết bị thành công." }) : BadRequest(new { Message = loi });
         }
 
-        [HttpPut("{id}")]
+        [HttpPut("{id:int}")]
         public async Task<IActionResult> Update(int id, CapNhatThietBiDto dto)
         {
             var (ok, loi) = await _service.CapNhatAsync(id, dto);
-            return ok ? Ok(new { canhBao = loi }) : BadRequest(new { loi });
+            return ok
+                ? Ok(new { Message = "Cập nhật thành công.", canhBao = loi })
+                : BadRequest(new { Message = loi });
         }
 
-        [HttpGet("{id}/lich-su")]
-        public async Task<IActionResult> GetLichSu(int id) => Ok(await _service.GetLichSuAsync(id));
+        [HttpGet("{id:int}/lich-su")]
+        public async Task<IActionResult> GetLichSu(int id) =>
+            Ok(await _service.GetLichSuAsync(id));
     }
 }

@@ -15,6 +15,10 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         Task<List<KeHoachBaoTri>> GetAllKeHoachAsync();
         Task<List<ChuKyBaoTri>> GetAllChuKyAsync();
         Task<bool> TonTaiKeHoachTheoThietBiNamAsync(int maThietBi, int nam);
+        /// <summary>Đã có dòng kế hoạch cho thiết bị trong đúng tháng/năm (theo NgayDuKienBaoTri).</summary>
+        Task<bool> TonTaiKeHoachTheoThietBiThangAsync(int maThietBi, int nam, int thang);
+        /// <summary>Đã có hồ sơ bảo trì gắn với chi tiết kế hoạch của thiết bị trong tháng/năm.</summary>
+        Task<bool> TonTaiHoSoBaoTriTheoThietBiThangAsync(int maThietBi, int nam, int thang);
         Task<ThietBi?> GetThietBiAsync(int maThietBi);
         Task<KeHoachBaoTri?> GetKeHoachByIdAsync(int maKeHoach);
         Task<DateOnly?> GetNgayBaoTriGanNhatAsync(int maKeHoach, int maThietBi);
@@ -22,6 +26,7 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         Task<bool> NamDaTonTaiAsync(int nam);
         Task<int> SaveChangesAsync();
     }
+
 
     public class MaintenancePlanRepository : IMaintenancePlanRepository
     {
@@ -91,6 +96,19 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         public async Task<bool> TonTaiKeHoachTheoThietBiNamAsync(int maThietBi, int nam) =>
             await _context.ChiTietKeHoachBaoTris.AnyAsync(c =>
                 c.MaThietBi == maThietBi && c.MaKeHoachNavigation != null && c.MaKeHoachNavigation.Nam == nam);
+
+        public async Task<bool> TonTaiKeHoachTheoThietBiThangAsync(int maThietBi, int nam, int thang) =>
+            await _context.ChiTietKeHoachBaoTris.AnyAsync(c =>
+                c.MaThietBi == maThietBi
+                && c.NgayDuKienBaoTri.Year == nam
+                && c.NgayDuKienBaoTri.Month == thang);
+
+        public async Task<bool> TonTaiHoSoBaoTriTheoThietBiThangAsync(int maThietBi, int nam, int thang) =>
+            await _context.ChiTietKeHoachBaoTris.AnyAsync(c =>
+                c.MaThietBi == maThietBi
+                && c.NgayDuKienBaoTri.Year == nam
+                && c.NgayDuKienBaoTri.Month == thang
+                && c.MaHoSoBaoTri != null);
 
         public Task<ThietBi?> GetThietBiAsync(int maThietBi) =>
             _context.ThietBis.Include(t => t.MaChuKyNavigation)

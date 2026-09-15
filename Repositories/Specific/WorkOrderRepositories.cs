@@ -11,6 +11,11 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         // Hồ sơ bảo trì
         // Kiểm tra trùng lịch + đã có kết quả — 2 dòng mới cần thêm
         Task<bool> NhanVienTrungLichAsync(int maNhanVien, DateTime tu, DateTime den);
+        /// <summary>
+        /// Nhân viên đang được phân công hồ sơ bảo trì/sửa chữa ở trạng thái "Đang thực hiện".
+        /// Chỉ rảnh lại khi hồ sơ hoàn thành (không còn "Đang thực hiện").
+        /// </summary>
+        Task<bool> NhanVienDangBanAsync(int maNhanVien);
         Task<bool> DaCoKetQuaAsync(int maPhanCong);
         Task<int?> GetSoThangChuKyAsync(string? loaiThietBi);
         Task AddHoSoBaoTriAsync(HoSoBaoTri hoSo);
@@ -18,6 +23,8 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         Task<HoSoBaoTri?> GetHoSoBaoTriByIdAsync(int id);
         Task<List<HoSoBaoTri>> GetHoSoBaoTriByTrangThaiAsync(string? trangThai);
         Task<ChiTietKeHoachBaoTri?> GetChiTietKeHoachByIdAsync(int id);
+        /// <summary>Thiết bị đã có hồ sơ bảo trì gắn chi tiết kế hoạch trong tháng/năm.</summary>
+        Task<bool> TonTaiHoSoBaoTriTheoThietBiThangAsync(int maThietBi, int nam, int thang);
         Task<int?> GetNamKeHoachTheoHoSoBaoTriAsync(int maHoSoBaoTri);
         // Rule 2: khoá tài nguyên chéo giữa Bảo trì và Sửa chữa
         Task<bool> ThietBiDangTrongQuyTrinhKhacAsync(int maThietBi, string boQuaLoaiHoSo, int? boQuaMaHoSo);
@@ -69,9 +76,33 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
             p.NgayBatDauDuKien != null && p.NgayKetThucDuKien != null &&
             p.NgayBatDauDuKien <= den && p.NgayKetThucDuKien >= tu);
 
+        public async Task<bool> NhanVienDangBanAsync(int maNhanVien)
+        {
+            // Đang thực hiện bảo trì
+            var banBaoTri = await _context.HoSoBaoTris.AnyAsync(h =>
+                h.TrangThai == "Đang thực hiện"
+                && h.MaPhanCong != null
+                && _context.PhanCongCongViecs.Any(p =>
+                    p.MaPhanCong == h.MaPhanCong
+                    && p.MaNhanVienThucHien == maNhanVien));
+
+            if (banBaoTri) return true;
+
+            // Đang thực hiện sửa chữa
+            var banSuaChua = await _context.HoSoSuaChuas.AnyAsync(h =>
+                h.TrangThai == "Đang thực hiện"
+                && h.MaPhanCong != null
+                && _context.PhanCongCongViecs.Any(p =>
+                    p.MaPhanCong == h.MaPhanCong
+                    && p.MaNhanVienThucHien == maNhanVien));
+
+            return banSuaChua;
+        }
+
         // Điều kiện: kiểm tra thiết bị có đang "Đang thực hiện" ở hồ sơ bảo trì HOẶC sửa chữa nào khác không
     // boQuaLoaiHoSo/boQuaMaHoSo dùng để loại trừ chính hồ sơ đang xử lý (tránh tự chặn chính mình)
         public async Task<bool> ThietBiDangTrongQuyTrinhKhacAsync(int maThietBi, string boQuaLoaiHoSo, int? boQuaMaHoSo)
+
         {
             var coBaoTri = await _context.HoSoBaoTris.AnyAsync(h =>
                 h.MaThieBi == maThietBi &&
@@ -145,6 +176,13 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         public async Task<int> SaveChangesAsync() => await _context.SaveChangesAsync();
 
         public async Task<ChiTietKeHoachBaoTri?> GetChiTietKeHoachByIdAsync(int id) =>
-        await _context.ChiTietKeHoachBaoTris.FirstOrDefaultAsync(c => c.MaChiTietKeHoach == id);
+            await _context.ChiTietKeHoachBaoTris.FirstOrDefaultAsync(c => c.MaChiTietKeHoach == id);
+
+        public async Task<bool> TonTaiHoSoBaoTriTheoThietBiThangAsync(int maThietBi, int nam, int thang) =>
+            await _context.ChiTietKeHoachBaoTris.AnyAsync(c =>
+                c.MaThietBi == maThietBi
+                && c.NgayDuKienBaoTri.Year == nam
+                && c.NgayDuKienBaoTri.Month == thang
+                && c.MaHoSoBaoTri != null);
     }
 }

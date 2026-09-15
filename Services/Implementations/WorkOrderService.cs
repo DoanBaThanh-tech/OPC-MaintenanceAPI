@@ -30,7 +30,15 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             {
                 var chiTiet = await _repo.GetChiTietKeHoachByIdAsync(dto.MaChiTietKeHoach.Value);
                 if (chiTiet == null) return (false, "Không tìm thấy dòng kế hoạch bảo trì.");
-                if (chiTiet.MaHoSoBaoTri != null) return (false, "Dòng kế hoạch này đã có hồ sơ bảo trì.");
+                if (chiTiet.MaHoSoBaoTri != null)
+                    return (false, "Dòng kế hoạch này đã có hồ sơ bảo trì. Không thể tạo thêm.");
+
+                // Chặn: thiết bị đã có hồ sơ bảo trì trong cùng tháng với ngày dự kiến
+                var nam = chiTiet.NgayDuKienBaoTri.Year;
+                var thang = chiTiet.NgayDuKienBaoTri.Month;
+                if (await _repo.TonTaiHoSoBaoTriTheoThietBiThangAsync(dto.MaThietBi, nam, thang))
+                    return (false,
+                        $"Thiết bị này đã có hồ sơ bảo trì trong tháng {thang}/{nam}. Không thể tạo thêm hồ sơ.");
             }
 
             var hoSo = new HoSoBaoTri
@@ -53,6 +61,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             }
             return (true, null);
         }
+
 
         public async Task<List<object>> GetHoSoBaoTriTheoTrangThaiAsync(string? trangThai, int? nam)
         {
@@ -137,6 +146,11 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (dto.NgayKetThucDuKien < dto.NgayBatDauDuKien)
                 return (false, "Ngày kết thúc không được trước ngày bắt đầu.");
 
+            // Nhân viên đang bận (đang thực hiện bảo trì/sửa chữa khác) → không cho chọn
+            if (await _repo.NhanVienDangBanAsync(dto.MaNhanVienThucHien))
+                return (false,
+                    "Nhân viên này đang đảm nhận nhiệm vụ bảo trì hoặc sửa chữa chưa hoàn thành. Vui lòng chọn nhân viên khác hoặc đợi hoàn thành công việc hiện tại.");
+
             var phanCong = new PhanCongCongViec
             {
                 MaNhanVienThucHien = dto.MaNhanVienThucHien,
@@ -159,6 +173,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             await _repo.SaveChangesAsync();
             return (true, null);
         }
+
 
         public async Task<List<object>> GetLichSuPhanCongAsync()
         {
@@ -317,6 +332,10 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
             if (dto.NgayKetThucDuKien < dto.NgayBatDauDuKien)
                 return (false, "Ngày kết thúc không được trước ngày bắt đầu.");
+
+            if (await _repo.NhanVienDangBanAsync(dto.MaNhanVienThucHien))
+                return (false,
+                    "Nhân viên này đang đảm nhận nhiệm vụ bảo trì hoặc sửa chữa chưa hoàn thành. Vui lòng chọn nhân viên khác hoặc đợi hoàn thành công việc hiện tại.");
 
             var phanCong = new PhanCongCongViec
             {

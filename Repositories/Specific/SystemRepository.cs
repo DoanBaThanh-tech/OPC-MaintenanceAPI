@@ -36,8 +36,26 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
                     nv.MaNguoiDungNavigation.MaVaiTroNavigation.TenVaiTro.Contains(vaiTro));
             }
 
-            return await query
-                .Select(nv => (object)new
+            // Nhân viên đang bận = đang là người thực hiện của hồ sơ BT/SC "Đang thực hiện"
+            var maNvDangBan = await _context.HoSoBaoTris
+                .Where(h => h.TrangThai == "Đang thực hiện" && h.MaPhanCong != null)
+                .Join(_context.PhanCongCongViecs,
+                    h => h.MaPhanCong,
+                    p => p.MaPhanCong,
+                    (h, p) => p.MaNhanVienThucHien)
+                .Union(
+                    _context.HoSoSuaChuas
+                        .Where(h => h.TrangThai == "Đang thực hiện" && h.MaPhanCong != null)
+                        .Join(_context.PhanCongCongViecs,
+                            h => h.MaPhanCong,
+                            p => p.MaPhanCong,
+                            (h, p) => p.MaNhanVienThucHien)
+                )
+                .Distinct()
+                .ToListAsync();
+
+            var list = await query
+                .Select(nv => new
                 {
                     maNhanVien = nv.MaNhanVien,
                     hoTen = nv.HoTen,
@@ -48,7 +66,25 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
                     tenVaiTro = nv.MaNguoiDungNavigation.MaVaiTroNavigation.TenVaiTro
                 })
                 .ToListAsync();
+
+            return list
+                .Select(nv => (object)new
+                {
+                    nv.maNhanVien,
+                    nv.hoTen,
+                    nv.email,
+                    nv.soDienThoai,
+                    nv.chucVu,
+                    nv.trangThai,
+                    nv.tenVaiTro,
+                    dangBan = maNvDangBan.Contains(nv.maNhanVien),
+                    ghiChuBan = maNvDangBan.Contains(nv.maNhanVien)
+                        ? "Đang đảm nhận bảo trì/sửa chữa — không thể phân công thêm"
+                        : (string?)null
+                })
+                .ToList();
         }
+
  
         public async Task<List<(VaiTro, int)>> GetAllVaiTroWithUserCountAsync()
         {

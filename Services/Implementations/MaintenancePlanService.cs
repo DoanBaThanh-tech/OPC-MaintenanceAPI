@@ -48,6 +48,23 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (dto.NgayDuKienBaoTri.Year != dto.Nam)
                 return (false, "Ngày dự kiến phải thuộc năm của kế hoạch.");
 
+            var thietBi = await _repo.GetThietBiAsync(dto.MaThietBi);
+            if (thietBi == null)
+                return (false, $"Không tìm thấy thiết bị #{dto.MaThietBi}.");
+
+            var nam = dto.NgayDuKienBaoTri.Year;
+            var thang = dto.NgayDuKienBaoTri.Month;
+
+            // Đã lập kế hoạch cho thiết bị trong tháng này → không cho lập thêm
+            if (await _repo.TonTaiKeHoachTheoThietBiThangAsync(dto.MaThietBi, nam, thang))
+                return (false,
+                    $"Thiết bị '{thietBi.TenThietBi}' đã được lập kế hoạch bảo trì trong tháng {thang}/{nam}. Không thể lập thêm.");
+
+            // Đã có hồ sơ bảo trì trong tháng này → không cho lập kế hoạch nữa
+            if (await _repo.TonTaiHoSoBaoTriTheoThietBiThangAsync(dto.MaThietBi, nam, thang))
+                return (false,
+                    $"Thiết bị '{thietBi.TenThietBi}' đã có hồ sơ bảo trì trong tháng {thang}/{nam}. Không thể lập kế hoạch thêm.");
+
             await _repo.AddChiTietRangeAsync(new[]
             {
                 new ChiTietKeHoachBaoTri
@@ -60,6 +77,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             await _repo.SaveChangesAsync();
             return (true, null);
         }
+
 
         // Thay thế TaoYeuCauNgayBaoTriAsync + LapKeHoachTuYeuCauAsync cũ.
         // Tổ trưởng chọn chu kỳ + năm + danh sách thiết bị (kèm ngày dự kiến) trong 1 lần.
@@ -80,12 +98,19 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 if (thietBi == null)
                     return (false, $"Không tìm thấy thiết bị #{ct.MaThietBi}.");
 
-                if (await _repo.TonTaiKeHoachTheoThietBiNamAsync(ct.MaThietBi, dto.Nam))
-                    return (false, $"Thiết bị '{thietBi.TenThietBi}' đã có kế hoạch trong năm {dto.Nam}.");
-
                 if (ct.NgayDuKienBaoTri.Year != dto.Nam)
                     return (false, $"Ngày dự kiến bảo trì của '{thietBi.TenThietBi}' phải thuộc năm {dto.Nam}.");
+
+                var thang = ct.NgayDuKienBaoTri.Month;
+                if (await _repo.TonTaiKeHoachTheoThietBiThangAsync(ct.MaThietBi, dto.Nam, thang))
+                    return (false,
+                        $"Thiết bị '{thietBi.TenThietBi}' đã được lập kế hoạch bảo trì trong tháng {thang}/{dto.Nam}. Không thể lập thêm.");
+
+                if (await _repo.TonTaiHoSoBaoTriTheoThietBiThangAsync(ct.MaThietBi, dto.Nam, thang))
+                    return (false,
+                        $"Thiết bị '{thietBi.TenThietBi}' đã có hồ sơ bảo trì trong tháng {thang}/{dto.Nam}. Không thể lập kế hoạch thêm.");
             }
+
 
             var keHoach = new KeHoachBaoTri
             {
@@ -129,6 +154,12 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             var thietBi = await _repo.GetThietBiAsync(dto.MaThietBi);
             if (thietBi == null) return (false, "Không tìm thấy thiết bị.");
 
+            var nam = dto.NgayDuKienBaoTri.Year;
+            var thang = dto.NgayDuKienBaoTri.Month;
+            if (await _repo.TonTaiKeHoachTheoThietBiThangAsync(dto.MaThietBi, nam, thang))
+                return (false,
+                    $"Thiết bị '{thietBi.TenThietBi}' đã được lập kế hoạch bảo trì trong tháng {thang}/{nam}. Không thể lập thêm.");
+
             // Điều kiện: thiết bị phải đã tồn tại trong kế hoạch này rồi (không cho thêm thiết bị lạ
             // qua đường này — thiết bị mới phải đi qua nút "Lập kế hoạch mới")
             var ngayGanNhat = await _repo.GetNgayBaoTriGanNhatAsync(maKeHoach, dto.MaThietBi);
@@ -137,6 +168,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
             // Điều kiện: lần bảo trì mới phải sau lần gần nhất, không được trùng/lùi ngày
             if (dto.NgayDuKienBaoTri <= ngayGanNhat.Value)
+
                 return (false, $"Ngày bảo trì mới phải sau ngày gần nhất ({ngayGanNhat.Value:dd/MM/yyyy}).");
 
             await _repo.AddChiTietRangeAsync(new[]

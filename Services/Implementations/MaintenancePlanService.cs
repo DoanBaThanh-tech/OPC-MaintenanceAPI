@@ -48,6 +48,11 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (dto.NgayDuKienBaoTri.Year != dto.Nam)
                 return (false, "Ngày dự kiến phải thuộc năm của kế hoạch.");
 
+            // Ngày dự kiến phải lớn hơn ngày lập kế hoạch
+            if (dto.NgayDuKienBaoTri <= keHoach.NgayLapKeHoach)
+                return (false,
+                    $"Ngày dự kiến bảo trì phải lớn hơn ngày lập kế hoạch ({keHoach.NgayLapKeHoach:dd/MM/yyyy}).");
+
             var thietBi = await _repo.GetThietBiAsync(dto.MaThietBi);
             if (thietBi == null)
                 return (false, $"Không tìm thấy thiết bị #{dto.MaThietBi}.");
@@ -91,6 +96,8 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             var nhanVien = await _nhanVienRepo.GetByMaNguoiDungAsync(maNguoiDungTao);
             if (nhanVien == null) return (false, "Không xác định được người lập kế hoạch.");
 
+            var ngayLap = DateOnly.FromDateTime(DateTime.Now);
+
             // Validate từng thiết bị trước khi tạo bất kỳ dữ liệu nào
             foreach (var ct in dto.ThietBiDuocChon)
             {
@@ -100,6 +107,10 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
                 if (ct.NgayDuKienBaoTri.Year != dto.Nam)
                     return (false, $"Ngày dự kiến bảo trì của '{thietBi.TenThietBi}' phải thuộc năm {dto.Nam}.");
+
+                if (ct.NgayDuKienBaoTri <= ngayLap)
+                    return (false,
+                        $"Ngày dự kiến bảo trì của '{thietBi.TenThietBi}' phải lớn hơn ngày lập kế hoạch ({ngayLap:dd/MM/yyyy}).");
 
                 var thang = ct.NgayDuKienBaoTri.Month;
                 if (await _repo.TonTaiKeHoachTheoThietBiThangAsync(ct.MaThietBi, dto.Nam, thang))
@@ -111,13 +122,12 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                         $"Thiết bị '{thietBi.TenThietBi}' đã có hồ sơ bảo trì trong tháng {thang}/{dto.Nam}. Không thể lập kế hoạch thêm.");
             }
 
-
             var keHoach = new KeHoachBaoTri
             {
                 MaChuKy = dto.MaChuKy,
                 Nam = dto.Nam,
                 MaNhanVienLap = nhanVien.MaNhanVien,
-                NgayLapKeHoach = DateOnly.FromDateTime(DateTime.Now),
+                NgayLapKeHoach = ngayLap,
                 TrangThai = "Đang lập"
             };
             await _repo.AddKeHoachAsync(keHoach);
@@ -150,6 +160,10 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (dto.NgayDuKienBaoTri.Year != keHoach.Nam)
                 return (false, $"Lần bảo trì tiếp theo đã vượt qua năm {keHoach.Nam}. " +
                    $"Vui lòng lập kế hoạch bảo trì cho năm {dto.NgayDuKienBaoTri.Year} để tiếp tục.");
+
+            if (dto.NgayDuKienBaoTri <= keHoach.NgayLapKeHoach)
+                return (false,
+                    $"Ngày dự kiến bảo trì phải lớn hơn ngày lập kế hoạch ({keHoach.NgayLapKeHoach:dd/MM/yyyy}).");
 
             var thietBi = await _repo.GetThietBiAsync(dto.MaThietBi);
             if (thietBi == null) return (false, "Không tìm thấy thiết bị.");

@@ -13,10 +13,7 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         Task<bool> NhanVienTrungLichAsync(int maNhanVien, DateTime tu, DateTime den);
         /// <summary>Số hồ sơ BT + SC đang "Đang thực hiện" của nhân viên (tối đa 3).</summary>
         Task<int> DemCongViecDangThucHienAsync(int maNhanVien);
-        /// <summary>
-        /// Không nhận thêm khi đã khóa (đủ 3 chưa xong hết) hoặc đang đủ 3 việc.
-        /// Chỉ nhận lại sau khi hoàn thành hết cả 3 (KhoaPhanCong = false, số việc = 0).
-        /// </summary>
+        /// <summary>true nếu NV đang có việc (1/3–3/3) — chỉ chọn khi 0 việc.</summary>
         Task<bool> NhanVienKhongTheNhanThemAsync(int maNhanVien);
         Task<bool> DaCoKetQuaAsync(int maPhanCong);
         Task<int?> GetSoThangChuKyAsync(string? loaiThietBi);
@@ -109,6 +106,7 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         }
 
 
+
         // Điều kiện: kiểm tra thiết bị có đang "Đang thực hiện" ở hồ sơ bảo trì HOẶC sửa chữa nào khác không
 
     // boQuaLoaiHoSo/boQuaMaHoSo dùng để loại trừ chính hồ sơ đang xử lý (tránh tự chặn chính mình)
@@ -187,7 +185,9 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         public async Task<int> SaveChangesAsync() => await _context.SaveChangesAsync();
 
         public async Task<ChiTietKeHoachBaoTri?> GetChiTietKeHoachByIdAsync(int id) =>
-            await _context.ChiTietKeHoachBaoTris.FirstOrDefaultAsync(c => c.MaChiTietKeHoach == id);
+            await _context.ChiTietKeHoachBaoTris
+                .Include(c => c.MaKeHoachNavigation)
+                .FirstOrDefaultAsync(c => c.MaChiTietKeHoach == id);
 
         public async Task<bool> TonTaiHoSoBaoTriTheoThietBiThangAsync(int maThietBi, int nam, int thang) =>
             await _context.ChiTietKeHoachBaoTris.AnyAsync(c =>

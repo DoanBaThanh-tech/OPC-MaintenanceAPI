@@ -33,6 +33,13 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 if (chiTiet.MaHoSoBaoTri != null)
                     return (false, "Dòng kế hoạch này đã có hồ sơ bảo trì. Không thể tạo thêm.");
 
+                // Ngày dự kiến bảo trì phải sau ngày lập kế hoạch
+                var ngayLap = chiTiet.MaKeHoachNavigation?.NgayLapKeHoach;
+                if (ngayLap != null && chiTiet.NgayDuKienBaoTri <= ngayLap.Value)
+                    return (false,
+                        $"Ngày dự kiến bảo trì ({chiTiet.NgayDuKienBaoTri:dd/MM/yyyy}) phải lớn hơn ngày lập kế hoạch ({ngayLap.Value:dd/MM/yyyy}). " +
+                        "Vui lòng chỉnh lại ngày dự kiến trên kế hoạch trước khi tạo hồ sơ.");
+
                 // Chặn: thiết bị đã có hồ sơ bảo trì trong cùng tháng với ngày dự kiến
                 var nam = chiTiet.NgayDuKienBaoTri.Year;
                 var thang = chiTiet.NgayDuKienBaoTri.Month;
@@ -40,6 +47,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     return (false,
                         $"Thiết bị này đã có hồ sơ bảo trì trong tháng {thang}/{nam}. Không thể tạo thêm hồ sơ.");
             }
+
 
             var hoSo = new HoSoBaoTri
             {
@@ -244,25 +252,11 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     hoSo.MaThieBiNavigation.NgayBaoTriTiepTheo = homNay.AddMonths(soThang.Value);
             }
             await _repo.SaveChangesAsync();
-
-            // Hết việc đang làm (0) → mở khóa phân công
-            if (hoSo.MaPhanCong != null)
-            {
-                var pc = await _repo.GetPhanCongByIdAsync(hoSo.MaPhanCong.Value);
-                if (pc != null)
-                {
-                    var conLai = await _repo.DemCongViecDangThucHienAsync(pc.MaNhanVienThucHien);
-                    if (conLai == 0)
-                    {
-                        await _repo.SaveChangesAsync();
-                    }
-                }
-            }
-
             return (true, null);
         }
 
         // ===== SỬA CHỮA =====
+
 
         public async Task<(bool, string?)> TaoHoSoSuaChuaAsync(TaoHoSoSuaChuaDto dto)
         {
@@ -408,24 +402,11 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (hoSo.MaThieBiNavigation != null)
                 hoSo.MaThieBiNavigation.TinhTrangHienTai = "Sản xuất";
             await _repo.SaveChangesAsync();
-
-            if (hoSo.MaPhanCong != null)
-            {
-                var pc = await _repo.GetPhanCongByIdAsync(hoSo.MaPhanCong.Value);
-                if (pc != null)
-                {
-                    var conLai = await _repo.DemCongViecDangThucHienAsync(pc.MaNhanVienThucHien);
-                    if (conLai == 0)
-                    {
-                        await _repo.SaveChangesAsync();
-                    }
-                }
-            }
-
             return (true, null);
         }
 
         // ===== TRUY VẤN =====
+
 
 
         // Helper dùng chung: tính Nam cho từng hồ sơ 1 lần, tái sử dụng cho cả lọc lẫn liệt kê năm có dữ liệu

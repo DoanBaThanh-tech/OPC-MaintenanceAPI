@@ -39,9 +39,12 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             return (true, null);
         }
 
+        /// <summary>
+        /// Lập bảo trì cho thiết bị = tạo Chi tiết kế hoạch + Hồ sơ bảo trì (Chờ duyệt) trong 1 lần.
+        /// Sau khi xong: hiện trên lịch Kế hoạch + trang Hồ sơ bảo trì.
+        /// </summary>
         public async Task<(bool, string?)> ThemThietBiVaoNamAsync(int maNguoiDungTao, ThemThietBiVaoNamDto dto)
         {
-            // Khớp chữ ký interface: cần maNguoiDungTao để xác thực người thao tác
             var nhanVien = await _nhanVienRepo.GetByMaNguoiDungAsync(maNguoiDungTao);
             if (nhanVien == null)
                 return (false, "Không xác định được người thao tác.");
@@ -53,19 +56,19 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (dto.NgayDuKienBaoTri.Year != dto.Nam)
                 return (false, "Ngày dự kiến phải thuộc năm của kế hoạch.");
 
-            // Ngày dự kiến phải lớn hơn ngày hiện tại (không chọn hôm nay / quá khứ)
             var homNay = DateOnly.FromDateTime(DateTime.Now);
             if (dto.NgayDuKienBaoTri <= homNay)
                 return (false, "Ngày dự kiến bảo trì phải lớn hơn ngày hiện tại (không chọn hôm nay hoặc ngày trước).");
 
-            // Ngày dự kiến phải lớn hơn ngày lập kế hoạch
             if (dto.NgayDuKienBaoTri <= keHoach.NgayLapKeHoach)
                 return (false,
                     $"Ngày dự kiến bảo trì phải lớn hơn ngày lập kế hoạch ({keHoach.NgayLapKeHoach:dd/MM/yyyy}).");
 
-            var homNayLan = DateOnly.FromDateTime(DateTime.Now);
-            if (dto.NgayDuKienBaoTri <= homNayLan)
-                return (false, "Ngày dự kiến bảo trì phải lớn hơn ngày hiện tại (không chọn hôm nay hoặc ngày trước).");
+            if (string.IsNullOrWhiteSpace(dto.NoiDungCongViec))
+                return (false, "Vui lòng nhập nội dung công việc.");
+
+            if (dto.ThoiGianDuKien == null || dto.ThoiGianDuKien <= 0)
+                return (false, "Giờ dự kiến bảo trì phải là số dương.");
 
             var thietBi = await _repo.GetThietBiAsync(dto.MaThietBi);
             if (thietBi == null)
@@ -74,29 +77,52 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             var nam = dto.NgayDuKienBaoTri.Year;
             var thang = dto.NgayDuKienBaoTri.Month;
 
-            // Đã lập kế hoạch cho thiết bị trong tháng này → không cho lập thêm
             if (await _repo.TonTaiKeHoachTheoThietBiThangAsync(dto.MaThietBi, nam, thang))
                 return (false,
                     $"Thiết bị '{thietBi.TenThietBi}' đã được lập kế hoạch bảo trì trong tháng {thang}/{nam}. Không thể lập thêm.");
 
-            // Đã có hồ sơ bảo trì trong tháng này → không cho lập kế hoạch nữa
             if (await _repo.TonTaiHoSoBaoTriTheoThietBiThangAsync(dto.MaThietBi, nam, thang))
                 return (false,
                     $"Thiết bị '{thietBi.TenThietBi}' đã có hồ sơ bảo trì trong tháng {thang}/{nam}. Không thể lập kế hoạch thêm.");
 
-            await _repo.AddChiTietRangeAsync(new[]
+            // --- Tạo cả 2 trong cùng luồng ---
+            var chiTiet = new ChiTietKeHoachBaoTri
             {
-                new ChiTietKeHoachBaoTri
-                {
-                    MaKeHoach = keHoach.MaKeHoach,
-                    MaThietBi = dto.MaThietBi,
-                    NgayDuKienBaoTri = dto.NgayDuKienBaoTri
-                }
-            });
+                MaKeHoach = keHoach.MaKeHoach,
+                MaThietBi = dto.MaThietBi,
+                NgayDuKienBaoTri = dto.NgayDuKienBaoTri,
+                TrangThai = "Đã tạo hồ sơ"
+            };
+            await _repo.AddChiTietRangeAsync(new[] { chiTiet });
+            await _repo.SaveChangesAsync(); // có MaChiTietKeHoach
+
+            var moTaGio = dto.ThoiGianDuKien.Value.ToString();
+            if (!string.IsNullOrWhiteSpace(dto.GioBatDauDuKien) && !string.IsNullOrWhiteSpace(dto.GioKetThucDuKien))
+                moTaGio = $"{dto.ThoiGianDuKien} giờ ({dto.GioBatDauDuKien}-{dto.GioKetThucDuKien})";
+
+            var hoSo = new HoSoBaoTri
+            {
+                MaThieBi = dto.MaThietBi,
+                MaNhanVienTao = nhanVien.MaNhanVien,
+                NoiDungCongViec = dto.NoiDungCongViec!.Trim(),
+                ThoiGianDuKien = moTaGio,
+                NgayTao = DateTime.Now,
+                TrangThai = "Chờ duyệt"
+            };
+            await _repo.AddHoSoBaoTriAsync(hoSo);
+            await _repo.SaveChangesAsync(); // có MaHoSoBaoTri
+
+            // Gắn hồ sơ vào chi tiết — bắt buộc để lịch không còn "Chưa tạo hồ sơ"
+            var chiTietDb = await _repo.GetChiTietKeHoachByIdAsync(chiTiet.MaChiTietKeHoach);
+            if (chiTietDb == null)
+                return (false, "Đã tạo dữ liệu nhưng không gắn được hồ sơ vào kế hoạch. Vui lòng liên hệ admin.");
+
+            chiTietDb.MaHoSoBaoTri = hoSo.MaHoSoBaoTri;
+            chiTietDb.TrangThai = "Đã tạo hồ sơ";
             await _repo.SaveChangesAsync();
+
             return (true, null);
         }
-
 
         // Thay thế TaoYeuCauNgayBaoTriAsync + LapKeHoachTuYeuCauAsync cũ.
         // Tổ trưởng chọn chu kỳ + năm + danh sách thiết bị (kèm ngày dự kiến) trong 1 lần.

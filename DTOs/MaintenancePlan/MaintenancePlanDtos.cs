@@ -73,9 +73,12 @@ public class ThemThietBiVaoNamDto
         public int Nam { get; set; }
         public int MaThietBi { get; set; }
         public DateOnly NgayDuKienBaoTri { get; set; }
+        /// <summary>Bắt buộc — tạo luôn hồ sơ bảo trì cùng lúc.</summary>
         public string? NoiDungCongViec { get; set; }
+        /// <summary>Số giờ dự kiến (số dương).</summary>
         public int? ThoiGianDuKien { get; set; }
-        public TimeSpan? GioBatDauDuKien { get; set; }
-        public TimeSpan? GioKetThucDuKien { get; set; }
+        /// <summary>HH:mm:ss — tùy chọn, lưu kèm mô tả nếu cần.</summary>
+        public string? GioBatDauDuKien { get; set; }
+        public string? GioKetThucDuKien { get; set; }
     }
 }

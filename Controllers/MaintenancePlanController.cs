@@ -69,7 +69,7 @@ namespace OPC.MaintenanceAPI.Controllers
             var (ok, loi) = await _service.ThemThietBiVaoNamAsync(maNguoiDung, dto);
             // Luôn trả JSON để client mobile parse ổn định (tránh Ok() body rỗng)
             return ok
-                ? Ok(new { Message = "Thêm thiết bị vào kế hoạch thành công." })
+                ? Ok(new { Message = "Đã tạo kế hoạch bảo trì và hồ sơ bảo trì (Chờ duyệt)." })
                 : BadRequest(new { Message = loi, loi });
         }
 

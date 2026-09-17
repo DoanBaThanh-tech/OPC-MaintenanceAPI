@@ -8,6 +8,7 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
     {
         Task AddKeHoachAsync(KeHoachBaoTri keHoach);
         Task AddChiTietRangeAsync(IEnumerable<ChiTietKeHoachBaoTri> chiTiets);
+        Task AddHoSoBaoTriAsync(HoSoBaoTri hoSo);
         Task<List<ChiTietKeHoachBaoTri>> GetChiTietChuaCoHoSoAsync();
         Task<List<ChiTietKeHoachBaoTri>> GetChiTietTheoKeHoachAsync(int maKeHoach);
         Task<ChiTietKeHoachBaoTri?> GetChiTietKeHoachByIdAsync(int id);
@@ -63,6 +64,9 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
 
         public async Task AddChiTietRangeAsync(IEnumerable<ChiTietKeHoachBaoTri> chiTiets) =>
             await _context.ChiTietKeHoachBaoTris.AddRangeAsync(chiTiets);
+
+        public async Task AddHoSoBaoTriAsync(HoSoBaoTri hoSo) =>
+            await _context.HoSoBaoTris.AddAsync(hoSo);
 
         public async Task<List<ChiTietKeHoachBaoTri>> GetChiTietChuaCoHoSoAsync() =>
             await _context.ChiTietKeHoachBaoTris

@@ -73,7 +73,11 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             var thietBi = await _repo.GetThietBiAsync(dto.MaThietBi);
             if (thietBi == null)
                 return (false, $"Không tìm thấy thiết bị #{dto.MaThietBi}.");
-
+            if (dto.NgayDuKienBaoTri <= thietBi.NgayLapDat)
+            {
+                return (false,
+                    $"Ngày dự kiến bảo trì phải lớn hơn ngày lắp đặt ({thietBi.NgayLapDat:dd/MM/yyyy}).");
+            }
             var nam = dto.NgayDuKienBaoTri.Year;
             var thang = dto.NgayDuKienBaoTri.Month;
 
@@ -127,6 +131,22 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
             chiTietDb.MaHoSoBaoTri = hoSo.MaHoSoBaoTri;
             chiTietDb.TrangThai = "Đã tạo hồ sơ";
+
+            var ngayDuKien = dto.NgayDuKienBaoTri;
+            if (thietBi.NgayBaoTriGanNhat == null)
+            {
+                thietBi.NgayBaoTriGanNhat = ngayDuKien;
+                thietBi.NgayBaoTriTiepTheo = null;
+            }
+            else if (thietBi.NgayBaoTriTiepTheo == null)
+            {
+                thietBi.NgayBaoTriTiepTheo = ngayDuKien;
+            }
+            else
+            {
+                thietBi.NgayBaoTriGanNhat = thietBi.NgayBaoTriTiepTheo;
+                thietBi.NgayBaoTriTiepTheo = ngayDuKien;
+            }
             await _repo.SaveChangesAsync();
 
             return (true, null);

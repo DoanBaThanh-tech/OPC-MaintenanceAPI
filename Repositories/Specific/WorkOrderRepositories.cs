@@ -31,6 +31,7 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         Task AddHoSoSuaChuaAsync(HoSoSuaChua hoSo);
         Task<HoSoSuaChua?> GetHoSoSuaChuaByIdAsync(int id);
         Task<List<HoSoSuaChua>> GetHoSoSuaChuaByTrangThaiAsync(string trangThai);
+        Task<ThietBi?> GetThietBiByIdAsync(int maThietBi);
         
         // Phân công + kết quả
         Task AddPhanCongAsync(PhanCongCongViec phanCong);
@@ -48,6 +49,9 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
     {
         private readonly OPCDbContext _context;
         public WorkOrderRepository(OPCDbContext context) => _context = context;
+
+        public async Task<ThietBi?> GetThietBiByIdAsync(int maThietBi) =>
+            await _context.ThietBis.FirstOrDefaultAsync(t => t.MaThietBi == maThietBi);
 
         public async Task<DateOnly?> GetNgayDuKienBaoTriTheoHoSoBaoTriAsync(int maHoSoBaoTri) =>
         await _context.ChiTietKeHoachBaoTris

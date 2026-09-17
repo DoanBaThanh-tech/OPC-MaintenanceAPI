@@ -60,7 +60,39 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             };
             await _repo.AddHoSoBaoTriAsync(hoSo);
             await _repo.SaveChangesAsync();
+            // Lấy ngày dự kiến từ chi tiết KH
+        DateOnly? ngayDuKien = null;
+        if (dto.MaChiTietKeHoach.HasValue)
+        {
+            var ct = await _repo.GetChiTietKeHoachByIdAsync(dto.MaChiTietKeHoach.Value);
+            ngayDuKien = ct?.NgayDuKienBaoTri;
+        }
 
+        if (ngayDuKien.HasValue)
+        {
+            var tb = await _repo.GetThietBiByIdAsync(dto.MaThietBi);
+            if (tb != null)
+            {
+                if (tb.NgayBaoTriGanNhat == null)
+                {
+                    // Lần 1
+                    tb.NgayBaoTriGanNhat = ngayDuKien.Value;
+                    tb.NgayBaoTriTiepTheo = null;
+                }
+                else if (tb.NgayBaoTriTiepTheo == null)
+                {
+                    // Lần 2
+                    tb.NgayBaoTriTiepTheo = ngayDuKien.Value;
+                }
+                else
+                {
+                    // Lần 3+
+                    tb.NgayBaoTriGanNhat = tb.NgayBaoTriTiepTheo;
+                    tb.NgayBaoTriTiepTheo = ngayDuKien.Value;
+                }
+            }
+        }
+        await _repo.SaveChangesAsync();
             if (dto.MaChiTietKeHoach.HasValue)
             {
                 var chiTiet = await _repo.GetChiTietKeHoachByIdAsync(dto.MaChiTietKeHoach.Value);
@@ -242,14 +274,8 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             hoSo.TrangThai = "Đã hoàn thành";
             if (hoSo.MaThieBiNavigation != null)
             {
-                var homNay = DateOnly.FromDateTime(DateTime.Now);
-                hoSo.MaThieBiNavigation.NgayBaoTriGanNhat = homNay;
                 // Hoàn thành bảo trì → trở về Sản xuất
                 hoSo.MaThieBiNavigation.TinhTrangHienTai = "Sản xuất";
-
-                var soThang = await _repo.GetSoThangChuKyAsync(hoSo.MaThieBiNavigation.LoaiThietBi);
-                if (soThang.HasValue)
-                    hoSo.MaThieBiNavigation.NgayBaoTriTiepTheo = homNay.AddMonths(soThang.Value);
             }
             await _repo.SaveChangesAsync();
             return (true, null);

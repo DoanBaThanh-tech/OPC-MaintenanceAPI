@@ -96,16 +96,24 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             await _repo.AddChiTietRangeAsync(new[] { chiTiet });
             await _repo.SaveChangesAsync(); // có MaChiTietKeHoach
 
-            var moTaGio = dto.ThoiGianDuKien.Value.ToString();
-            if (!string.IsNullOrWhiteSpace(dto.GioBatDauDuKien) && !string.IsNullOrWhiteSpace(dto.GioKetThucDuKien))
-                moTaGio = $"{dto.ThoiGianDuKien} giờ ({dto.GioBatDauDuKien}-{dto.GioKetThucDuKien})";
+            TimeSpan? gioBatDau = null;
+            TimeSpan? gioKetThuc = null;
+            if (!string.IsNullOrWhiteSpace(dto.GioBatDauDuKien) && TimeSpan.TryParse(dto.GioBatDauDuKien, out var gbd))
+                gioBatDau = gbd;
+            if (!string.IsNullOrWhiteSpace(dto.GioKetThucDuKien) && TimeSpan.TryParse(dto.GioKetThucDuKien, out var gkt))
+                gioKetThuc = gkt;
+
+            if (gioBatDau == null || gioKetThuc == null)
+                return (false, "Vui lòng chọn giờ bắt đầu và giờ kết thúc dự kiến.");
 
             var hoSo = new HoSoBaoTri
             {
                 MaThieBi = dto.MaThietBi,
                 MaNhanVienTao = nhanVien.MaNhanVien,
                 NoiDungCongViec = dto.NoiDungCongViec!.Trim(),
-                ThoiGianDuKien = moTaGio,
+                ThoiGianDuKien = dto.ThoiGianDuKien.Value.ToString(), // chỉ số giờ
+                GioBatDauDuKien = gioBatDau,
+                GioKetThucDuKien = gioKetThuc,
                 NgayTao = DateTime.Now,
                 TrangThai = "Chờ duyệt"
             };

@@ -19,6 +19,12 @@ public partial class HoSoBaoTri
 
     public string? ThoiGianDuKien { get; set; }
 
+    /// <summary>Giờ bắt đầu dự kiến (chỉ phần giờ).</summary>
+    public TimeSpan? GioBatDauDuKien { get; set; }
+
+    /// <summary>Giờ kết thúc dự kiến (chỉ phần giờ).</summary>
+    public TimeSpan? GioKetThucDuKien { get; set; }
+
     public DateTime NgayTao { get; set; }
 
     public string TrangThai { get; set; } = null!;
@@ -40,7 +46,4 @@ public partial class HoSoBaoTri
     public virtual PhanCongCongViec? MaPhanCongNavigation { get; set; }
 
     public virtual ThietBi MaThieBiNavigation { get; set; } = null!;
-
-    public TimeOnly? GioBatDauDuKien { get; set; }
-    public TimeOnly? GioKetThucDuKien { get; set; }
 }

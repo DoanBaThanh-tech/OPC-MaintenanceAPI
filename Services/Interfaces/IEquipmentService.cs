@@ -11,5 +11,7 @@ namespace OPC.MaintenanceAPI.Services.Interfaces
         Task<List<ThietBiResponseDto>> GetAllAsync(int? maChuKy = null, string? trangThai = null);
         Task<List<NhomThietBiDto>> GetTheoDanhMucAsync(string? trangThai = null);
         Task<ThongKeThietBiDto> GetThongKeAsync();
+        /// <summary>Đồng bộ TinhTrangHienTai theo hồ sơ BT/SC còn hiệu lực. Trả về số TB đã đổi.</summary>
+        Task<int> DongBoTrangThaiTuHoSoAsync();
     }
 }

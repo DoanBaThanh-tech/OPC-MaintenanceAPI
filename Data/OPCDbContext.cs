@@ -146,6 +146,8 @@ public partial class OPCDbContext : DbContext
                 .HasColumnType("datetime");
             entity.Property(e => e.NoiDungCongViec).HasMaxLength(500);
             entity.Property(e => e.ThoiGianDuKien).HasMaxLength(50);
+            entity.Property(e => e.GioBatDauDuKien).HasColumnType("time");
+            entity.Property(e => e.GioKetThucDuKien).HasColumnType("time");
             entity.Property(e => e.TrangThai)
                 .HasMaxLength(30)
                 .HasDefaultValue("Chờ duyệt");

@@ -13,6 +13,11 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         Task AddAsync(ThietBi thietBi);
         Task<List<LichSuThietBi>> GetLichSuAsync(int maThietBi);
         Task AddLichSuAsync(LichSuThietBi lichSu);
+        /// <summary>
+        /// Đồng bộ TinhTrangHienTai theo hồ sơ BT/SC còn hiệu lực
+        /// (Chờ duyệt / Đã duyệt / Đang thực hiện). SC ưu tiên hơn BT.
+        /// </summary>
+        Task<int> DongBoTrangThaiTuHoSoAsync();
         Task<int> SaveChangesAsync();
     }
 
@@ -21,6 +26,11 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         private readonly OPCDbContext _context;
         public EquipmentRepository(OPCDbContext context) => _context = context;
 
+        private static readonly string[] TrangThaiHoSoHieuLuc =
+        {
+            "Chờ duyệt", "Đã duyệt", "Đang thực hiện"
+        };
+
         public async Task<List<ThietBi>> GetAllAsync() =>
             await _context.ThietBis
                 .Include(t => t.MaChuKyNavigation)
@@ -28,6 +38,7 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
                 .OrderBy(t => t.LoaiThietBi)
                 .ThenBy(t => t.TenThietBi)
                 .ToListAsync();
+
 
         public async Task<ThietBi?> GetByIdAsync(int id) =>
             await _context.ThietBis
@@ -57,6 +68,51 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
                 .ToListAsync();
 
         public async Task AddLichSuAsync(LichSuThietBi lichSu) => await _context.LichSuThietBis.AddAsync(lichSu);
+
+        public async Task<int> DongBoTrangThaiTuHoSoAsync()
+        {
+            var maTbSuaChua = await _context.HoSoSuaChuas
+                .Where(h => TrangThaiHoSoHieuLuc.Contains(h.TrangThai))
+                .Select(h => h.MaThieBi)
+                .Distinct()
+                .ToListAsync();
+
+            var maTbBaoTri = await _context.HoSoBaoTris
+                .Where(h => TrangThaiHoSoHieuLuc.Contains(h.TrangThai))
+                .Select(h => h.MaThieBi)
+                .Distinct()
+                .ToListAsync();
+
+            var setSC = maTbSuaChua.ToHashSet();
+            var setBT = maTbBaoTri.ToHashSet();
+
+            // Cần tracking để cập nhật
+            var all = await _context.ThietBis.ToListAsync();
+            var soDoi = 0;
+
+            foreach (var t in all)
+            {
+                string moi;
+                if (setSC.Contains(t.MaThietBi))
+                    moi = "Sửa chữa";
+                else if (setBT.Contains(t.MaThietBi))
+                    moi = "Bảo trì";
+                else
+                    moi = "Sản xuất";
+
+                var hienTai = (t.TinhTrangHienTai ?? "").Trim();
+                if (!string.Equals(hienTai, moi, StringComparison.Ordinal))
+                {
+                    t.TinhTrangHienTai = moi;
+                    soDoi++;
+                }
+            }
+
+            if (soDoi > 0)
+                await _context.SaveChangesAsync();
+
+            return soDoi;
+        }
 
         public async Task<int> SaveChangesAsync() => await _context.SaveChangesAsync();
     }

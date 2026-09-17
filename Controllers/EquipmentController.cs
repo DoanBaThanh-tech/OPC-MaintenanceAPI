@@ -34,12 +34,28 @@ namespace OPC.MaintenanceAPI.Controllers
         public async Task<IActionResult> GetThongKe() =>
             Ok(await _service.GetThongKeAsync());
 
+        /// <summary>
+        /// POST /api/Equipment/dong-bo-trang-thai
+        /// Đồng bộ TinhTrangHienTai theo hồ sơ BT/SC (Chờ duyệt / Đã duyệt / Đang thực hiện).
+        /// </summary>
+        [HttpPost("dong-bo-trang-thai")]
+        public async Task<IActionResult> DongBoTrangThai()
+        {
+            var soDoi = await _service.DongBoTrangThaiTuHoSoAsync();
+            return Ok(new
+            {
+                Message = $"Đã đồng bộ trạng thái thiết bị. Số thiết bị cập nhật: {soDoi}.",
+                soThietBiCapNhat = soDoi
+            });
+        }
+
         [HttpGet("{id:int}")]
         public async Task<IActionResult> GetById(int id)
         {
             var r = await _service.GetByIdAsync(id);
             return r == null ? NotFound(new { Message = "Không tìm thấy thiết bị." }) : Ok(r);
         }
+
 
         [HttpPost]
         public async Task<IActionResult> Create(TaoThietBiDto dto)

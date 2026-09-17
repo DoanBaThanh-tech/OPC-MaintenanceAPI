@@ -27,8 +27,13 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             return mapped;
         }
 
+        public async Task<int> DongBoTrangThaiTuHoSoAsync() =>
+            await _repo.DongBoTrangThaiTuHoSoAsync();
+
         public async Task<List<NhomThietBiDto>> GetTheoDanhMucAsync(string? trangThai = null)
         {
+            // Tự đồng bộ trước khi trả list — tránh lệch sau khi xóa/tạo hồ sơ tay
+            await _repo.DongBoTrangThaiTuHoSoAsync();
             var all = await GetAllAsync(trangThai: trangThai);
 
             return all
@@ -55,6 +60,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
         public async Task<ThongKeThietBiDto> GetThongKeAsync()
         {
+            await _repo.DongBoTrangThaiTuHoSoAsync();
             var all = await GetAllAsync();
             return new ThongKeThietBiDto
             {
@@ -64,6 +70,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 SoSuaChua = all.Count(x => x.TinhTrangHienTai == TrangThaiThietBiConst.SuaChua)
             };
         }
+
 
         public async Task<ThietBiResponseDto?> GetByIdAsync(int id)
         {

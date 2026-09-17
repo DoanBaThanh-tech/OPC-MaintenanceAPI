@@ -436,15 +436,25 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (h == null) return null;
             var namTuKeHoach = await _repo.GetNamKeHoachTheoHoSoBaoTriAsync(h.MaHoSoBaoTri);
             var ngayDuKien = await _repo.GetNgayDuKienBaoTriTheoHoSoBaoTriAsync(h.MaHoSoBaoTri);
+            static string? FmtGio(TimeSpan? t) =>
+                t == null ? null : $"{(int)t.Value.TotalHours:D2}:{t.Value.Minutes:D2}";
+
             return new
             {
                 h.MaHoSoBaoTri,
                 MaThietBi = h.MaThieBi,
                 TenThietBi = h.MaThieBiNavigation?.TenThietBi,
-                TenNhanVienTao = h.MaNhanVienTaoNavigation?.HoTen,   // ← THÊM
-                h.NoiDungCongViec, h.ThoiGianDuKien, h.TrangThai, h.LyDoTuChoi,
-                h.NgayTao, h.NgayDuyet, h.MaPhanCong,
-                NgayDuKienBaoTri = ngayDuKien,   // ← THÊM
+                TenNhanVienTao = h.MaNhanVienTaoNavigation?.HoTen,
+                h.NoiDungCongViec,
+                h.ThoiGianDuKien, // số giờ, ví dụ "4"
+                GioBatDauDuKien = FmtGio(h.GioBatDauDuKien),
+                GioKetThucDuKien = FmtGio(h.GioKetThucDuKien),
+                h.TrangThai,
+                h.LyDoTuChoi,
+                h.NgayTao,
+                h.NgayDuyet,
+                h.MaPhanCong,
+                NgayDuKienBaoTri = ngayDuKien,
                 RowVersion = Convert.ToBase64String(h.RowVersion),
                 Nam = namTuKeHoach ?? h.NgayTao.Year,
                 NamTuKeHoach = namTuKeHoach != null

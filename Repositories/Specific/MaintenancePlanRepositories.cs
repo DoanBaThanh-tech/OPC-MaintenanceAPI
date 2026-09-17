@@ -73,6 +73,7 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         public async Task<List<ChiTietKeHoachBaoTri>> GetChiTietTheoKeHoachAsync(int maKeHoach) =>
             await _context.ChiTietKeHoachBaoTris
                 .Include(c => c.MaThietBiNavigation)
+                .Include(c => c.MaHoSoBaoTriNavigation)
                 .Where(c => c.MaKeHoach == maKeHoach)
                 .ToListAsync();
 

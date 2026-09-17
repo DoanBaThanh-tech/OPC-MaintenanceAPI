@@ -39,8 +39,13 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             return (true, null);
         }
 
-        public async Task<(bool, string?)> ThemThietBiVaoNamAsync(ThemThietBiVaoNamDto dto)
+        public async Task<(bool, string?)> ThemThietBiVaoNamAsync(int maNguoiDungTao, ThemThietBiVaoNamDto dto)
         {
+            // Khớp chữ ký interface: cần maNguoiDungTao để xác thực người thao tác
+            var nhanVien = await _nhanVienRepo.GetByMaNguoiDungAsync(maNguoiDungTao);
+            if (nhanVien == null)
+                return (false, "Không xác định được người thao tác.");
+
             var keHoach = await _repo.GetKeHoachByNamAsync(dto.Nam);
             if (keHoach == null)
                 return (false, $"Chưa có kế hoạch cho năm {dto.Nam}. Vui lòng tạo kế hoạch năm trước.");
@@ -48,10 +53,19 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (dto.NgayDuKienBaoTri.Year != dto.Nam)
                 return (false, "Ngày dự kiến phải thuộc năm của kế hoạch.");
 
+            // Ngày dự kiến phải lớn hơn ngày hiện tại (không chọn hôm nay / quá khứ)
+            var homNay = DateOnly.FromDateTime(DateTime.Now);
+            if (dto.NgayDuKienBaoTri <= homNay)
+                return (false, "Ngày dự kiến bảo trì phải lớn hơn ngày hiện tại (không chọn hôm nay hoặc ngày trước).");
+
             // Ngày dự kiến phải lớn hơn ngày lập kế hoạch
             if (dto.NgayDuKienBaoTri <= keHoach.NgayLapKeHoach)
                 return (false,
                     $"Ngày dự kiến bảo trì phải lớn hơn ngày lập kế hoạch ({keHoach.NgayLapKeHoach:dd/MM/yyyy}).");
+
+            var homNayLan = DateOnly.FromDateTime(DateTime.Now);
+            if (dto.NgayDuKienBaoTri <= homNayLan)
+                return (false, "Ngày dự kiến bảo trì phải lớn hơn ngày hiện tại (không chọn hôm nay hoặc ngày trước).");
 
             var thietBi = await _repo.GetThietBiAsync(dto.MaThietBi);
             if (thietBi == null)
@@ -107,6 +121,11 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
                 if (ct.NgayDuKienBaoTri.Year != dto.Nam)
                     return (false, $"Ngày dự kiến bảo trì của '{thietBi.TenThietBi}' phải thuộc năm {dto.Nam}.");
+
+                var homNayTao = DateOnly.FromDateTime(DateTime.Now);
+                if (ct.NgayDuKienBaoTri <= homNayTao)
+                    return (false,
+                        $"Ngày dự kiến bảo trì của '{thietBi.TenThietBi}' phải lớn hơn ngày hiện tại (không chọn hôm nay hoặc ngày trước).");
 
                 if (ct.NgayDuKienBaoTri <= ngayLap)
                     return (false,
@@ -227,7 +246,8 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             MaThietBi = c.MaThietBi,
             TenThietBi = c.MaThietBiNavigation?.TenThietBi,
             NgayDuKienBaoTri = c.NgayDuKienBaoTri,
-            MaHoSoBaoTri = c.MaHoSoBaoTri
+            MaHoSoBaoTri = c.MaHoSoBaoTri,
+            TrangThaiHoSo = c.MaHoSoBaoTriNavigation?.TrangThai
         };
     }
 }

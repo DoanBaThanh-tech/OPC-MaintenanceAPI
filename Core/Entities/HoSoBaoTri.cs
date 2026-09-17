@@ -40,4 +40,7 @@ public partial class HoSoBaoTri
     public virtual PhanCongCongViec? MaPhanCongNavigation { get; set; }
 
     public virtual ThietBi MaThieBiNavigation { get; set; } = null!;
+
+    public TimeOnly? GioBatDauDuKien { get; set; }
+    public TimeOnly? GioKetThucDuKien { get; set; }
 }

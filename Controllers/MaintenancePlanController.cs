@@ -62,7 +62,11 @@ namespace OPC.MaintenanceAPI.Controllers
         [HttpPost("them-thiet-bi")]
         public async Task<IActionResult> ThemThietBi(ThemThietBiVaoNamDto dto)
         {
-            var (ok, loi) = await _service.ThemThietBiVaoNamAsync(dto);
+            var claim = User.FindFirst("MaNguoiDung")?.Value;
+            if (claim == null || !int.TryParse(claim, out var maNguoiDung))
+                return Unauthorized();
+
+            var (ok, loi) = await _service.ThemThietBiVaoNamAsync(maNguoiDung, dto);
             // Luôn trả JSON để client mobile parse ổn định (tránh Ok() body rỗng)
             return ok
                 ? Ok(new { Message = "Thêm thiết bị vào kế hoạch thành công." })

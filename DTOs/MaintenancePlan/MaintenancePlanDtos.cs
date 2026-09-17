@@ -22,6 +22,8 @@ namespace OPC.MaintenanceAPI.DTOs.MaintenancePlan
         public string? TenThietBi { get; set; }
         public DateOnly NgayDuKienBaoTri { get; set; }
         public int? MaHoSoBaoTri { get; set; }
+        /// <summary>Trạng thái hồ sơ bảo trì (nếu đã tạo). null = chưa tạo hồ sơ.</summary>
+        public string? TrangThaiHoSo { get; set; }
     }
 
     public class KeHoachResponseDto
@@ -71,5 +73,9 @@ public class ThemThietBiVaoNamDto
         public int Nam { get; set; }
         public int MaThietBi { get; set; }
         public DateOnly NgayDuKienBaoTri { get; set; }
+        public string? NoiDungCongViec { get; set; }
+        public int? ThoiGianDuKien { get; set; }
+        public TimeSpan? GioBatDauDuKien { get; set; }
+        public TimeSpan? GioKetThucDuKien { get; set; }
     }
 }

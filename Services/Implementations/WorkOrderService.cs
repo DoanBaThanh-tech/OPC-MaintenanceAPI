@@ -214,15 +214,6 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
             if (dto.NgayKetThucDuKien < dto.NgayBatDauDuKien)
                 return (false, "Ngày kết thúc không được trước ngày bắt đầu.");
-
-            if (await _repo.NhanVienKhongTheNhanThemAsync(dto.MaNhanVienThucHien))
-            {
-                var soCv = await _repo.DemCongViecDangThucHienAsync(dto.MaNhanVienThucHien);
-                return (false,
-                    $"Nhân viên này đang đảm nhận {soCv}/{WorkOrderRepository.SoThietBiToiDaMoiNhanVien} thiết bị. " +
-                    "Chỉ được chọn lại khi đã hoàn thành hết (về 0/3).");
-            }
-
             var phanCong = new PhanCongCongViec
             {
                 MaNhanVienThucHien = dto.MaNhanVienThucHien,
@@ -509,15 +500,6 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
             if (dto.NgayKetThucDuKien < dto.NgayBatDauDuKien)
                 return (false, "Ngày kết thúc không được trước ngày bắt đầu.");
-
-            if (await _repo.NhanVienKhongTheNhanThemAsync(dto.MaNhanVienThucHien))
-            {
-                var soCv = await _repo.DemCongViecDangThucHienAsync(dto.MaNhanVienThucHien);
-                return (false,
-                    $"Nhân viên này đang đảm nhận {soCv}/{WorkOrderRepository.SoThietBiToiDaMoiNhanVien} thiết bị. " +
-                    "Chỉ được chọn lại khi đã hoàn thành hết (về 0/3).");
-            }
-
             var phanCong = new PhanCongCongViec
             {
                 MaNhanVienThucHien = dto.MaNhanVienThucHien,

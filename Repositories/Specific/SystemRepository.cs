@@ -35,10 +35,6 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
                 query = query.Where(nv =>
                     nv.MaNguoiDungNavigation.MaVaiTroNavigation.TenVaiTro.Contains(vaiTro));
             }
-
-            // Đếm số công việc BT + SC "Đang thực hiện" theo từng NV (tối đa 3)
-            const int toiDa = WorkOrderRepository.SoThietBiToiDaMoiNhanVien;
-
             var demTheoNv = await _context.HoSoBaoTris
                 .Where(h => h.TrangThai == "Đang thực hiện" && h.MaPhanCong != null)
                 .Join(_context.PhanCongCongViecs,
@@ -71,13 +67,10 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
                     tenVaiTro = nv.MaNguoiDungNavigation.MaVaiTroNavigation.TenVaiTro
                 })
                 .ToListAsync();
-
             return list
                 .Select(nv =>
                 {
                     var soCv = demMap.TryGetValue(nv.maNhanVien, out var n) ? n : 0;
-                    // Chỉ rảnh khi 0/3 — 1/3, 2/3, 3/3 đều không chọn
-                    var khongNhanThem = soCv > 0;
                     return (object)new
                     {
                         nv.maNhanVien,
@@ -88,11 +81,8 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
                         nv.trangThai,
                         nv.tenVaiTro,
                         soCongViecDangLam = soCv,
-                        soCongViecToiDa = toiDa,
-                        dangBan = khongNhanThem,
-                        ghiChuBan = khongNhanThem
-                            ? $"Đang đảm nhận {soCv}/{toiDa} thiết bị — hoàn thành hết (về 0/{toiDa}) mới được phân công thêm"
-                            : (string?)null
+                        dangBan = false,          // không khóa chọn NV
+                        ghiChuBan = (string?)null
                     };
                 })
                 .ToList();

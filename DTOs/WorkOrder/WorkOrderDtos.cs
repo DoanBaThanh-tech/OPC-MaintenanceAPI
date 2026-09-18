@@ -45,4 +45,12 @@ namespace OPC.MaintenanceAPI.DTOs.WorkOrder
         public bool Dat { get; set; }   // true = Đạt yêu cầu, false = Chưa đạt
     }
     
+    // ===== Chỉnh sửa hồ sơ bị từ chối =====
+    public class CapNhatHoSoBaoTriDto
+    {
+        public string? NoiDungCongViec { get; set; }
+        public string? ThoiGianDuKien { get; set; }
+        public string? GioBatDauDuKien { get; set; }
+        public string? GioKetThucDuKien { get; set; }
+    }
 }

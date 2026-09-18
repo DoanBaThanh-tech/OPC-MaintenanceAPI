@@ -27,6 +27,9 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         Task<int?> GetNamKeHoachTheoHoSoBaoTriAsync(int maHoSoBaoTri);
         // Rule 2: khoá tài nguyên chéo giữa Bảo trì và Sửa chữa
         Task<bool> ThietBiDangTrongQuyTrinhKhacAsync(int maThietBi, string boQuaLoaiHoSo, int? boQuaMaHoSo);
+        Task<ChiTietKeHoachBaoTri?> GetChiTietKeHoachByHoSoBaoTriAsync(int maHoSoBaoTri);
+
+
         // Hồ sơ sửa chữa
         Task AddHoSoSuaChuaAsync(HoSoSuaChua hoSo);
         Task<HoSoSuaChua?> GetHoSoSuaChuaByIdAsync(int id);
@@ -192,7 +195,9 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
             await _context.ChiTietKeHoachBaoTris
                 .Include(c => c.MaKeHoachNavigation)
                 .FirstOrDefaultAsync(c => c.MaChiTietKeHoach == id);
-
+        public async Task<ChiTietKeHoachBaoTri?> GetChiTietKeHoachByHoSoBaoTriAsync(int maHoSoBaoTri) =>
+            await _context.ChiTietKeHoachBaoTris
+                .FirstOrDefaultAsync(c => c.MaHoSoBaoTri == maHoSoBaoTri);
         public async Task<bool> TonTaiHoSoBaoTriTheoThietBiThangAsync(int maThietBi, int nam, int thang) =>
             await _context.ChiTietKeHoachBaoTris.AnyAsync(c =>
                 c.MaThietBi == maThietBi

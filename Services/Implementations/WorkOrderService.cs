@@ -118,6 +118,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     h.MaHoSoBaoTri,
                     MaThietBi = h.MaThieBi,
                     TenThietBi = h.MaThieBiNavigation?.TenThietBi,
+                    TenNhanVienTao = h.MaNhanVienTaoNavigation?.HoTen,  // ← thêm
                     h.NoiDungCongViec, h.ThoiGianDuKien, h.TrangThai, h.NgayTao,
                     h.MaPhanCong,
                     Nam = namThucTe,
@@ -472,9 +473,9 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 TenThietBi = h.MaThieBiNavigation?.TenThietBi,
                 TenNhanVienTao = h.MaNhanVienTaoNavigation?.HoTen,
                 h.NoiDungCongViec,
-                h.ThoiGianDuKien, // số giờ, ví dụ "4"
-                GioBatDauDuKien = FmtGio(h.GioBatDauDuKien),
-                GioKetThucDuKien = FmtGio(h.GioKetThucDuKien),
+                h.ThoiGianDuKien,
+                GioBatDauDuKien = FmtGio(h.GioBatDauDuKien),   // ← thêm
+                GioKetThucDuKien = FmtGio(h.GioKetThucDuKien), // ← thêm
                 h.TrangThai,
                 h.LyDoTuChoi,
                 h.NgayTao,

@@ -56,7 +56,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 NoiDungCongViec = dto.NoiDungCongViec,
                 ThoiGianDuKien = dto.ThoiGianDuKien,
                 NgayTao = DateTime.Now,
-                TrangThai = dto.GuiDuyet ? "Chờ duyệt" : "Nháp"
+                TrangThai = "Chờ duyệt"
             };
             await _repo.AddHoSoBaoTriAsync(hoSo);
             await _repo.SaveChangesAsync();
@@ -98,6 +98,14 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 var chiTiet = await _repo.GetChiTietKeHoachByIdAsync(dto.MaChiTietKeHoach.Value);
                 chiTiet!.MaHoSoBaoTri = hoSo.MaHoSoBaoTri;
                 await _repo.SaveChangesAsync();
+            }
+            {
+                var tbTrangThai = await _repo.GetThietBiByIdAsync(dto.MaThietBi);
+                if (tbTrangThai != null)
+                {
+                    tbTrangThai.TinhTrangHienTai = "Bảo trì";
+                    await _repo.SaveChangesAsync();
+                }
             }
             return (true, null);
         }
@@ -143,10 +151,25 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (dto.QuyetDinh == "Từ chối" && string.IsNullOrWhiteSpace(dto.LyDo))
                 return (false, "Vui lòng nhập lý do từ chối.");
 
+            // ===== MỤC 3: chỉ khi DUYỆT — Ngày duyệt (hôm nay) phải < Ngày bảo trì dự kiến =====
+            if (dto.QuyetDinh == "Duyệt")
+            {
+                var ngayDuKien = await _repo.GetNgayDuKienBaoTriTheoHoSoBaoTriAsync(hoSo.MaHoSoBaoTri);
+                if (ngayDuKien != null)
+                {
+                    var ngayDuyet = DateOnly.FromDateTime(DateTime.Today);
+                    if (ngayDuyet >= ngayDuKien.Value)
+                        return (false,
+                            $"Ngày duyệt ({ngayDuyet:dd/MM/yyyy}) phải nhỏ hơn ngày bảo trì dự kiến ({ngayDuKien.Value:dd/MM/yyyy}). " +
+                            "Vui lòng yêu cầu tổ trưởng chỉnh lại ngày dự kiến hoặc duyệt trước ngày đó.");
+                }
+            }
+            // ===== hết mục 3 =====
+
             _repo.SetHoSoBaoTriRowVersion(hoSo, Convert.FromBase64String(dto.RowVersion));
 
             hoSo.MaNhanVienDuyet = nhanVienDuyet.MaNhanVien;
-            hoSo.NgayDuyet = DateTime.Now;
+            hoSo.NgayDuyet = DateTime.Now;   // đúng ngày GĐ bấm duyệt
             hoSo.TrangThai = dto.QuyetDinh == "Duyệt" ? "Đã duyệt" : "Từ chối";
             hoSo.LyDoTuChoi = dto.QuyetDinh == "Từ chối" ? dto.LyDo : null;
 
@@ -263,20 +286,56 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (hoSo.TrangThai != "Từ chối")
                 return (false, "Chỉ được chỉnh sửa hồ sơ ở trạng thái Từ chối.");
 
-            if (!string.IsNullOrWhiteSpace(dto.NoiDungCongViec))
-                hoSo.NoiDungCongViec = dto.NoiDungCongViec.Trim();
-            if (dto.ThoiGianDuKien != null)
-                hoSo.ThoiGianDuKien = dto.ThoiGianDuKien;
+            if (string.IsNullOrWhiteSpace(dto.NoiDungCongViec))
+                return (false, "Vui lòng nhập nội dung công việc.");
 
-            // Gửi lại duyệt
+            // Cập nhật nội dung + thời lượng + giờ
+            hoSo.NoiDungCongViec = dto.NoiDungCongViec.Trim();
+            if (dto.ThoiGianDuKien != null)
+                hoSo.ThoiGianDuKien = dto.ThoiGianDuKien.Trim();
+
+            if (!string.IsNullOrWhiteSpace(dto.GioBatDauDuKien) &&
+                TimeSpan.TryParse(dto.GioBatDauDuKien, out var gbd))
+                hoSo.GioBatDauDuKien = gbd;
+
+            if (!string.IsNullOrWhiteSpace(dto.GioKetThucDuKien) &&
+                TimeSpan.TryParse(dto.GioKetThucDuKien, out var gkt))
+                hoSo.GioKetThucDuKien = gkt;
+
+            if (hoSo.GioBatDauDuKien != null && hoSo.GioKetThucDuKien != null &&
+                hoSo.GioKetThucDuKien <= hoSo.GioBatDauDuKien)
+                return (false, "Giờ kết thúc phải sau giờ bắt đầu.");
+
+            // Ngày dự kiến nằm trên Chi tiết kế hoạch
+            var chiTiet = await _repo.GetChiTietKeHoachByHoSoBaoTriAsync(hoSo.MaHoSoBaoTri);
+            if (dto.NgayDuKienBaoTri.HasValue && chiTiet != null)
+            {
+                var ngayMoi = dto.NgayDuKienBaoTri.Value;
+                if (ngayMoi < DateOnly.FromDateTime(DateTime.Today))
+                    return (false, "Ngày bảo trì dự kiến không được ở quá khứ.");
+
+                var ngayLap = chiTiet.MaKeHoachNavigation?.NgayLapKeHoach;
+                if (ngayLap != null && ngayMoi <= ngayLap.Value)
+                    return (false, "Ngày bảo trì dự kiến phải sau ngày lập kế hoạch.");
+
+                chiTiet.NgayDuKienBaoTri = ngayMoi;
+            }
+
+            // Gửi lại duyệt — Ngày duyệt để null, khi GĐ duyệt mới ghi
+            hoSo.NgayTao = DateTime.Now;
+
             hoSo.TrangThai = "Chờ duyệt";
             hoSo.LyDoTuChoi = null;
             hoSo.MaNhanVienDuyet = null;
             hoSo.NgayDuyet = null;
 
-            var chiTiet = await _repo.GetChiTietKeHoachByHoSoBaoTriAsync(hoSo.MaHoSoBaoTri);
             if (chiTiet != null)
                 chiTiet.TrangThai = "Chờ duyệt";
+
+            // Giữ thiết bị = Bảo trì (nếu bạn đã thêm dòng này trước đó)
+            var tb = await _repo.GetThietBiByIdAsync(hoSo.MaThieBi);
+            if (tb != null)
+                tb.TinhTrangHienTai = "Bảo trì";
 
             await _repo.SaveChangesAsync();
             return (true, null);
@@ -335,13 +394,26 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             }
 
             hoSo.TrangThai = "Đã hoàn thành";
-            if (hoSo.MaThieBiNavigation != null)
-                hoSo.MaThieBiNavigation.TinhTrangHienTai = "Sản xuất";
             if (chiTiet != null)
                 chiTiet.TrangThai = "Đã hoàn thành";
 
+            // Chỉ về Sản xuất khi không còn hồ sơ bảo trì đang mở
+            var conHoSoMo = await _repo.CoHoSoBaoTriDangMoAsync(hoSo.MaThieBi, loaiTruMaHoSo: maHoSo);
+            if (!conHoSoMo)
+            {
+                if (hoSo.MaThieBiNavigation != null)
+                    hoSo.MaThieBiNavigation.TinhTrangHienTai = "Sản xuất";
+                else
+                {
+                    var tb = await _repo.GetThietBiByIdAsync(hoSo.MaThieBi);
+                    if (tb != null)
+                        tb.TinhTrangHienTai = "Sản xuất";
+                }
+            }
+
             await _repo.SaveChangesAsync();
             return (true, null);
+
         }
 
         // ===== SỬA CHỮA =====

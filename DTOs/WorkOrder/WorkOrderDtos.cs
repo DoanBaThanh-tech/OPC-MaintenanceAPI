@@ -46,11 +46,13 @@ namespace OPC.MaintenanceAPI.DTOs.WorkOrder
     }
     
     // ===== Chỉnh sửa hồ sơ bị từ chối =====
+    // ===== Chỉnh sửa hồ sơ bị từ chối =====
     public class CapNhatHoSoBaoTriDto
     {
         public string? NoiDungCongViec { get; set; }
-        public string? ThoiGianDuKien { get; set; }
-        public string? GioBatDauDuKien { get; set; }
-        public string? GioKetThucDuKien { get; set; }
+        public string? ThoiGianDuKien { get; set; }          // số giờ, vd "3"
+        public string? GioBatDauDuKien { get; set; }         // "08:00"
+        public string? GioKetThucDuKien { get; set; }        // "11:00"
+        public DateOnly? NgayDuKienBaoTri { get; set; }      // ngày bảo trì dự kiến
     }
 }

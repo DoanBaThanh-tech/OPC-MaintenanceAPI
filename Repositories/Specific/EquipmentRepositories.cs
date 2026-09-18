@@ -28,7 +28,7 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
 
         private static readonly string[] TrangThaiHoSoHieuLuc =
         {
-            "Chờ duyệt", "Đã duyệt", "Đang thực hiện"
+            "Chờ duyệt", "Đã duyệt", "Đang thực hiện","Từ chối"
         };
 
         public async Task<List<ThietBi>> GetAllAsync() =>

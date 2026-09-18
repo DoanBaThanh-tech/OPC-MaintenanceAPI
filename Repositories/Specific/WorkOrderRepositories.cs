@@ -28,7 +28,7 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         // Rule 2: khoá tài nguyên chéo giữa Bảo trì và Sửa chữa
         Task<bool> ThietBiDangTrongQuyTrinhKhacAsync(int maThietBi, string boQuaLoaiHoSo, int? boQuaMaHoSo);
         Task<ChiTietKeHoachBaoTri?> GetChiTietKeHoachByHoSoBaoTriAsync(int maHoSoBaoTri);
-
+        Task<bool> CoHoSoBaoTriDangMoAsync(int maThietBi, int? loaiTruMaHoSo = null);
 
         // Hồ sơ sửa chữa
         Task AddHoSoSuaChuaAsync(HoSoSuaChua hoSo);
@@ -52,6 +52,21 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
     {
         private readonly OPCDbContext _context;
         public WorkOrderRepository(OPCDbContext context) => _context = context;
+
+        public async Task<bool> CoHoSoBaoTriDangMoAsync(int maThietBi, int? loaiTruMaHoSo = null)
+        {
+            var q = _context.HoSoBaoTris.Where(h =>
+                h.MaThieBi == maThietBi &&
+                (h.TrangThai == "Chờ duyệt" ||
+                h.TrangThai == "Đã duyệt" ||
+                h.TrangThai == "Đang thực hiện" ||
+                h.TrangThai == "Từ chối"));
+
+            if (loaiTruMaHoSo.HasValue)
+                q = q.Where(h => h.MaHoSoBaoTri != loaiTruMaHoSo.Value);
+
+            return await q.AnyAsync();
+        }
 
         public async Task<ThietBi?> GetThietBiByIdAsync(int maThietBi) =>
             await _context.ThietBis.FirstOrDefaultAsync(t => t.MaThietBi == maThietBi);

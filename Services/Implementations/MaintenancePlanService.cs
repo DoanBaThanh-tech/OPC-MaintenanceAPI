@@ -147,6 +147,11 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 thietBi.NgayBaoTriGanNhat = thietBi.NgayBaoTriTiepTheo;
                 thietBi.NgayBaoTriTiepTheo = ngayDuKien;
             }
+            if (thietBi.TinhTrangHienTai == "Bảo trì" ||
+                string.IsNullOrWhiteSpace(thietBi.TinhTrangHienTai))
+            {
+                thietBi.TinhTrangHienTai = "Bảo trì";
+            }
             await _repo.SaveChangesAsync();
 
             return (true, null);

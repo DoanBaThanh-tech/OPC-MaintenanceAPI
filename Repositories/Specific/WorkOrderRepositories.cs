@@ -49,6 +49,7 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
 
         // Lịch sử phê duyệt
         Task AddLichSuPheDuyetAsync(LichSuPheDuyet lichSu);
+        Task<List<LichSuPheDuyet>> GetLichSuPheDuyetAsync(string? loai, int? nam);
 
         Task<int> SaveChangesAsync();
     }
@@ -252,6 +253,30 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
 
         public async Task AddLichSuPheDuyetAsync(LichSuPheDuyet lichSu) =>
             await _context.LichSuPheDuyets.AddAsync(lichSu);
+
+        public async Task<List<LichSuPheDuyet>> GetLichSuPheDuyetAsync(string? loai, int? nam)
+        {
+            var q = _context.LichSuPheDuyets
+                .Include(l => l.MaNhanVienDuyetNavigation)
+                .Include(l => l.MaHoSoBaoTriNavigation)!.ThenInclude(h => h!.MaThieBiNavigation)
+                .Include(l => l.MaHoSoBaoTriNavigation)!.ThenInclude(h => h!.MaNhanVienTaoNavigation)
+                .Include(l => l.MaHoSoSuaChuaNavigation)!.ThenInclude(h => h!.MaThieBiNavigation)
+                .Include(l => l.MaHoSoSuaChuaNavigation)!.ThenInclude(h => h!.MaNhanVienTaoNavigation)
+                .AsQueryable();
+
+            if (!string.IsNullOrWhiteSpace(loai))
+            {
+                if (loai.Equals("BaoTri", StringComparison.OrdinalIgnoreCase) || loai == "Bảo trì")
+                    q = q.Where(l => l.MaHoSoBaoTri != null);
+                else if (loai.Equals("SuaChua", StringComparison.OrdinalIgnoreCase) || loai == "Sửa chữa")
+                    q = q.Where(l => l.MaHoSoSuaChua != null);
+            }
+
+            if (nam.HasValue)
+                q = q.Where(l => l.NgayDuyet.Year == nam.Value);
+
+            return await q.OrderByDescending(l => l.NgayDuyet).AsNoTracking().ToListAsync();
+        }
 
         public async Task<int> SaveChangesAsync() => await _context.SaveChangesAsync();
 

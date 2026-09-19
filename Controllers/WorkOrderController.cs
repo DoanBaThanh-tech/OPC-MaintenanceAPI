@@ -30,6 +30,15 @@ namespace OPC.MaintenanceAPI.Controllers
         public async Task<IActionResult> GetLichSuPhanCong() =>
             Ok(await _service.GetLichSuPhanCongAsync());
 
+        /// Lịch sử phê duyệt (Bảo trì / Sửa chữa) — Giám đốc
+        [HttpGet("lich-su-phe-duyet")]
+        public async Task<IActionResult> GetLichSuPheDuyet([FromQuery] string? loai = null, [FromQuery] int? nam = null) =>
+            Ok(await _service.GetLichSuPheDuyetAsync(loai, nam));
+
+        [HttpGet("lich-su-phe-duyet/nam")]
+        public async Task<IActionResult> GetNamLichSuPheDuyet([FromQuery] string? loai = null) =>
+            Ok(await _service.GetCacNamCoLichSuPheDuyetAsync(loai));
+
         /// Tổ trưởng hủy phân công (Chờ xác nhận / Từ chối) → hồ sơ phân công lại được
         [HttpDelete("phan-cong/{maPhanCong}")]
         public async Task<IActionResult> HuyPhanCong(int maPhanCong)

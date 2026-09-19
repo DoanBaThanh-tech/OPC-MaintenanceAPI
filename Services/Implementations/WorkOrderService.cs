@@ -391,6 +391,47 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             }).ToList();
         }
 
+
+        public async Task<List<object>> GetLichSuPheDuyetAsync(string? loai, int? nam)
+        {
+            var list = await _repo.GetLichSuPheDuyetAsync(loai, nam);
+            return list.Select(l =>
+            {
+                var isBt = l.MaHoSoBaoTri != null;
+                var hsBt = l.MaHoSoBaoTriNavigation;
+                var hsSc = l.MaHoSoSuaChuaNavigation;
+                // Map quyết định → trạng thái hồ sơ dễ hiểu
+                var trangThaiHoSo = l.QuyetDinh == "Duyệt" || l.QuyetDinh == "Đã duyệt"
+                    ? "Đã duyệt"
+                    : (l.QuyetDinh == "Từ chối" ? "Từ chối" : (l.QuyetDinh ?? ""));
+                return (object)new
+                {
+                    l.MaPheDuyet,
+                    Loai = isBt ? "Bảo trì" : "Sửa chữa",
+                    MaHoSo = isBt ? l.MaHoSoBaoTri : l.MaHoSoSuaChua,
+                    TenThietBi = isBt
+                        ? hsBt?.MaThieBiNavigation?.TenThietBi
+                        : hsSc?.MaThieBiNavigation?.TenThietBi,
+                    TenNguoiLap = isBt
+                        ? hsBt?.MaNhanVienTaoNavigation?.HoTen
+                        : hsSc?.MaNhanVienTaoNavigation?.HoTen,
+                    NoiDung = isBt ? hsBt?.NoiDungCongViec : hsSc?.MoTaHuHong,
+                    TenNguoiDuyet = l.MaNhanVienDuyetNavigation?.HoTen,
+                    QuyetDinh = l.QuyetDinh,
+                    TrangThaiHoSo = trangThaiHoSo,
+                    l.LyDo,
+                    l.NgayDuyet,
+                    Nam = l.NgayDuyet.Year,
+                };
+            }).ToList();
+        }
+
+        public async Task<List<int>> GetCacNamCoLichSuPheDuyetAsync(string? loai)
+        {
+            var list = await _repo.GetLichSuPheDuyetAsync(loai, null);
+            return list.Select(l => l.NgayDuyet.Year).Distinct().OrderByDescending(y => y).ToList();
+        }
+
         public async Task<(bool, string?)> HuyPhanCongAsync(int maPhanCong, int maNguoiDung)
         {
             var nhanVien = await _nhanVienRepo.GetByMaNguoiDungAsync(maNguoiDung);

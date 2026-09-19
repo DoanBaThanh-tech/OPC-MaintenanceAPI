@@ -16,6 +16,9 @@ public partial class PhanCongCongViec
 
     public string? TrangThai { get; set; }
 
+    /// Lý do từ chối nhận việc của nhân viên kỹ thuật (nếu có)
+    public string? LyDoTuChoi { get; set; }
+
     public DateTime NgayPhanCong { get; set; }
 
     public virtual HoSoBaoTri? HoSoBaoTri { get; set; }

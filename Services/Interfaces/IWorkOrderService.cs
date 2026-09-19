@@ -15,8 +15,13 @@ namespace OPC.MaintenanceAPI.Services.Interfaces
         Task<(bool, string?)> GhiNhanKetQuaAsync(int maPhanCong, GhiNhanKetQuaDto dto);
         Task<(bool, string?)> XacNhanHoanThanhBaoTriAsync(int maHoSo, XacNhanDto dto);
         Task<(bool, string?)> NhanVienXacNhanBaoTriAsync(int maHoSo, int maNguoiDung);
+        Task<(bool, string?)> NhanVienTuChoiBaoTriAsync(int maHoSo, int maNguoiDung, TuChoiNhanViecDto dto);
         Task<(bool, string?)> CapNhatHoSoBaoTriBiTuChoiAsync(int id, CapNhatHoSoBaoTriDto dto);
 
+        /// Danh sách yêu cầu được phân công cho NVKT đang đăng nhập (Bảo trì / Sửa chữa)
+        Task<List<object>> GetYeuCauCuaNhanVienAsync(int maNguoiDung, string? loai = null, string? trangThaiPhanCong = null);
+        /// Danh sách yêu cầu đã Xác nhận (dùng cho combobox Kết quả thực hiện)
+        Task<List<object>> GetYeuCauDaXacNhanAsync(int maNguoiDung, string? loai = null);
 
         // Sửa chữa
         Task<List<object>> GetHoSoSuaChuaTheoTrangThaiAsync(string trangThai);
@@ -25,5 +30,7 @@ namespace OPC.MaintenanceAPI.Services.Interfaces
         Task<(bool, string?)> DuyetHoSoSuaChuaAsync(int id, int maNguoiDungDuyet, DuyetHoSoDto dto);
         Task<(bool, string?)> PhanCongSuaChuaAsync(int maHoSo, PhanCongDto dto);
         Task<(bool, string?)> XacNhanHoanThanhSuaChuaAsync(int maHoSo, XacNhanDto dto);
+        Task<(bool, string?)> NhanVienXacNhanSuaChuaAsync(int maHoSo, int maNguoiDung);
+        Task<(bool, string?)> NhanVienTuChoiSuaChuaAsync(int maHoSo, int maNguoiDung, TuChoiNhanViecDto dto);
     }
 }

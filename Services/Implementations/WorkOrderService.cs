@@ -256,8 +256,10 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (phanCong.TrangThai != "Chờ xác nhận" && phanCong.TrangThai != "Đã phân công")
                 return (false, "Phân công không ở trạng thái chờ xác nhận.");
 
+            // Hồ sơ + chi tiết kế hoạch → Đang thực hiện; phân công → Xác nhận
             hoSo.TrangThai = "Đang thực hiện";
-            phanCong.TrangThai = "Đang thực hiện";
+            phanCong.TrangThai = "Xác nhận";
+            phanCong.LyDoTuChoi = null;
 
             if (hoSo.MaThieBiNavigation != null)
                 hoSo.MaThieBiNavigation.TinhTrangHienTai = "Bảo trì";
@@ -265,6 +267,36 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             var chiTiet = await _repo.GetChiTietKeHoachByHoSoBaoTriAsync(hoSo.MaHoSoBaoTri);
             if (chiTiet != null)
                 chiTiet.TrangThai = "Đang thực hiện";
+
+            await _repo.SaveChangesAsync();
+            return (true, null);
+        }
+
+        public async Task<(bool, string?)> NhanVienTuChoiBaoTriAsync(int maHoSo, int maNguoiDung, TuChoiNhanViecDto dto)
+        {
+            if (string.IsNullOrWhiteSpace(dto.LyDo))
+                return (false, "Vui lòng nhập lý do từ chối.");
+
+            var nhanVien = await _nhanVienRepo.GetByMaNguoiDungAsync(maNguoiDung);
+            if (nhanVien == null) return (false, "Không xác định được nhân viên.");
+
+            var hoSo = await _repo.GetHoSoBaoTriByIdAsync(maHoSo);
+            if (hoSo == null) return (false, "Không tìm thấy hồ sơ.");
+            if (hoSo.TrangThai != "Đã duyệt") return (false, "Hồ sơ không ở trạng thái Đã duyệt.");
+            if (hoSo.MaPhanCong == null) return (false, "Chưa được phân công.");
+
+            var phanCong = await _repo.GetPhanCongByIdAsync(hoSo.MaPhanCong.Value);
+            if (phanCong == null) return (false, "Không tìm thấy phân công.");
+            if (phanCong.MaNhanVienThucHien != nhanVien.MaNhanVien)
+                return (false, "Bạn không được phân công hồ sơ này.");
+            if (phanCong.TrangThai != "Chờ xác nhận" && phanCong.TrangThai != "Đã phân công")
+                return (false, "Phân công không ở trạng thái chờ xác nhận.");
+
+            // Chỉ cập nhật phân công; hồ sơ vẫn "Đã duyệt" để tổ trưởng phân công lại
+            phanCong.TrangThai = "Từ chối";
+            phanCong.LyDoTuChoi = dto.LyDo.Trim();
+            // Gỡ liên kết phân công trên hồ sơ để có thể phân công nhân viên khác
+            hoSo.MaPhanCong = null;
 
             await _repo.SaveChangesAsync();
             return (true, null);
@@ -334,16 +366,22 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
         public async Task<List<object>> GetLichSuPhanCongAsync()
         {
-            var list = await _repo.GetLichSuPhanCongAsync();
+            var list = await _repo.GetLichSuPhanCongChiTietAsync();
             return list.Select(p => (object)new
             {
                 p.MaPhanCong,
                 TenNhanVienPhanCong = p.MaNhanVienPhanCongNavigation?.HoTen,
                 TenNhanVienThucHien = p.MaNhanVienThucHienNavigation?.HoTen,
                 p.TrangThai,
+                p.LyDoTuChoi,
                 p.NgayPhanCong,
                 GioBatDau = p.NgayBatDauDuKien,
                 GioKetThuc = p.NgayKetThucDuKien,
+                MaHoSoBaoTri = p.HoSoBaoTri?.MaHoSoBaoTri,
+                MaHoSoSuaChua = p.HoSoSuaChua?.MaHoSoSuaChua,
+                TenThietBi = p.HoSoBaoTri?.MaThieBiNavigation?.TenThietBi
+                             ?? p.HoSoSuaChua?.MaThieBiNavigation?.TenThietBi,
+                Loai = p.HoSoBaoTri != null ? "Bảo trì" : (p.HoSoSuaChua != null ? "Sửa chữa" : null),
             }).ToList();
         }
 
@@ -351,20 +389,166 @@ namespace OPC.MaintenanceAPI.Services.Implementations
         {
             var phanCong = await _repo.GetPhanCongByIdAsync(maPhanCong);
             if (phanCong == null) return (false, "Không tìm thấy công việc.");
-            if (string.IsNullOrWhiteSpace(dto.SoLieuGhiNhan))
-                return (false, "Vui lòng nhập kết quả thực hiện.");
+            if (phanCong.TrangThai != "Xác nhận" && phanCong.TrangThai != "Đang thực hiện")
+                return (false, "Chỉ ghi nhận kết quả cho phân công đã được xác nhận.");
+
+            if (await _repo.DaCoKetQuaAsync(maPhanCong))
+                return (false, "Phân công này đã có kết quả thực hiện.");
+
+            var hoSoBt = await _repo.GetHoSoBaoTriByMaPhanCongAsync(maPhanCong);
+            var hoSoSc = hoSoBt == null ? await _repo.GetHoSoSuaChuaByMaPhanCongAsync(maPhanCong) : null;
+
+            DateOnly? ngayDuKien = null;
+            if (hoSoBt != null)
+                ngayDuKien = await _repo.GetNgayDuKienBaoTriTheoHoSoBaoTriAsync(hoSoBt.MaHoSoBaoTri);
+
+            var ngayGhi = dto.NgayGhiNhan ?? DateTime.Now;
+            if (ngayDuKien.HasValue)
+            {
+                if (ngayGhi.Year != ngayDuKien.Value.Year || ngayGhi.Month != ngayDuKien.Value.Month)
+                    return (false,
+                        $"Ngày ghi nhận phải nằm trong tháng {ngayDuKien.Value.Month}/{ngayDuKien.Value.Year} (tháng dự kiến bảo trì).");
+            }
+
+            var maNvGhiNhan = dto.MaNhanVienGhiNhan;
+            if (maNvGhiNhan <= 0)
+                maNvGhiNhan = phanCong.MaNhanVienThucHien;
 
             await _repo.AddKetQuaAsync(new KetQuaThucHien
             {
                 MaPhanCong = maPhanCong,
-                MaNhanVienGhiNhan = dto.MaNhanVienGhiNhan,
+                MaNhanVienGhiNhan = maNvGhiNhan,
                 SoLieuGhiNhan = dto.SoLieuGhiNhan,
                 HinhAnh = dto.HinhAnh,
                 GhiChu = dto.GhiChu,
-                NgayGhiNhan = DateTime.Now,
+                NgayGhiNhan = ngayGhi,
                 XacNhanHoanThanh = true
             });
             phanCong.TrangThai = "Hoàn thành";
+
+            if (hoSoBt != null)
+            {
+                hoSoBt.TrangThai = "Đã hoàn thành";
+                var chiTiet = await _repo.GetChiTietKeHoachByHoSoBaoTriAsync(hoSoBt.MaHoSoBaoTri);
+                if (chiTiet != null)
+                    chiTiet.TrangThai = "Đã hoàn thành";
+
+                var conHoSoMo = await _repo.CoHoSoBaoTriDangMoAsync(hoSoBt.MaThieBi, loaiTruMaHoSo: hoSoBt.MaHoSoBaoTri);
+                if (!conHoSoMo)
+                {
+                    var tb = await _repo.GetThietBiByIdAsync(hoSoBt.MaThieBi);
+                    if (tb != null)
+                        tb.TinhTrangHienTai = "Sản xuất";
+                }
+            }
+            else if (hoSoSc != null)
+            {
+                hoSoSc.TrangThai = "Đã hoàn thành";
+                var tb = await _repo.GetThietBiByIdAsync(hoSoSc.MaThieBi);
+                if (tb != null)
+                    tb.TinhTrangHienTai = "Sản xuất";
+            }
+
+            await _repo.SaveChangesAsync();
+            return (true, null);
+        }
+
+        public async Task<List<object>> GetYeuCauCuaNhanVienAsync(int maNguoiDung, string? loai = null, string? trangThaiPhanCong = null)
+        {
+            var nv = await _nhanVienRepo.GetByMaNguoiDungAsync(maNguoiDung);
+            if (nv == null) return new List<object>();
+
+            var list = await _repo.GetPhanCongCuaNhanVienAsync(nv.MaNhanVien, loai, trangThaiPhanCong);
+            var ketQua = new List<object>();
+            foreach (var p in list)
+            {
+                var bt = p.HoSoBaoTri;
+                var sc = p.HoSoSuaChua;
+                DateOnly? ngayDuKien = null;
+                if (bt != null)
+                    ngayDuKien = await _repo.GetNgayDuKienBaoTriTheoHoSoBaoTriAsync(bt.MaHoSoBaoTri);
+
+                ketQua.Add(new
+                {
+                    p.MaPhanCong,
+                    TrangThaiPhanCong = p.TrangThai,
+                    p.LyDoTuChoi,
+                    p.NgayPhanCong,
+                    NgayBatDauDuKien = p.NgayBatDauDuKien,
+                    NgayKetThucDuKien = p.NgayKetThucDuKien,
+                    TenNhanVienPhanCong = p.MaNhanVienPhanCongNavigation?.HoTen,
+                    Loai = bt != null ? "Bảo trì" : "Sửa chữa",
+                    MaHoSo = bt?.MaHoSoBaoTri ?? sc?.MaHoSoSuaChua,
+                    MaThietBi = bt?.MaThieBi ?? sc?.MaThieBi,
+                    TenThietBi = bt?.MaThieBiNavigation?.TenThietBi ?? sc?.MaThieBiNavigation?.TenThietBi,
+                    NoiDung = bt?.NoiDungCongViec ?? sc?.MoTaHuHong,
+                    ThoiGianDuKien = bt?.ThoiGianDuKien,
+                    TrangThaiHoSo = bt?.TrangThai ?? sc?.TrangThai,
+                    NgayDuKienBaoTri = ngayDuKien,
+                    NgayTaoHoSo = bt?.NgayTao ?? sc?.NgayTao,
+                });
+            }
+            return ketQua;
+        }
+
+        public async Task<List<object>> GetYeuCauDaXacNhanAsync(int maNguoiDung, string? loai = null)
+        {
+            return await GetYeuCauCuaNhanVienAsync(maNguoiDung, loai, "Xác nhận");
+        }
+
+        public async Task<(bool, string?)> NhanVienXacNhanSuaChuaAsync(int maHoSo, int maNguoiDung)
+        {
+            var nhanVien = await _nhanVienRepo.GetByMaNguoiDungAsync(maNguoiDung);
+            if (nhanVien == null) return (false, "Không xác định được nhân viên.");
+
+            var hoSo = await _repo.GetHoSoSuaChuaByIdAsync(maHoSo);
+            if (hoSo == null) return (false, "Không tìm thấy hồ sơ.");
+            if (hoSo.TrangThai != "Đã duyệt" && hoSo.TrangThai != "Đang thực hiện")
+                return (false, "Hồ sơ không ở trạng thái phù hợp.");
+            if (hoSo.MaPhanCong == null) return (false, "Chưa được phân công.");
+
+            var phanCong = await _repo.GetPhanCongByIdAsync(hoSo.MaPhanCong.Value);
+            if (phanCong == null) return (false, "Không tìm thấy phân công.");
+            if (phanCong.MaNhanVienThucHien != nhanVien.MaNhanVien)
+                return (false, "Bạn không được phân công hồ sơ này.");
+            if (phanCong.TrangThai != "Chờ xác nhận" && phanCong.TrangThai != "Đã phân công")
+                return (false, "Phân công không ở trạng thái chờ xác nhận.");
+
+            hoSo.TrangThai = "Đang thực hiện";
+            phanCong.TrangThai = "Xác nhận";
+            phanCong.LyDoTuChoi = null;
+            if (hoSo.MaThieBiNavigation != null)
+                hoSo.MaThieBiNavigation.TinhTrangHienTai = "Sửa chữa";
+
+            await _repo.SaveChangesAsync();
+            return (true, null);
+        }
+
+        public async Task<(bool, string?)> NhanVienTuChoiSuaChuaAsync(int maHoSo, int maNguoiDung, TuChoiNhanViecDto dto)
+        {
+            if (string.IsNullOrWhiteSpace(dto.LyDo))
+                return (false, "Vui lòng nhập lý do từ chối.");
+
+            var nhanVien = await _nhanVienRepo.GetByMaNguoiDungAsync(maNguoiDung);
+            if (nhanVien == null) return (false, "Không xác định được nhân viên.");
+
+            var hoSo = await _repo.GetHoSoSuaChuaByIdAsync(maHoSo);
+            if (hoSo == null) return (false, "Không tìm thấy hồ sơ.");
+            if (hoSo.MaPhanCong == null) return (false, "Chưa được phân công.");
+
+            var phanCong = await _repo.GetPhanCongByIdAsync(hoSo.MaPhanCong.Value);
+            if (phanCong == null) return (false, "Không tìm thấy phân công.");
+            if (phanCong.MaNhanVienThucHien != nhanVien.MaNhanVien)
+                return (false, "Bạn không được phân công hồ sơ này.");
+            if (phanCong.TrangThai != "Chờ xác nhận" && phanCong.TrangThai != "Đã phân công")
+                return (false, "Phân công không ở trạng thái chờ xác nhận.");
+
+            phanCong.TrangThai = "Từ chối";
+            phanCong.LyDoTuChoi = dto.LyDo.Trim();
+            if (hoSo.TrangThai == "Đang thực hiện")
+                hoSo.TrangThai = "Đã duyệt";
+            hoSo.MaPhanCong = null;
+
             await _repo.SaveChangesAsync();
             return (true, null);
         }
@@ -506,18 +690,14 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 MaNhanVienPhanCong = dto.MaNhanVienPhanCong,
                 NgayBatDauDuKien = dto.NgayBatDauDuKien,
                 NgayKetThucDuKien = dto.NgayKetThucDuKien,
-                TrangThai = "Đã phân công",
+                TrangThai = "Chờ xác nhận",
                 NgayPhanCong = DateTime.Now
             };
             await _repo.AddPhanCongAsync(phanCong);
             await _repo.SaveChangesAsync();
 
             hoSo.MaPhanCong = phanCong.MaPhanCong;
-            hoSo.TrangThai = "Đang thực hiện";
-
-            // Khi phân công sửa chữa → trạng thái thiết bị = "Sửa chữa"
-            if (hoSo.MaThieBiNavigation != null)
-                hoSo.MaThieBiNavigation.TinhTrangHienTai = "Sửa chữa";
+            // Giữ "Đã duyệt" — chờ NVKT xác nhận mới chuyển Đang thực hiện
 
             await _repo.SaveChangesAsync();
             return (true, null);

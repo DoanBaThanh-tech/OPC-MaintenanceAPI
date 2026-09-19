@@ -78,7 +78,7 @@ namespace OPC.MaintenanceAPI.Controllers
         [HttpPut("bao-tri/{id}/xac-nhan")]
         public async Task<IActionResult> XacNhanBaoTri(int id, XacNhanDto dto) => Result(await _service.XacNhanHoanThanhBaoTriAsync(id, dto));
 
-        /// Nhân viên kỹ thuật xác nhận nhận việc → chuyển sang Đang thực hiện
+        /// Nhân viên kỹ thuật xác nhận nhận việc → hồ sơ Đang thực hiện, phân công Xác nhận
         [HttpPut("bao-tri/{id}/nhan-viec")]
         public async Task<IActionResult> NhanVienXacNhanBaoTri(int id)
         {
@@ -88,14 +88,22 @@ namespace OPC.MaintenanceAPI.Controllers
             return Result(await _service.NhanVienXacNhanBaoTriAsync(id, maNguoiDung));
         }
 
+        /// NVKT từ chối nhận việc bảo trì (kèm lý do) — hồ sơ vẫn Đã duyệt
+        [HttpPut("bao-tri/{id}/tu-choi-nhan-viec")]
+        public async Task<IActionResult> NhanVienTuChoiBaoTri(int id, TuChoiNhanViecDto dto)
+        {
+            var claim = User.FindFirst("MaNguoiDung")?.Value;
+            if (claim == null || !int.TryParse(claim, out var maNguoiDung))
+                return Unauthorized();
+            return Result(await _service.NhanVienTuChoiBaoTriAsync(id, maNguoiDung, dto));
+        }
+
         /// Tổ trưởng chỉnh sửa hồ sơ bị từ chối rồi gửi lại duyệt
         [HttpPut("bao-tri/{id}/sua-tu-choi")]
         public async Task<IActionResult> CapNhatHoSoBiTuChoi(int id, CapNhatHoSoBaoTriDto dto)
         {
             return Result(await _service.CapNhatHoSoBaoTriBiTuChoiAsync(id, dto));
         }
-
-
 
         // Sửa chữa
         [HttpPost("sua-chua")]
@@ -118,9 +126,55 @@ namespace OPC.MaintenanceAPI.Controllers
         [HttpPut("sua-chua/{id}/xac-nhan")]
         public async Task<IActionResult> XacNhanSuaChua(int id, XacNhanDto dto) => Result(await _service.XacNhanHoanThanhSuaChuaAsync(id, dto));
 
+        [HttpPut("sua-chua/{id}/nhan-viec")]
+        public async Task<IActionResult> NhanVienXacNhanSuaChua(int id)
+        {
+            var claim = User.FindFirst("MaNguoiDung")?.Value;
+            if (claim == null || !int.TryParse(claim, out var maNguoiDung))
+                return Unauthorized();
+            return Result(await _service.NhanVienXacNhanSuaChuaAsync(id, maNguoiDung));
+        }
+
+        [HttpPut("sua-chua/{id}/tu-choi-nhan-viec")]
+        public async Task<IActionResult> NhanVienTuChoiSuaChua(int id, TuChoiNhanViecDto dto)
+        {
+            var claim = User.FindFirst("MaNguoiDung")?.Value;
+            if (claim == null || !int.TryParse(claim, out var maNguoiDung))
+                return Unauthorized();
+            return Result(await _service.NhanVienTuChoiSuaChuaAsync(id, maNguoiDung, dto));
+        }
+
+        /// Yêu cầu được phân công cho NVKT đang đăng nhập
+        [HttpGet("yeu-cau-cua-toi")]
+        public async Task<IActionResult> GetYeuCauCuaToi([FromQuery] string? loai = null, [FromQuery] string? trangThai = null)
+        {
+            var claim = User.FindFirst("MaNguoiDung")?.Value;
+            if (claim == null || !int.TryParse(claim, out var maNguoiDung))
+                return Unauthorized();
+            return Ok(await _service.GetYeuCauCuaNhanVienAsync(maNguoiDung, loai, trangThai));
+        }
+
+        /// Yêu cầu đã xác nhận — dùng cho combobox Kết quả thực hiện
+        [HttpGet("yeu-cau-da-xac-nhan")]
+        public async Task<IActionResult> GetYeuCauDaXacNhan([FromQuery] string? loai = null)
+        {
+            var claim = User.FindFirst("MaNguoiDung")?.Value;
+            if (claim == null || !int.TryParse(claim, out var maNguoiDung))
+                return Unauthorized();
+            return Ok(await _service.GetYeuCauDaXacNhanAsync(maNguoiDung, loai));
+        }
+
         // Dùng chung
         [HttpPost("phan-cong/{maPhanCong}/ket-qua")]
-        public async Task<IActionResult> GhiNhanKetQua(int maPhanCong, GhiNhanKetQuaDto dto) => Result(await _service.GhiNhanKetQuaAsync(maPhanCong, dto));
+        public async Task<IActionResult> GhiNhanKetQua(int maPhanCong, GhiNhanKetQuaDto dto)
+        {
+            var claim = User.FindFirst("MaNguoiDung")?.Value;
+            if (claim != null && int.TryParse(claim, out var maNguoiDung) && dto.MaNhanVienGhiNhan <= 0)
+            {
+                // Service sẽ fallback MaNhanVienThucHien nếu cần; giữ nguyên dto
+            }
+            return Result(await _service.GhiNhanKetQuaAsync(maPhanCong, dto));
+        }
 
         private IActionResult Result((bool ok, string? loi) r) => r.ok ? Ok(new { thongBao = r.loi }) : BadRequest(new { loi = r.loi });
     }

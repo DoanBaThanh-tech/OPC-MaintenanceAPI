@@ -34,9 +34,17 @@ namespace OPC.MaintenanceAPI.DTOs.WorkOrder
     public class GhiNhanKetQuaDto
     {
         public int MaNhanVienGhiNhan { get; set; }
-        public string SoLieuGhiNhan { get; set; } = null!;
+        public string? SoLieuGhiNhan { get; set; }
         public string? HinhAnh { get; set; }
         public string? GhiChu { get; set; }
+        /// Ngày ghi nhận — bắt buộc nằm trong tháng của ngày dự kiến bảo trì
+        public DateTime? NgayGhiNhan { get; set; }
+    }
+
+    /// NVKT từ chối nhận việc
+    public class TuChoiNhanViecDto
+    {
+        public string LyDo { get; set; } = null!;
     }
 
     // ===== Xác nhận đóng hồ sơ =====
@@ -45,7 +53,6 @@ namespace OPC.MaintenanceAPI.DTOs.WorkOrder
         public bool Dat { get; set; }   // true = Đạt yêu cầu, false = Chưa đạt
     }
     
-    // ===== Chỉnh sửa hồ sơ bị từ chối =====
     // ===== Chỉnh sửa hồ sơ bị từ chối =====
     public class CapNhatHoSoBaoTriDto
     {

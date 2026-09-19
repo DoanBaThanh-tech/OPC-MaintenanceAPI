@@ -38,6 +38,10 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         Task AddPhanCongAsync(PhanCongCongViec phanCong);
         Task<PhanCongCongViec?> GetPhanCongByIdAsync(int id);
         Task<List<PhanCongCongViec>> GetLichSuPhanCongAsync();
+        Task<List<PhanCongCongViec>> GetLichSuPhanCongChiTietAsync();
+        Task<List<PhanCongCongViec>> GetPhanCongCuaNhanVienAsync(int maNhanVien, string? loai, string? trangThaiPhanCong);
+        Task<HoSoBaoTri?> GetHoSoBaoTriByMaPhanCongAsync(int maPhanCong);
+        Task<HoSoSuaChua?> GetHoSoSuaChuaByMaPhanCongAsync(int maPhanCong);
         Task AddKetQuaAsync(KetQuaThucHien ketQua);
 
         // Lịch sử phê duyệt
@@ -187,6 +191,49 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
                 .OrderByDescending(p => p.NgayPhanCong)
                 .AsNoTracking()
                 .ToListAsync();
+
+        public async Task<List<PhanCongCongViec>> GetLichSuPhanCongChiTietAsync() =>
+            await _context.PhanCongCongViecs
+                .Include(p => p.MaNhanVienPhanCongNavigation)
+                .Include(p => p.MaNhanVienThucHienNavigation)
+                .Include(p => p.HoSoBaoTri)!.ThenInclude(h => h!.MaThieBiNavigation)
+                .Include(p => p.HoSoSuaChua)!.ThenInclude(h => h!.MaThieBiNavigation)
+                .OrderByDescending(p => p.NgayPhanCong)
+                .AsNoTracking()
+                .ToListAsync();
+
+        public async Task<List<PhanCongCongViec>> GetPhanCongCuaNhanVienAsync(int maNhanVien, string? loai, string? trangThaiPhanCong)
+        {
+            var q = _context.PhanCongCongViecs
+                .Include(p => p.MaNhanVienPhanCongNavigation)
+                .Include(p => p.MaNhanVienThucHienNavigation)
+                .Include(p => p.HoSoBaoTri)!.ThenInclude(h => h!.MaThieBiNavigation)
+                .Include(p => p.HoSoSuaChua)!.ThenInclude(h => h!.MaThieBiNavigation)
+                .Where(p => p.MaNhanVienThucHien == maNhanVien);
+
+            if (!string.IsNullOrWhiteSpace(trangThaiPhanCong))
+                q = q.Where(p => p.TrangThai == trangThaiPhanCong);
+
+            if (!string.IsNullOrWhiteSpace(loai))
+            {
+                if (loai.Equals("BaoTri", StringComparison.OrdinalIgnoreCase) || loai == "Bảo trì")
+                    q = q.Where(p => p.HoSoBaoTri != null);
+                else if (loai.Equals("SuaChua", StringComparison.OrdinalIgnoreCase) || loai == "Sửa chữa")
+                    q = q.Where(p => p.HoSoSuaChua != null);
+            }
+
+            return await q.OrderByDescending(p => p.NgayPhanCong).AsNoTracking().ToListAsync();
+        }
+
+        public async Task<HoSoBaoTri?> GetHoSoBaoTriByMaPhanCongAsync(int maPhanCong) =>
+            await _context.HoSoBaoTris
+                .Include(h => h.MaThieBiNavigation)
+                .FirstOrDefaultAsync(h => h.MaPhanCong == maPhanCong);
+
+        public async Task<HoSoSuaChua?> GetHoSoSuaChuaByMaPhanCongAsync(int maPhanCong) =>
+            await _context.HoSoSuaChuas
+                .Include(h => h.MaThieBiNavigation)
+                .FirstOrDefaultAsync(h => h.MaPhanCong == maPhanCong);
 
         public async Task AddKetQuaAsync(KetQuaThucHien ketQua) =>
             await _context.KetQuaThucHiens.AddAsync(ketQua);

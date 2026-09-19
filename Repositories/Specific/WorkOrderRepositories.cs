@@ -42,6 +42,9 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         Task<List<PhanCongCongViec>> GetPhanCongCuaNhanVienAsync(int maNhanVien, string? loai, string? trangThaiPhanCong);
         Task<HoSoBaoTri?> GetHoSoBaoTriByMaPhanCongAsync(int maPhanCong);
         Task<HoSoSuaChua?> GetHoSoSuaChuaByMaPhanCongAsync(int maPhanCong);
+        void RemovePhanCong(PhanCongCongViec phanCong);
+        void RemoveKetQua(KetQuaThucHien ketQua);
+        Task<KetQuaThucHien?> GetKetQuaByMaPhanCongAsync(int maPhanCong);
         Task AddKetQuaAsync(KetQuaThucHien ketQua);
 
         // Lịch sử phê duyệt
@@ -234,6 +237,15 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
             await _context.HoSoSuaChuas
                 .Include(h => h.MaThieBiNavigation)
                 .FirstOrDefaultAsync(h => h.MaPhanCong == maPhanCong);
+
+        public void RemovePhanCong(PhanCongCongViec phanCong) =>
+            _context.PhanCongCongViecs.Remove(phanCong);
+
+        public void RemoveKetQua(KetQuaThucHien ketQua) =>
+            _context.KetQuaThucHiens.Remove(ketQua);
+
+        public async Task<KetQuaThucHien?> GetKetQuaByMaPhanCongAsync(int maPhanCong) =>
+            await _context.KetQuaThucHiens.FirstOrDefaultAsync(k => k.MaPhanCong == maPhanCong);
 
         public async Task AddKetQuaAsync(KetQuaThucHien ketQua) =>
             await _context.KetQuaThucHiens.AddAsync(ketQua);

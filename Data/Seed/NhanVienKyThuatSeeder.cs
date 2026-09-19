@@ -64,42 +64,53 @@ namespace OPC.MaintenanceAPI.Data.Seed
                     continue;
 
                 var maNv = u.NhanVien?.MaNhanVien;
-                if (maNv == null)
-                {
-                    db.QuanLyNguoiDungs.Remove(u);
-                    continue;
-                }
 
-                var dangDung =
-                    await db.PhanCongCongViecs.AnyAsync(p =>
-                        p.MaNhanVienThucHien == maNv || p.MaNhanVienPhanCong == maNv)
-                    || await db.HoSoBaoTris.AnyAsync(h =>
-                        h.MaNhanVienTao == maNv || h.MaNhanVienDuyet == maNv)
-                    || await db.HoSoSuaChuas.AnyAsync(h =>
-                        h.MaNhanVienTao == maNv || h.MaNhanVienDuyet == maNv)
-                    || await db.KetQuaThucHiens.AnyAsync(k => k.MaNhanVienGhiNhan == maNv)
-                    || await db.KeHoachBaoTris.AnyAsync(k => k.MaNhanVienLap == maNv)
-                    || await db.LichSuPheDuyets.AnyAsync(l => l.MaNhanVienDuyet == maNv)
-                    || await db.NhatKyHeThongs.AnyAsync(n => n.MaNhanVien == maNv);
-
-                if (dangDung)
+                // Có tham chiếu nghiệp vụ → chỉ vô hiệu hóa, không xóa
+                if (maNv != null)
                 {
-                    u.TrangThai = "Ngừng hoạt động";
-                    if (u.NhanVien != null)
+                    var dangDung =
+                        await db.PhanCongCongViecs.AnyAsync(p =>
+                            p.MaNhanVienThucHien == maNv || p.MaNhanVienPhanCong == maNv)
+                        || await db.HoSoBaoTris.AnyAsync(h =>
+                            h.MaNhanVienTao == maNv || h.MaNhanVienDuyet == maNv)
+                        || await db.HoSoSuaChuas.AnyAsync(h =>
+                            h.MaNhanVienTao == maNv || h.MaNhanVienDuyet == maNv)
+                        || await db.KetQuaThucHiens.AnyAsync(k => k.MaNhanVienGhiNhan == maNv)
+                        || await db.KeHoachBaoTris.AnyAsync(k => k.MaNhanVienLap == maNv)
+                        || await db.LichSuPheDuyets.AnyAsync(l => l.MaNhanVienDuyet == maNv)
+                        || await db.NhatKyHeThongs.AnyAsync(n => n.MaNhanVien == maNv)
+                        || await db.NhapXuatVatTus.AnyAsync(n => n.MaNhanVienGiaoDich == maNv)
+                        || await db.HoSoYeuCauVatTus.AnyAsync(h =>
+                            h.MaNhanVienTao == maNv || h.MaNhanVienDuyet == maNv);
+
+                    if (dangDung)
                     {
-                        u.NhanVien.TrangThai = "Nghỉ việc";
-                        u.NhanVien.ChucVu = "Nhân viên kỹ thuật (cũ)";
+                        u.TrangThai = "Ngừng hoạt động";
+                        if (u.NhanVien != null)
+                        {
+                            u.NhanVien.TrangThai = "Nghỉ việc";
+                            u.NhanVien.ChucVu = "Nhân viên kỹ thuật (cũ)";
+                        }
+                        continue;
                     }
-                    continue;
                 }
+
+                // Xóa OTP quên mật khẩu trước (FK_XacThuc_NguoiDung)
+                var otps = await db.XacThucQuenMatKhaus
+                    .Where(x => x.MaNguoiDung == u.MaNguoiDung)
+                    .ToListAsync();
+                if (otps.Count > 0)
+                    db.XacThucQuenMatKhaus.RemoveRange(otps);
 
                 if (u.NhanVien != null)
                     db.NhanViens.Remove(u.NhanVien);
+
                 db.QuanLyNguoiDungs.Remove(u);
             }
 
             await db.SaveChangesAsync();
 
+            // Tạo / cập nhật 10 tài khoản seed + reset mật khẩu chung
             foreach (var m in mau)
             {
                 var user = await db.QuanLyNguoiDungs

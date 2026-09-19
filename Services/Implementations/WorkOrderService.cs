@@ -251,6 +251,8 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
             var phanCong = await _repo.GetPhanCongByIdAsync(hoSo.MaPhanCong.Value);
             if (phanCong == null) return (false, "Không tìm thấy phân công.");
+            if (phanCong.TrangThai == "Đã hủy")
+                return (false, "Yêu cầu bảo trì này được hủy bởi tổ trưởng kỹ thuật");
             if (phanCong.MaNhanVienThucHien != nhanVien.MaNhanVien)
                 return (false, "Bạn không được phân công hồ sơ này.");
             if (phanCong.TrangThai != "Chờ xác nhận" && phanCong.TrangThai != "Đã phân công")
@@ -287,6 +289,8 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
             var phanCong = await _repo.GetPhanCongByIdAsync(hoSo.MaPhanCong.Value);
             if (phanCong == null) return (false, "Không tìm thấy phân công.");
+            if (phanCong.TrangThai == "Đã hủy")
+                return (false, "Yêu cầu bảo trì này được hủy bởi tổ trưởng kỹ thuật");
             if (phanCong.MaNhanVienThucHien != nhanVien.MaNhanVien)
                 return (false, "Bạn không được phân công hồ sơ này.");
             if (phanCong.TrangThai != "Chờ xác nhận" && phanCong.TrangThai != "Đã phân công")
@@ -367,6 +371,8 @@ namespace OPC.MaintenanceAPI.Services.Implementations
         public async Task<List<object>> GetLichSuPhanCongAsync()
         {
             var list = await _repo.GetLichSuPhanCongChiTietAsync();
+            // Tổ trưởng không thấy phân công đã hủy
+            list = list.Where(p => p.TrangThai != "Đã hủy").ToList();
             return list.Select(p => (object)new
             {
                 p.MaPhanCong,
@@ -383,6 +389,44 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                              ?? p.HoSoSuaChua?.MaThieBiNavigation?.TenThietBi,
                 Loai = p.HoSoBaoTri != null ? "Bảo trì" : (p.HoSoSuaChua != null ? "Sửa chữa" : null),
             }).ToList();
+        }
+
+        public async Task<(bool, string?)> HuyPhanCongAsync(int maPhanCong, int maNguoiDung)
+        {
+            var nhanVien = await _nhanVienRepo.GetByMaNguoiDungAsync(maNguoiDung);
+            if (nhanVien == null) return (false, "Không xác định được người dùng.");
+
+            var phanCong = await _repo.GetPhanCongByIdAsync(maPhanCong);
+            if (phanCong == null) return (false, "Không tìm thấy phân công.");
+
+            var tt = phanCong.TrangThai ?? "";
+            if (tt is not ("Chờ xác nhận" or "Từ chối"))
+                return (false, "Chỉ hủy được phân công ở trạng thái Chờ xác nhận hoặc Từ chối.");
+
+            // Gỡ liên kết hồ sơ → tổ trưởng phân công lại được
+            var hoSoBt = await _repo.GetHoSoBaoTriByMaPhanCongAsync(maPhanCong);
+            if (hoSoBt != null)
+            {
+                hoSoBt.MaPhanCong = null;
+                if (hoSoBt.TrangThai == "Đang thực hiện")
+                    hoSoBt.TrangThai = "Đã duyệt";
+                var chiTiet = await _repo.GetChiTietKeHoachByHoSoBaoTriAsync(hoSoBt.MaHoSoBaoTri);
+                if (chiTiet != null && chiTiet.TrangThai == "Đang thực hiện")
+                    chiTiet.TrangThai = "Đã duyệt";
+            }
+
+            var hoSoSc = await _repo.GetHoSoSuaChuaByMaPhanCongAsync(maPhanCong);
+            if (hoSoSc != null)
+            {
+                hoSoSc.MaPhanCong = null;
+                if (hoSoSc.TrangThai == "Đang thực hiện")
+                    hoSoSc.TrangThai = "Đã duyệt";
+            }
+
+            // Soft cancel — giữ bản ghi để NVKT vẫn thấy & nhận thông báo khi mở
+            phanCong.TrangThai = "Đã hủy";
+            await _repo.SaveChangesAsync();
+            return (true, "Đã hủy phân công. Có thể phân công lại trên hồ sơ.");
         }
 
         public async Task<(bool, string?)> GhiNhanKetQuaAsync(int maPhanCong, GhiNhanKetQuaDto dto)
@@ -509,6 +553,8 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
             var phanCong = await _repo.GetPhanCongByIdAsync(hoSo.MaPhanCong.Value);
             if (phanCong == null) return (false, "Không tìm thấy phân công.");
+            if (phanCong.TrangThai == "Đã hủy")
+                return (false, "Yêu cầu bảo trì này được hủy bởi tổ trưởng kỹ thuật");
             if (phanCong.MaNhanVienThucHien != nhanVien.MaNhanVien)
                 return (false, "Bạn không được phân công hồ sơ này.");
             if (phanCong.TrangThai != "Chờ xác nhận" && phanCong.TrangThai != "Đã phân công")
@@ -538,6 +584,8 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
             var phanCong = await _repo.GetPhanCongByIdAsync(hoSo.MaPhanCong.Value);
             if (phanCong == null) return (false, "Không tìm thấy phân công.");
+            if (phanCong.TrangThai == "Đã hủy")
+                return (false, "Yêu cầu bảo trì này được hủy bởi tổ trưởng kỹ thuật");
             if (phanCong.MaNhanVienThucHien != nhanVien.MaNhanVien)
                 return (false, "Bạn không được phân công hồ sơ này.");
             if (phanCong.TrangThai != "Chờ xác nhận" && phanCong.TrangThai != "Đã phân công")

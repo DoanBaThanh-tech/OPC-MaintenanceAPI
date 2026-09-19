@@ -55,6 +55,8 @@ public partial class OPCDbContext : DbContext
 
     public virtual DbSet<VatTu> VatTus { get; set; }
     public virtual DbSet<XacThucQuenMatKhau> XacThucQuenMatKhaus { get; set; }
+
+    public virtual DbSet<YeuCauBaoTriThietBi> YeuCauBaoTriThietBis { get; set; }
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
         => optionsBuilder.UseSqlServer("Name=ConnectionStrings:DefaultConnection");
 
@@ -169,6 +171,10 @@ public partial class OPCDbContext : DbContext
                 .HasForeignKey(d => d.MaThieBi)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_HoSoBaoTri_ThietBi");
+
+            entity.HasOne(d => d.MaYeuCauBaoTriNavigation).WithOne(p => p.HoSoBaoTri)
+                .HasForeignKey<HoSoBaoTri>(d => d.MaYeuCauBaoTri)
+                .HasConstraintName("FK_HoSoBaoTri_YeuCauBaoTri");
         });
 
         modelBuilder.Entity<HoSoSuaChua>(entity =>
@@ -449,6 +455,7 @@ public partial class OPCDbContext : DbContext
                 .HasDefaultValueSql("(getdate())")
                 .HasColumnType("datetime");
             entity.Property(e => e.TrangThai).HasMaxLength(30);
+            entity.Property(e => e.LyDoTuChoi).HasMaxLength(255);
 
             entity.HasOne(d => d.MaNhanVienPhanCongNavigation).WithMany(p => p.PhanCongCongViecMaNhanVienPhanCongNavigations)
                 .HasForeignKey(d => d.MaNhanVienPhanCong)
@@ -550,6 +557,39 @@ public partial class OPCDbContext : DbContext
             entity.Property(e => e.DonViTinh).HasMaxLength(30);
             entity.Property(e => e.GhiChu).HasMaxLength(255);
             entity.Property(e => e.TenVatTu).HasMaxLength(150);
+        });
+
+
+        modelBuilder.Entity<YeuCauBaoTriThietBi>(entity =>
+        {
+            entity.HasKey(e => e.MaYeuCauBaoTri);
+            entity.ToTable("YeuCauBaoTriThietBi");
+
+            entity.HasIndex(e => e.TrangThai, "IX_YeuCauBaoTri_TrangThai");
+            entity.HasIndex(e => new { e.MaThietBi, e.NamBaoTri, e.ThangBaoTri }, "IX_YeuCauBaoTri_ThietBi_Nam_Thang");
+
+            entity.Property(e => e.TrangThai).HasMaxLength(30).HasDefaultValue("Chờ xác nhận");
+            entity.Property(e => e.LyDoTuChoi).HasMaxLength(255);
+            entity.Property(e => e.GhiChu).HasMaxLength(500);
+            entity.Property(e => e.ThoiGianDuKien).HasColumnType("decimal(5,1)");
+            entity.Property(e => e.GioBatDau).HasColumnType("time");
+            entity.Property(e => e.GioKetThuc).HasColumnType("time");
+            entity.Property(e => e.NgayTao).HasColumnType("datetime").HasDefaultValueSql("(getdate())");
+            entity.Property(e => e.NgayXacNhan).HasColumnType("datetime");
+
+            entity.HasOne(d => d.MaThietBiNavigation).WithMany(p => p.YeuCauBaoTriThietBis)
+                .HasForeignKey(d => d.MaThietBi)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_YeuCauBaoTri_ThietBi");
+
+            entity.HasOne(d => d.MaNhanVienYeuCauNavigation).WithMany()
+                .HasForeignKey(d => d.MaNhanVienYeuCau)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_YeuCauBaoTri_NVYeuCau");
+
+            entity.HasOne(d => d.MaNhanVienXacNhanNavigation).WithMany()
+                .HasForeignKey(d => d.MaNhanVienXacNhan)
+                .HasConstraintName("FK_YeuCauBaoTri_NVXacNhan");
         });
 
         OnModelCreatingPartial(modelBuilder);

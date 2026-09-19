@@ -99,6 +99,7 @@ var app = builder.Build();
 
 await VaiTroSeeder.SeedAsync(app.Services);
 await NhanVienKyThuatSeeder.SeedAsync(app.Services);
+await ToTruongSanXuatSeeder.SeedAsync(app.Services);
 
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 

@@ -15,6 +15,9 @@ public partial class HoSoBaoTri
 
     public int? MaPhanCong { get; set; }
 
+    /// <summary>Yêu cầu bảo trì từ Tổ trưởng sản xuất (bắt buộc khi tạo hồ sơ).</summary>
+    public int? MaYeuCauBaoTri { get; set; }
+
     public string? NoiDungCongViec { get; set; }
 
     public string? ThoiGianDuKien { get; set; }
@@ -44,6 +47,8 @@ public partial class HoSoBaoTri
     public virtual NhanVien MaNhanVienTaoNavigation { get; set; } = null!;
 
     public virtual PhanCongCongViec? MaPhanCongNavigation { get; set; }
+
+    public virtual YeuCauBaoTriThietBi? MaYeuCauBaoTriNavigation { get; set; }
 
     public virtual ThietBi MaThieBiNavigation { get; set; } = null!;
 }

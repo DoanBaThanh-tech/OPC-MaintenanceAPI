@@ -51,6 +51,13 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         Task AddLichSuPheDuyetAsync(LichSuPheDuyet lichSu);
         Task<List<LichSuPheDuyet>> GetLichSuPheDuyetAsync(string? loai, int? nam);
 
+
+        // Yêu cầu bảo trì thiết bị (Tổ trưởng sản xuất)
+        Task AddYeuCauBaoTriAsync(YeuCauBaoTriThietBi yc);
+        Task<YeuCauBaoTriThietBi?> GetYeuCauBaoTriByIdAsync(int id);
+        Task<List<YeuCauBaoTriThietBi>> GetYeuCauBaoTriListAsync(string? trangThai, int? nam, int? thang);
+        Task<bool> TonTaiYeuCauBaoTriThangAsync(int maThietBi, int nam, int thang);
+
         Task<int> SaveChangesAsync();
     }
 
@@ -277,6 +284,40 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
 
             return await q.OrderByDescending(l => l.NgayDuyet).AsNoTracking().ToListAsync();
         }
+
+        
+        public async Task AddYeuCauBaoTriAsync(YeuCauBaoTriThietBi yc) =>
+            await _context.YeuCauBaoTriThietBis.AddAsync(yc);
+
+        public async Task<YeuCauBaoTriThietBi?> GetYeuCauBaoTriByIdAsync(int id) =>
+            await _context.YeuCauBaoTriThietBis
+                .Include(y => y.MaThietBiNavigation)
+                .Include(y => y.MaNhanVienYeuCauNavigation)
+                .Include(y => y.HoSoBaoTri)
+                .FirstOrDefaultAsync(y => y.MaYeuCauBaoTri == id);
+
+        public async Task<List<YeuCauBaoTriThietBi>> GetYeuCauBaoTriListAsync(string? trangThai, int? nam, int? thang)
+        {
+            var q = _context.YeuCauBaoTriThietBis
+                .Include(y => y.MaThietBiNavigation)
+                .Include(y => y.MaNhanVienYeuCauNavigation)
+                .Include(y => y.MaNhanVienXacNhanNavigation)
+                .AsQueryable();
+            if (!string.IsNullOrWhiteSpace(trangThai))
+                q = q.Where(y => y.TrangThai == trangThai);
+            if (nam.HasValue)
+                q = q.Where(y => y.NamBaoTri == nam.Value);
+            if (thang.HasValue)
+                q = q.Where(y => y.ThangBaoTri == thang.Value);
+            return await q.OrderByDescending(y => y.NgayTao).AsNoTracking().ToListAsync();
+        }
+
+        public async Task<bool> TonTaiYeuCauBaoTriThangAsync(int maThietBi, int nam, int thang) =>
+            await _context.YeuCauBaoTriThietBis.AnyAsync(y =>
+                y.MaThietBi == maThietBi
+                && y.NamBaoTri == nam
+                && y.ThangBaoTri == thang
+                && y.TrangThai != "Từ chối");
 
         public async Task<int> SaveChangesAsync() => await _context.SaveChangesAsync();
 

@@ -1,14 +1,14 @@
 namespace OPC.MaintenanceAPI.DTOs.WorkOrder
 {
-    // ===== Tạo hồ sơ =====
     public class TaoHoSoBaoTriDto
     {
         public int MaThietBi { get; set; }
         public string? NoiDungCongViec { get; set; }
-        public string? ThoiGianDuKien { get; set; }   // string, không phải int
+        public string? ThoiGianDuKien { get; set; }
         public bool GuiDuyet { get; set; }
         public int? MaChiTietKeHoach { get; set; }
-        // Không có MaNhanVienTao — lấy từ JWT
+        /// <summary>Yêu cầu bảo trì đã được Tổ trưởng kỹ thuật xác nhận.</summary>
+        public int? MaYeuCauBaoTri { get; set; }
     }
 
     public class TaoHoSoSuaChuaDto
@@ -20,8 +20,6 @@ namespace OPC.MaintenanceAPI.DTOs.WorkOrder
         public bool GuiDuyet { get; set; }
     }
 
-    
-    // ===== Phân công =====
     public class PhanCongDto
     {
         public int MaNhanVienThucHien { get; set; }
@@ -30,36 +28,51 @@ namespace OPC.MaintenanceAPI.DTOs.WorkOrder
         public DateTime NgayKetThucDuKien { get; set; }
     }
 
-    // ===== Ghi nhận kết quả =====
     public class GhiNhanKetQuaDto
     {
         public int MaNhanVienGhiNhan { get; set; }
         public string? SoLieuGhiNhan { get; set; }
         public string? HinhAnh { get; set; }
         public string? GhiChu { get; set; }
-        /// Ngày ghi nhận — bắt buộc nằm trong tháng của ngày dự kiến bảo trì
         public DateTime? NgayGhiNhan { get; set; }
     }
 
-    /// NVKT từ chối nhận việc
     public class TuChoiNhanViecDto
     {
         public string LyDo { get; set; } = null!;
     }
 
-    // ===== Xác nhận đóng hồ sơ =====
     public class XacNhanDto
     {
-        public bool Dat { get; set; }   // true = Đạt yêu cầu, false = Chưa đạt
+        public bool Dat { get; set; }
     }
-    
-    // ===== Chỉnh sửa hồ sơ bị từ chối =====
+
     public class CapNhatHoSoBaoTriDto
     {
         public string? NoiDungCongViec { get; set; }
-        public string? ThoiGianDuKien { get; set; }          // số giờ, vd "3"
-        public string? GioBatDauDuKien { get; set; }         // "08:00"
-        public string? GioKetThucDuKien { get; set; }        // "11:00"
-        public DateOnly? NgayDuKienBaoTri { get; set; }      // ngày bảo trì dự kiến
+        public string? ThoiGianDuKien { get; set; }
+        public string? GioBatDauDuKien { get; set; }
+        public string? GioKetThucDuKien { get; set; }
+        public DateOnly? NgayDuKienBaoTri { get; set; }
+    }
+
+
+    public class TaoYeuCauBaoTriDto
+    {
+        public int MaThietBi { get; set; }
+        public int ThangBaoTri { get; set; }
+        public int NamBaoTri { get; set; }
+        public DateOnly NgayBaoTri { get; set; }
+        public decimal ThoiGianDuKien { get; set; }
+        public TimeSpan GioBatDau { get; set; }
+        public TimeSpan GioKetThuc { get; set; }
+        public string? GhiChu { get; set; }
+    }
+
+    public class XacNhanYeuCauBaoTriDto
+    {
+        /// <summary>Xác nhận | Từ chối</summary>
+        public string QuyetDinh { get; set; } = null!;
+        public string? LyDo { get; set; }
     }
 }

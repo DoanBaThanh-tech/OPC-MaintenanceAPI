@@ -26,6 +26,19 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             var nhanVien = await _nhanVienRepo.GetByMaNguoiDungAsync(maNguoiDungTao);
             if (nhanVien == null) return (false, "Không xác định được người tạo hồ sơ.");
 
+            // Bắt buộc có yêu cầu bảo trì đã xác nhận từ Tổ trưởng sản xuất
+            if (!dto.MaYeuCauBaoTri.HasValue)
+                return (false, "Phải chọn yêu cầu bảo trì đã được xác nhận từ Tổ trưởng sản xuất.");
+            var yeuCau = await _repo.GetYeuCauBaoTriByIdAsync(dto.MaYeuCauBaoTri.Value);
+            if (yeuCau == null)
+                return (false, "Không tìm thấy yêu cầu bảo trì.");
+            if (yeuCau.TrangThai != "Đã xác nhận")
+                return (false, "Yêu cầu bảo trì chưa được xác nhận hoặc đã dùng.");
+            if (yeuCau.MaThietBi != dto.MaThietBi)
+                return (false, "Thiết bị không khớp với yêu cầu bảo trì đã chọn.");
+            if (yeuCau.HoSoBaoTri != null)
+                return (false, "Yêu cầu này đã được tạo hồ sơ bảo trì.");
+
             if (dto.MaChiTietKeHoach.HasValue)
             {
                 var chiTiet = await _repo.GetChiTietKeHoachByIdAsync(dto.MaChiTietKeHoach.Value);
@@ -54,7 +67,8 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 MaThieBi = dto.MaThietBi,
                 MaNhanVienTao = nhanVien.MaNhanVien,
                 NoiDungCongViec = dto.NoiDungCongViec,
-                ThoiGianDuKien = dto.ThoiGianDuKien,
+                ThoiGianDuKien = dto.ThoiGianDuKien ?? yeuCau.ThoiGianDuKien.ToString("0.#"),
+                MaYeuCauBaoTri = yeuCau.MaYeuCauBaoTri,
                 NgayTao = DateTime.Now,
                 TrangThai = "Chờ duyệt"
             };
@@ -872,5 +886,123 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 NamTuKeHoach = namTuKeHoach != null
             };
         }
+
+        public async Task<(bool, string?)> TaoYeuCauBaoTriAsync(int maNguoiDung, TaoYeuCauBaoTriDto dto)
+        {
+            var nv = await _nhanVienRepo.GetByMaNguoiDungAsync(maNguoiDung);
+            if (nv == null) return (false, "Không xác định được người dùng.");
+
+            if (dto.ThoiGianDuKien <= 0)
+                return (false, "Thời gian dự kiến phải lớn hơn 0.");
+            if (dto.ThangBaoTri < 1 || dto.ThangBaoTri > 12)
+                return (false, "Tháng bảo trì không hợp lệ.");
+            if (dto.NgayBaoTri.Month != dto.ThangBaoTri || dto.NgayBaoTri.Year != dto.NamBaoTri)
+                return (false, "Ngày bảo trì phải thuộc tháng/năm đã chọn.");
+            if (dto.GioKetThuc <= dto.GioBatDau)
+                return (false, "Giờ kết thúc phải sau giờ bắt đầu.");
+
+            var tb = await _repo.GetThietBiByIdAsync(dto.MaThietBi);
+            if (tb == null) return (false, "Không tìm thấy thiết bị.");
+
+            // Không trùng yêu cầu cùng thiết bị + tháng/năm còn hiệu lực
+            if (await _repo.TonTaiYeuCauBaoTriThangAsync(dto.MaThietBi, dto.NamBaoTri, dto.ThangBaoTri))
+                return (false, $"Thiết bị đã có yêu cầu bảo trì trong tháng {dto.ThangBaoTri}/{dto.NamBaoTri}.");
+
+            var yc = new YeuCauBaoTriThietBi
+            {
+                MaThietBi = dto.MaThietBi,
+                MaNhanVienYeuCau = nv.MaNhanVien,
+                ThangBaoTri = dto.ThangBaoTri,
+                NamBaoTri = dto.NamBaoTri,
+                NgayBaoTri = dto.NgayBaoTri,
+                ThoiGianDuKien = dto.ThoiGianDuKien,
+                GioBatDau = dto.GioBatDau,
+                GioKetThuc = dto.GioKetThuc,
+                GhiChu = dto.GhiChu,
+                TrangThai = "Chờ xác nhận",
+                NgayTao = DateTime.Now,
+            };
+            await _repo.AddYeuCauBaoTriAsync(yc);
+            await _repo.SaveChangesAsync();
+            return (true, null);
+        }
+
+        public async Task<List<object>> GetYeuCauBaoTriAsync(string? trangThai, int? nam, int? thang)
+        {
+            var list = await _repo.GetYeuCauBaoTriListAsync(trangThai, nam, thang);
+            return list.Select(y => (object)new
+            {
+                y.MaYeuCauBaoTri,
+                y.MaThietBi,
+                TenThietBi = y.MaThietBiNavigation?.TenThietBi,
+                DanhMuc = y.MaThietBiNavigation?.LoaiThietBi,
+                TenNguoiYeuCau = y.MaNhanVienYeuCauNavigation?.HoTen,
+                TenNguoiXacNhan = y.MaNhanVienXacNhanNavigation?.HoTen,
+                y.ThangBaoTri,
+                y.NamBaoTri,
+                y.NgayBaoTri,
+                y.ThoiGianDuKien,
+                GioBatDau = y.GioBatDau.ToString(@"hh\:mm"),
+                GioKetThuc = y.GioKetThuc.ToString(@"hh\:mm"),
+                y.TrangThai,
+                y.LyDoTuChoi,
+                y.GhiChu,
+                y.NgayTao,
+                y.NgayXacNhan,
+            }).ToList();
+        }
+
+        public async Task<(bool, string?)> XacNhanYeuCauBaoTriAsync(int maYeuCau, int maNguoiDung, XacNhanYeuCauBaoTriDto dto)
+        {
+            var nv = await _nhanVienRepo.GetByMaNguoiDungAsync(maNguoiDung);
+            if (nv == null) return (false, "Không xác định được người dùng.");
+
+            var yc = await _repo.GetYeuCauBaoTriByIdAsync(maYeuCau);
+            if (yc == null) return (false, "Không tìm thấy yêu cầu.");
+            if (yc.TrangThai != "Chờ xác nhận")
+                return (false, "Yêu cầu không ở trạng thái chờ xác nhận.");
+
+            if (dto.QuyetDinh == "Từ chối")
+            {
+                if (string.IsNullOrWhiteSpace(dto.LyDo))
+                    return (false, "Vui lòng nhập lý do từ chối.");
+                yc.TrangThai = "Từ chối";
+                yc.LyDoTuChoi = dto.LyDo.Trim();
+            }
+            else if (dto.QuyetDinh == "Xác nhận")
+            {
+                yc.TrangThai = "Đã xác nhận";
+                yc.LyDoTuChoi = null;
+            }
+            else
+                return (false, "Quyết định không hợp lệ.");
+
+            yc.MaNhanVienXacNhan = nv.MaNhanVien;
+            yc.NgayXacNhan = DateTime.Now;
+            await _repo.SaveChangesAsync();
+            return (true, null);
+        }
+
+        public async Task<List<object>> GetYeuCauDaXacNhanDeTaoHoSoAsync(int? nam, int? thang)
+        {
+            var list = await _repo.GetYeuCauBaoTriListAsync("Đã xác nhận", nam, thang);
+            return list.Select(y => (object)new
+            {
+                y.MaYeuCauBaoTri,
+                y.MaThietBi,
+                TenThietBi = y.MaThietBiNavigation?.TenThietBi,
+                DanhMuc = y.MaThietBiNavigation?.LoaiThietBi,
+                // Nhãn rõ ràng để TTKT không nhầm tháng
+                NhanHienThi = $"YC #{y.MaYeuCauBaoTri} · {y.MaThietBiNavigation?.TenThietBi} · {y.NgayBaoTri:dd/MM/yyyy} · {y.ThoiGianDuKien:0.#}h",
+                y.ThangBaoTri,
+                y.NamBaoTri,
+                y.NgayBaoTri,
+                y.ThoiGianDuKien,
+                GioBatDau = y.GioBatDau.ToString(@"hh\:mm"),
+                GioKetThuc = y.GioKetThuc.ToString(@"hh\:mm"),
+                TenNguoiYeuCau = y.MaNhanVienYeuCauNavigation?.HoTen,
+            }).ToList();
+        }
+
     }
 }

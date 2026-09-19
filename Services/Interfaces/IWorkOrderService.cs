@@ -35,5 +35,12 @@ namespace OPC.MaintenanceAPI.Services.Interfaces
         Task<(bool, string?)> XacNhanHoanThanhSuaChuaAsync(int maHoSo, XacNhanDto dto);
         Task<(bool, string?)> NhanVienXacNhanSuaChuaAsync(int maHoSo, int maNguoiDung);
         Task<(bool, string?)> NhanVienTuChoiSuaChuaAsync(int maHoSo, int maNguoiDung, TuChoiNhanViecDto dto);
+
+        // Yêu cầu bảo trì từ Tổ trưởng sản xuất
+        Task<(bool, string?)> TaoYeuCauBaoTriAsync(int maNguoiDung, TaoYeuCauBaoTriDto dto);
+        Task<List<object>> GetYeuCauBaoTriAsync(string? trangThai, int? nam, int? thang);
+        Task<(bool, string?)> XacNhanYeuCauBaoTriAsync(int maYeuCau, int maNguoiDung, XacNhanYeuCauBaoTriDto dto);
+        /// Danh sách YC đã xác nhận — dùng khi TTKT tạo hồ sơ (tránh nhầm thiết bị/tháng)
+        Task<List<object>> GetYeuCauDaXacNhanDeTaoHoSoAsync(int? nam, int? thang);
     }
 }

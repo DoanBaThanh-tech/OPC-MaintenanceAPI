@@ -31,6 +31,8 @@ public partial class ThietBi
 
     public virtual ICollection<HoSoBaoTri> HoSoBaoTris { get; set; } = new List<HoSoBaoTri>();
 
+    public virtual ICollection<YeuCauBaoTriThietBi> YeuCauBaoTriThietBis { get; set; } = new List<YeuCauBaoTriThietBi>();
+
     public virtual ICollection<HoSoSuaChua> HoSoSuaChuas { get; set; } = new List<HoSoSuaChua>();
 
     public virtual ICollection<LichSuThietBi> LichSuThietBis { get; set; } = new List<LichSuThietBi>();

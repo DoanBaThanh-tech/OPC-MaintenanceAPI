@@ -49,6 +49,34 @@ namespace OPC.MaintenanceAPI.Controllers
             return Result(await _service.HuyPhanCongAsync(maPhanCong, maNguoiDung));
         }
 
+
+        // ===== Yêu cầu bảo trì thiết bị (Tổ trưởng sản xuất → TTKT) =====
+        [HttpPost("yeu-cau-bao-tri")]
+        public async Task<IActionResult> TaoYeuCauBaoTri(TaoYeuCauBaoTriDto dto)
+        {
+            var claim = User.FindFirst("MaNguoiDung")?.Value;
+            if (claim == null || !int.TryParse(claim, out var maNguoiDung))
+                return Unauthorized();
+            return Result(await _service.TaoYeuCauBaoTriAsync(maNguoiDung, dto));
+        }
+
+        [HttpGet("yeu-cau-bao-tri")]
+        public async Task<IActionResult> GetYeuCauBaoTri([FromQuery] string? trangThai = null, [FromQuery] int? nam = null, [FromQuery] int? thang = null) =>
+            Ok(await _service.GetYeuCauBaoTriAsync(trangThai, nam, thang));
+
+        [HttpGet("yeu-cau-bao-tri/de-tao-ho-so")]
+        public async Task<IActionResult> GetYeuCauDeTaoHoSo([FromQuery] int? nam = null, [FromQuery] int? thang = null) =>
+            Ok(await _service.GetYeuCauDaXacNhanDeTaoHoSoAsync(nam, thang));
+
+        [HttpPut("yeu-cau-bao-tri/{id}/xac-nhan")]
+        public async Task<IActionResult> XacNhanYeuCauBaoTri(int id, XacNhanYeuCauBaoTriDto dto)
+        {
+            var claim = User.FindFirst("MaNguoiDung")?.Value;
+            if (claim == null || !int.TryParse(claim, out var maNguoiDung))
+                return Unauthorized();
+            return Result(await _service.XacNhanYeuCauBaoTriAsync(id, maNguoiDung, dto));
+        }
+
         [HttpGet("bao-tri")]
         public async Task<IActionResult> GetBaoTriTheoTrangThai([FromQuery] string? trangThai = null, [FromQuery] int? nam = null) =>
             Ok(await _service.GetHoSoBaoTriTheoTrangThaiAsync(trangThai, nam));

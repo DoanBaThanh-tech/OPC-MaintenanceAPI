@@ -8,11 +8,16 @@ namespace OPC.MaintenanceAPI.Services.Implementations
     {
         private readonly IMaintenancePlanRepository _repo;
         private readonly INhanVienRepository _nhanVienRepo;
+        private readonly IWorkOrderRepository _workOrderRepo;
 
-        public MaintenancePlanService(IMaintenancePlanRepository repo, INhanVienRepository nhanVienRepo)
+        public MaintenancePlanService(
+            IMaintenancePlanRepository repo,
+            INhanVienRepository nhanVienRepo,
+            IWorkOrderRepository workOrderRepo)
         {
             _repo = repo;
             _nhanVienRepo = nhanVienRepo;
+            _workOrderRepo = workOrderRepo;
         }
 
         public async Task<(bool, string?)> TaoNamMoiAsync(int maNguoiDungTao, TaoNamMoiDto dto)
@@ -81,6 +86,21 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             var nam = dto.NgayDuKienBaoTri.Year;
             var thang = dto.NgayDuKienBaoTri.Month;
 
+            // Bắt buộc có yêu cầu bảo trì đã xác nhận từ Tổ trưởng sản xuất
+            if (dto.MaYeuCauBaoTri <= 0)
+                return (false, "Thiết bị này không đúng với yêu cầu từ Tổ trưởng sản xuất đề ra. Vui lòng chọn thiết bị có yêu cầu đã xác nhận.");
+            var yeuCau = await _workOrderRepo.GetYeuCauBaoTriByIdAsync(dto.MaYeuCauBaoTri);
+            if (yeuCau == null)
+                return (false, "Không tìm thấy yêu cầu bảo trì.");
+            if (yeuCau.TrangThai != "Đã xác nhận")
+                return (false, "Yêu cầu bảo trì chưa được xác nhận hoặc đã dùng.");
+            if (yeuCau.MaThietBi != dto.MaThietBi)
+                return (false, "Thiết bị không khớp với yêu cầu bảo trì đã chọn.");
+            if (yeuCau.NamBaoTri != nam || yeuCau.ThangBaoTri != thang)
+                return (false, $"Yêu cầu bảo trì thuộc tháng {yeuCau.ThangBaoTri}/{yeuCau.NamBaoTri}, không khớp tháng đang lập.");
+            if (yeuCau.HoSoBaoTri != null)
+                return (false, "Yêu cầu này đã được tạo hồ sơ bảo trì.");
+
             if (await _repo.TonTaiKeHoachTheoThietBiThangAsync(dto.MaThietBi, nam, thang))
                 return (false,
                     $"Thiết bị '{thietBi.TenThietBi}' đã được lập kế hoạch bảo trì trong tháng {thang}/{nam}. Không thể lập thêm.");
@@ -115,14 +135,17 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 MaThieBi = dto.MaThietBi,
                 MaNhanVienTao = nhanVien.MaNhanVien,
                 NoiDungCongViec = dto.NoiDungCongViec!.Trim(),
-                ThoiGianDuKien = dto.ThoiGianDuKien.Value.ToString(), // chỉ số giờ
+                ThoiGianDuKien = dto.ThoiGianDuKien.Value.ToString(),
                 GioBatDauDuKien = gioBatDau,
                 GioKetThucDuKien = gioKetThuc,
+                MaYeuCauBaoTri = yeuCau.MaYeuCauBaoTri,
                 NgayTao = DateTime.Now,
                 TrangThai = "Chờ duyệt"
             };
             await _repo.AddHoSoBaoTriAsync(hoSo);
             await _repo.SaveChangesAsync(); // có MaHoSoBaoTri
+
+            yeuCau.TrangThai = "Đã tạo hồ sơ";
 
             // Gắn hồ sơ vào chi tiết — bắt buộc để lịch không còn "Chưa tạo hồ sơ"
             var chiTietDb = await _repo.GetChiTietKeHoachByIdAsync(chiTiet.MaChiTietKeHoach);

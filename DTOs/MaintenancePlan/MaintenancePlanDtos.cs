@@ -73,6 +73,8 @@ public class ThemThietBiVaoNamDto
         public int Nam { get; set; }
         public int MaThietBi { get; set; }
         public DateOnly NgayDuKienBaoTri { get; set; }
+        /// <summary>Bắt buộc — YC bảo trì đã xác nhận từ Tổ trưởng sản xuất.</summary>
+        public int MaYeuCauBaoTri { get; set; }
         /// <summary>Bắt buộc — tạo luôn hồ sơ bảo trì cùng lúc.</summary>
         public string? NoiDungCongViec { get; set; }
         /// <summary>Số giờ dự kiến (số dương).</summary>

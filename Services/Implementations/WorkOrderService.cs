@@ -900,6 +900,8 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 return (false, "Ngày bảo trì phải thuộc tháng/năm đã chọn.");
             if (dto.GioKetThuc <= dto.GioBatDau)
                 return (false, "Giờ kết thúc phải sau giờ bắt đầu.");
+            if (dto.NgayBaoTri <= DateOnly.FromDateTime(DateTime.Today))
+                return (false, "Ngày bảo trì phải lớn hơn ngày tạo yêu cầu.");
 
             var tb = await _repo.GetThietBiByIdAsync(dto.MaThietBi);
             if (tb == null) return (false, "Không tìm thấy thiết bị.");

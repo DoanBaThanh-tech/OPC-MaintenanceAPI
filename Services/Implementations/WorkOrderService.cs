@@ -82,28 +82,21 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             ngayDuKien = ct?.NgayDuKienBaoTri;
         }
 
+        // Cập nhật lịch bảo trì trên thiết bị theo quy tắc:
+        // - Ngày dự kiến của hồ sơ mới → "Bảo trì tiếp theo"
+        // - Giá trị "Bảo trì tiếp theo" cũ (nếu có) → đẩy lên "Bảo trì gần nhất"
+        // Ví dụ: HS1 ngày 10/1 → Tiếp theo = 10/1
+        //        HS2 ngày 18/2 → Gần nhất = 10/1, Tiếp theo = 18/2
         if (ngayDuKien.HasValue)
         {
             var tb = await _repo.GetThietBiByIdAsync(dto.MaThietBi);
             if (tb != null)
             {
-                if (tb.NgayBaoTriGanNhat == null)
+                if (tb.NgayBaoTriTiepTheo.HasValue)
                 {
-                    // Lần 1
-                    tb.NgayBaoTriGanNhat = ngayDuKien.Value;
-                    tb.NgayBaoTriTiepTheo = null;
-                }
-                else if (tb.NgayBaoTriTiepTheo == null)
-                {
-                    // Lần 2
-                    tb.NgayBaoTriTiepTheo = ngayDuKien.Value;
-                }
-                else
-                {
-                    // Lần 3+
                     tb.NgayBaoTriGanNhat = tb.NgayBaoTriTiepTheo;
-                    tb.NgayBaoTriTiepTheo = ngayDuKien.Value;
                 }
+                tb.NgayBaoTriTiepTheo = ngayDuKien.Value;
             }
         }
         await _repo.SaveChangesAsync();

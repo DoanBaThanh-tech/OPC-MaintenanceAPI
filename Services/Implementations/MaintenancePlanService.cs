@@ -134,21 +134,15 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             chiTietDb.MaHoSoBaoTri = hoSo.MaHoSoBaoTri;
             chiTietDb.TrangThai = "Đã tạo hồ sơ";
 
+            // Cập nhật lịch bảo trì trên thiết bị theo quy tắc:
+            // - Ngày dự kiến của hồ sơ mới → "Bảo trì tiếp theo"
+            // - Giá trị "Bảo trì tiếp theo" cũ (nếu có) → đẩy lên "Bảo trì gần nhất"
             var ngayDuKien = dto.NgayDuKienBaoTri;
-            if (thietBi.NgayBaoTriGanNhat == null)
-            {
-                thietBi.NgayBaoTriGanNhat = ngayDuKien;
-                thietBi.NgayBaoTriTiepTheo = null;
-            }
-            else if (thietBi.NgayBaoTriTiepTheo == null)
-            {
-                thietBi.NgayBaoTriTiepTheo = ngayDuKien;
-            }
-            else
+            if (thietBi.NgayBaoTriTiepTheo.HasValue)
             {
                 thietBi.NgayBaoTriGanNhat = thietBi.NgayBaoTriTiepTheo;
-                thietBi.NgayBaoTriTiepTheo = ngayDuKien;
             }
+            thietBi.NgayBaoTriTiepTheo = ngayDuKien;
             if (thietBi.TinhTrangHienTai == "Bảo trì" ||
                 string.IsNullOrWhiteSpace(thietBi.TinhTrangHienTai))
             {

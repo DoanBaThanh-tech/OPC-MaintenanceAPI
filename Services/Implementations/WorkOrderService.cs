@@ -894,6 +894,8 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
             if (dto.ThoiGianDuKien <= 0)
                 return (false, "Thời gian dự kiến phải lớn hơn 0.");
+            if (dto.ThoiGianDuKien > 24)
+                return (false, "Bảo trì trong ngày — thời gian dự kiến tối đa 24 giờ.");
             if (dto.ThangBaoTri < 1 || dto.ThangBaoTri > 12)
                 return (false, "Tháng bảo trì không hợp lệ.");
             if (dto.NgayBaoTri.Month != dto.ThangBaoTri || dto.NgayBaoTri.Year != dto.NamBaoTri)
@@ -1020,6 +1022,8 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
             if (dto.ThoiGianDuKien <= 0)
                 return (false, "Thời gian dự kiến phải lớn hơn 0.");
+            if (dto.ThoiGianDuKien > 24)
+                return (false, "Bảo trì trong ngày — thời gian dự kiến tối đa 24 giờ.");
             if (dto.ThangBaoTri < 1 || dto.ThangBaoTri > 12)
                 return (false, "Tháng bảo trì không hợp lệ.");
             if (dto.NgayBaoTri.Month != dto.ThangBaoTri || dto.NgayBaoTri.Year != dto.NamBaoTri)

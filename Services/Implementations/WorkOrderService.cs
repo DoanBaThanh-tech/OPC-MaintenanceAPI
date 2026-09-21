@@ -369,6 +369,25 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 if (ngayLap != null && ngayMoi <= ngayLap.Value)
                     return (false, "Ngày bảo trì dự kiến phải sau ngày lập kế hoạch.");
 
+                // Ràng buộc: 1 thiết bị chỉ 1 lần bảo trì / tháng
+                // (VD: GĐ yêu cầu chuyển sang T9 nhưng T9 đã có hồ sơ/kế hoạch → không cho)
+                var namMoi = ngayMoi.Year;
+                var thangMoi = ngayMoi.Month;
+                var thangCu = chiTiet.NgayDuKienBaoTri.Month;
+                var namCu = chiTiet.NgayDuKienBaoTri.Year;
+                if (thangMoi != thangCu || namMoi != namCu)
+                {
+                    var daCo = await _repo.TonTaiChiTietHoacHoSoThietBiThangKhacAsync(
+                        hoSo.MaThieBi, namMoi, thangMoi,
+                        excludeMaChiTiet: chiTiet.MaChiTietKeHoach,
+                        excludeMaHoSo: hoSo.MaHoSoBaoTri);
+                    if (daCo)
+                        return (false,
+                            $"Thiết bị này đã có kế hoạch hoặc hồ sơ bảo trì trong tháng {thangMoi}/{namMoi}. " +
+                            "Mỗi thiết bị chỉ được bảo trì một lần trong một tháng — không thể chuyển hồ sơ sang tháng đó. " +
+                            "Vui lòng chọn tháng khác hoặc liên hệ giám đốc.");
+                }
+
                 chiTiet.NgayDuKienBaoTri = ngayMoi;
             }
 

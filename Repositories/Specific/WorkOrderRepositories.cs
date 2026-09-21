@@ -23,6 +23,8 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         Task<List<HoSoBaoTri>> GetHoSoBaoTriByTrangThaiAsync(string? trangThai);
         Task<ChiTietKeHoachBaoTri?> GetChiTietKeHoachByIdAsync(int id);
         Task<bool> TonTaiHoSoBaoTriTheoThietBiThangAsync(int maThietBi, int nam, int thang);
+        /// <summary>Cùng thiết bị + tháng đã có hồ sơ/chi tiết khác (loại trừ dòng hiện tại khi sửa).</summary>
+        Task<bool> TonTaiChiTietHoacHoSoThietBiThangKhacAsync(int maThietBi, int nam, int thang, int? excludeMaChiTiet, int? excludeMaHoSo);
         Task<int?> GetNamKeHoachTheoHoSoBaoTriAsync(int maHoSoBaoTri);
         Task<bool> ThietBiDangTrongQuyTrinhKhacAsync(int maThietBi, string boQuaLoaiHoSo, int? boQuaMaHoSo);
         Task<ChiTietKeHoachBaoTri?> GetChiTietKeHoachByHoSoBaoTriAsync(int maHoSoBaoTri);
@@ -337,6 +339,7 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
 
         public async Task<ChiTietKeHoachBaoTri?> GetChiTietKeHoachByHoSoBaoTriAsync(int maHoSoBaoTri) =>
             await _context.ChiTietKeHoachBaoTris
+                .Include(c => c.MaKeHoachNavigation)
                 .FirstOrDefaultAsync(c => c.MaHoSoBaoTri == maHoSoBaoTri);
 
         public async Task<bool> TonTaiHoSoBaoTriTheoThietBiThangAsync(int maThietBi, int nam, int thang) =>
@@ -345,5 +348,26 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
                 && c.NgayDuKienBaoTri.Year == nam
                 && c.NgayDuKienBaoTri.Month == thang
                 && c.MaHoSoBaoTri != null);
+
+        public async Task<bool> TonTaiChiTietHoacHoSoThietBiThangKhacAsync(
+            int maThietBi, int nam, int thang, int? excludeMaChiTiet, int? excludeMaHoSo)
+        {
+            // 1) Đã có chi tiết kế hoạch khác cùng thiết bị + tháng
+            var coChiTietKhac = await _context.ChiTietKeHoachBaoTris.AnyAsync(c =>
+                c.MaThietBi == maThietBi
+                && c.NgayDuKienBaoTri.Year == nam
+                && c.NgayDuKienBaoTri.Month == thang
+                && (!excludeMaChiTiet.HasValue || c.MaChiTietKeHoach != excludeMaChiTiet.Value));
+            if (coChiTietKhac) return true;
+
+            // 2) Đã có hồ sơ bảo trì khác (qua chi tiết) cùng thiết bị + tháng
+            var coHoSoKhac = await _context.ChiTietKeHoachBaoTris.AnyAsync(c =>
+                c.MaThietBi == maThietBi
+                && c.NgayDuKienBaoTri.Year == nam
+                && c.NgayDuKienBaoTri.Month == thang
+                && c.MaHoSoBaoTri != null
+                && (!excludeMaHoSo.HasValue || c.MaHoSoBaoTri != excludeMaHoSo.Value));
+            return coHoSoKhac;
+        }
     }
 }

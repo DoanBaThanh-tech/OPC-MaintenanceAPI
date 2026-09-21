@@ -166,7 +166,8 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         public async Task<HoSoBaoTri?> GetHoSoBaoTriByIdAsync(int id) =>
             await _context.HoSoBaoTris
                 .Include(h => h.MaThieBiNavigation)
-                .Include(h => h.MaPhanCongNavigation)
+                .Include(h => h.MaPhanCongNavigation!)
+                    .ThenInclude(p => p.MaNhanVienThucHienNavigation)
                 .Include(h => h.MaNhanVienTaoNavigation)
                 .FirstOrDefaultAsync(h => h.MaHoSoBaoTri == id);
 
@@ -196,7 +197,10 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
             await _context.PhanCongCongViecs.AddAsync(phanCong);
 
         public async Task<PhanCongCongViec?> GetPhanCongByIdAsync(int id) =>
-            await _context.PhanCongCongViecs.FirstOrDefaultAsync(p => p.MaPhanCong == id);
+            await _context.PhanCongCongViecs
+                .Include(p => p.MaNhanVienThucHienNavigation)
+                .Include(p => p.MaNhanVienPhanCongNavigation)
+                .FirstOrDefaultAsync(p => p.MaPhanCong == id);
 
         public async Task<List<PhanCongCongViec>> GetLichSuPhanCongAsync() =>
             await _context.PhanCongCongViecs

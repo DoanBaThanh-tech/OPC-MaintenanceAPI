@@ -223,6 +223,15 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (hoSo == null) return (false, "Không tìm thấy hồ sơ.");
             if (hoSo.TrangThai != "Đã duyệt") return (false, "Hồ sơ chưa được duyệt.");
 
+            // Đã có phân công đang chờ / đã nhận → không phân công chồng
+            if (hoSo.MaPhanCong != null)
+            {
+                var pcCu = await _repo.GetPhanCongByIdAsync(hoSo.MaPhanCong.Value);
+                if (pcCu != null && pcCu.TrangThai is "Chờ xác nhận" or "Đã phân công" or "Xác nhận" or "Đang thực hiện")
+                    return (false, "Hồ sơ đang có phân công chưa kết thúc. Không thể phân công thêm.");
+                // Trạng thái Từ chối / Đã hủy → cho phép phân công lại (tạo bản ghi mới)
+            }
+
             if (await _repo.ThietBiDangTrongQuyTrinhKhacAsync(hoSo.MaThieBi, "BaoTri", maHoSo))
                 return (false, "Thiết bị này đang trong quy trình bảo trì/sửa chữa khác, không thể phân công.");
 
@@ -240,9 +249,9 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             await _repo.AddPhanCongAsync(phanCong);
             await _repo.SaveChangesAsync();
 
+            // Gắn phân công mới (thay thế bản Từ chối nếu có) — bản cũ vẫn còn trong lịch sử
             hoSo.MaPhanCong = phanCong.MaPhanCong;
             // GIỮ nguyên "Đã duyệt" — chưa chuyển Đang thực hiện
-            // Không đổi TinhTrangHienTai thiết bị ở bước này
 
             var chiTiet = await _repo.GetChiTietKeHoachByHoSoBaoTriAsync(hoSo.MaHoSoBaoTri);
             if (chiTiet != null)
@@ -310,11 +319,11 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (phanCong.TrangThai != "Chờ xác nhận" && phanCong.TrangThai != "Đã phân công")
                 return (false, "Phân công không ở trạng thái chờ xác nhận.");
 
-            // Chỉ cập nhật phân công; hồ sơ vẫn "Đã duyệt" để tổ trưởng phân công lại
+            // Giữ liên kết MaPhanCong trên hồ sơ để tổ trưởng thấy trạng thái Từ chối + lý do
+            // (không gỡ null — nếu gỡ thì màn chi tiết mất hết thông tin từ chối)
             phanCong.TrangThai = "Từ chối";
             phanCong.LyDoTuChoi = dto.LyDo.Trim();
-            // Gỡ liên kết phân công trên hồ sơ để có thể phân công nhân viên khác
-            hoSo.MaPhanCong = null;
+            // Hồ sơ vẫn "Đã duyệt" — tổ trưởng phân công lại người khác
 
             await _repo.SaveChangesAsync();
             return (true, null);
@@ -675,11 +684,11 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (phanCong.TrangThai != "Chờ xác nhận" && phanCong.TrangThai != "Đã phân công")
                 return (false, "Phân công không ở trạng thái chờ xác nhận.");
 
+            // Giữ MaPhanCong để thấy trạng thái Từ chối + lý do trên chi tiết
             phanCong.TrangThai = "Từ chối";
             phanCong.LyDoTuChoi = dto.LyDo.Trim();
             if (hoSo.TrangThai == "Đang thực hiện")
                 hoSo.TrangThai = "Đã duyệt";
-            hoSo.MaPhanCong = null;
 
             await _repo.SaveChangesAsync();
             return (true, null);
@@ -894,6 +903,11 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             static string? FmtGio(TimeSpan? t) =>
                 t == null ? null : $"{(int)t.Value.TotalHours:D2}:{t.Value.Minutes:D2}";
 
+            var pc = h.MaPhanCongNavigation;
+            // Nếu Include chưa load NV thực hiện — lấy lại đầy đủ
+            if (pc != null && pc.MaNhanVienThucHienNavigation == null && h.MaPhanCong.HasValue)
+                pc = await _repo.GetPhanCongByIdAsync(h.MaPhanCong.Value) ?? pc;
+
             return new
             {
                 h.MaHoSoBaoTri,
@@ -902,13 +916,18 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 TenNhanVienTao = h.MaNhanVienTaoNavigation?.HoTen,
                 h.NoiDungCongViec,
                 h.ThoiGianDuKien,
-                GioBatDauDuKien = FmtGio(h.GioBatDauDuKien),   // ← thêm
-                GioKetThucDuKien = FmtGio(h.GioKetThucDuKien), // ← thêm
+                GioBatDauDuKien = FmtGio(h.GioBatDauDuKien),
+                GioKetThucDuKien = FmtGio(h.GioKetThucDuKien),
                 h.TrangThai,
                 h.LyDoTuChoi,
                 h.NgayTao,
                 h.NgayDuyet,
                 h.MaPhanCong,
+                // Thông tin phân công (để hiện Từ chối + lý do trên chi tiết hồ sơ)
+                TrangThaiPhanCong = pc?.TrangThai,
+                LyDoTuChoiPhanCong = pc?.LyDoTuChoi,
+                TenNhanVienThucHien = pc?.MaNhanVienThucHienNavigation?.HoTen,
+                NgayPhanCong = pc?.NgayPhanCong,
                 NgayDuKienBaoTri = ngayDuKien,
                 RowVersion = Convert.ToBase64String(h.RowVersion),
                 Nam = namTuKeHoach ?? h.NgayTao.Year,

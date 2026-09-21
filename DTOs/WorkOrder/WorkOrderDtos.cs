@@ -7,7 +7,7 @@ namespace OPC.MaintenanceAPI.DTOs.WorkOrder
         public string? ThoiGianDuKien { get; set; }
         public bool GuiDuyet { get; set; }
         public int? MaChiTietKeHoach { get; set; }
-        /// <summary>Yêu cầu bảo trì đã được Tổ trưởng kỹ thuật xác nhận.</summary>
+        /// <summary>Yêu cầu bảo trì đã được xưởng (Tổ trưởng sản xuất) xác nhận.</summary>
         public int? MaYeuCauBaoTri { get; set; }
     }
 
@@ -74,5 +74,18 @@ namespace OPC.MaintenanceAPI.DTOs.WorkOrder
         /// <summary>Xác nhận | Từ chối</summary>
         public string QuyetDinh { get; set; } = null!;
         public string? LyDo { get; set; }
+    }
+
+    /// <summary>Tổ trưởng cơ điện sửa yêu cầu bị xưởng từ chối rồi gửi lại.</summary>
+    public class SuaYeuCauBaoTriDto
+    {
+        public int MaThietBi { get; set; }
+        public int ThangBaoTri { get; set; }
+        public int NamBaoTri { get; set; }
+        public DateOnly NgayBaoTri { get; set; }
+        public decimal ThoiGianDuKien { get; set; }
+        public TimeSpan GioBatDau { get; set; }
+        public TimeSpan GioKetThuc { get; set; }
+        public string? GhiChu { get; set; }
     }
 }

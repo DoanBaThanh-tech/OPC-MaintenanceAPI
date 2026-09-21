@@ -3,8 +3,8 @@ using System;
 namespace OPC.MaintenanceAPI.Core.Entities;
 
 /// <summary>
-/// Yêu cầu bảo trì thiết bị do Tổ trưởng sản xuất gửi → Tổ trưởng kỹ thuật xác nhận
-/// trước khi được tạo hồ sơ / kế hoạch bảo trì.
+/// Yêu cầu bảo trì thiết bị do Tổ trưởng cơ điện gửi → Xưởng (Tổ trưởng sản xuất)
+/// Đồng ý / Từ chối trước khi được tạo kế hoạch / hồ sơ bảo trì.
 /// </summary>
 public partial class YeuCauBaoTriThietBi
 {
@@ -12,10 +12,10 @@ public partial class YeuCauBaoTriThietBi
 
     public int MaThietBi { get; set; }
 
-    /// <summary>Tổ trưởng sản xuất gửi yêu cầu.</summary>
+    /// <summary>Tổ trưởng cơ điện gửi yêu cầu.</summary>
     public int MaNhanVienYeuCau { get; set; }
 
-    /// <summary>Tổ trưởng kỹ thuật xác nhận / từ chối.</summary>
+    /// <summary>Xưởng (Tổ trưởng sản xuất) xác nhận / từ chối.</summary>
     public int? MaNhanVienXacNhan { get; set; }
 
     /// <summary>Tháng bảo trì (1–12), khớp với NgayBaoTri.</summary>

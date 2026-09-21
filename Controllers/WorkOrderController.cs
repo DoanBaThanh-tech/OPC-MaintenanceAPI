@@ -50,7 +50,7 @@ namespace OPC.MaintenanceAPI.Controllers
         }
 
 
-        // ===== Yêu cầu bảo trì thiết bị (Tổ trưởng sản xuất → TTKT) =====
+        // ===== Yêu cầu bảo trì: Tổ trưởng cơ điện tạo → Xưởng (TTSX) xác nhận/từ chối =====
         [HttpPost("yeu-cau-bao-tri")]
         public async Task<IActionResult> TaoYeuCauBaoTri(TaoYeuCauBaoTriDto dto)
         {
@@ -75,6 +75,16 @@ namespace OPC.MaintenanceAPI.Controllers
             if (claim == null || !int.TryParse(claim, out var maNguoiDung))
                 return Unauthorized();
             return Result(await _service.XacNhanYeuCauBaoTriAsync(id, maNguoiDung, dto));
+        }
+
+        /// <summary>Tổ trưởng cơ điện sửa yêu cầu bị từ chối rồi gửi lại xưởng.</summary>
+        [HttpPut("yeu-cau-bao-tri/{id}")]
+        public async Task<IActionResult> SuaYeuCauBaoTri(int id, SuaYeuCauBaoTriDto dto)
+        {
+            var claim = User.FindFirst("MaNguoiDung")?.Value;
+            if (claim == null || !int.TryParse(claim, out var maNguoiDung))
+                return Unauthorized();
+            return Result(await _service.SuaYeuCauBaoTriAsync(id, maNguoiDung, dto));
         }
 
         [HttpGet("bao-tri")]

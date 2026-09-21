@@ -27,7 +27,7 @@ namespace OPC.MaintenanceAPI.Controllers
 
         // Thay thế 2 endpoint cũ (POST yeu-cau-ngay + POST LapKeHoach).
         // Khớp đúng với body Flutter đang gửi: { maChuKy, nam, thietBiDuocChon: [...] }
-        [Authorize(Roles = "Tổ trưởng kỹ thuật")]
+        [Authorize(Roles = "Tổ trưởng cơ điện")]
         [HttpPost]
         public async Task<IActionResult> TaoKeHoach(TaoKeHoachDto dto)
         {
@@ -39,7 +39,7 @@ namespace OPC.MaintenanceAPI.Controllers
             return ok ? Ok(new { message = "Đã lập kế hoạch bảo trì thành công." }) : BadRequest(new { loi });
         }
 
-        [Authorize(Roles = "Tổ trưởng kỹ thuật")]
+        [Authorize(Roles = "Tổ trưởng cơ điện")]
         [HttpPost("{maKeHoach}/them-lan-bao-tri")]
         public async Task<IActionResult> ThemLanBaoTri(int maKeHoach, ThemLanBaoTriDto dto)
         {

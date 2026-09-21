@@ -900,8 +900,6 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 return (false, "Ngày bảo trì phải thuộc tháng/năm đã chọn.");
             if (dto.GioKetThuc <= dto.GioBatDau)
                 return (false, "Giờ kết thúc phải sau giờ bắt đầu.");
-            if (dto.NgayBaoTri <= DateOnly.FromDateTime(DateTime.Today))
-                return (false, "Ngày bảo trì phải lớn hơn ngày tạo yêu cầu.");
 
             var tb = await _repo.GetThietBiByIdAsync(dto.MaThietBi);
             if (tb == null) return (false, "Không tìm thấy thiết bị.");
@@ -994,7 +992,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 y.MaThietBi,
                 TenThietBi = y.MaThietBiNavigation?.TenThietBi,
                 DanhMuc = y.MaThietBiNavigation?.LoaiThietBi,
-                // Nhãn rõ ràng để TTKT không nhầm tháng
+                // Nhãn rõ ràng để không nhầm tháng khi lập kế hoạch
                 NhanHienThi = $"YC #{y.MaYeuCauBaoTri} · {y.MaThietBiNavigation?.TenThietBi} · {y.NgayBaoTri:dd/MM/yyyy} · {y.ThoiGianDuKien:0.#}h",
                 y.ThangBaoTri,
                 y.NamBaoTri,
@@ -1003,7 +1001,55 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 GioBatDau = y.GioBatDau.ToString(@"hh\:mm"),
                 GioKetThuc = y.GioKetThuc.ToString(@"hh\:mm"),
                 TenNguoiYeuCau = y.MaNhanVienYeuCauNavigation?.HoTen,
+                y.GhiChu,
             }).ToList();
+        }
+
+        /// <summary>
+        /// Tổ trưởng cơ điện sửa yêu cầu bị xưởng từ chối rồi gửi lại (trạng thái → Chờ xác nhận).
+        /// </summary>
+        public async Task<(bool, string?)> SuaYeuCauBaoTriAsync(int maYeuCau, int maNguoiDung, SuaYeuCauBaoTriDto dto)
+        {
+            var nv = await _nhanVienRepo.GetByMaNguoiDungAsync(maNguoiDung);
+            if (nv == null) return (false, "Không xác định được người dùng.");
+
+            var yc = await _repo.GetYeuCauBaoTriByIdAsync(maYeuCau);
+            if (yc == null) return (false, "Không tìm thấy yêu cầu.");
+            if (yc.TrangThai != "Từ chối")
+                return (false, "Chỉ được sửa yêu cầu ở trạng thái Từ chối.");
+
+            if (dto.ThoiGianDuKien <= 0)
+                return (false, "Thời gian dự kiến phải lớn hơn 0.");
+            if (dto.ThangBaoTri < 1 || dto.ThangBaoTri > 12)
+                return (false, "Tháng bảo trì không hợp lệ.");
+            if (dto.NgayBaoTri.Month != dto.ThangBaoTri || dto.NgayBaoTri.Year != dto.NamBaoTri)
+                return (false, "Ngày bảo trì phải thuộc tháng/năm đã chọn.");
+            if (dto.GioKetThuc <= dto.GioBatDau)
+                return (false, "Giờ kết thúc phải sau giờ bắt đầu.");
+
+            var tb = await _repo.GetThietBiByIdAsync(dto.MaThietBi);
+            if (tb == null) return (false, "Không tìm thấy thiết bị.");
+
+            // Không trùng yêu cầu khác (cùng TB + tháng/năm, còn hiệu lực, khác id hiện tại)
+            var trung = await _repo.TonTaiYeuCauBaoTriThangKhacIdAsync(dto.MaThietBi, dto.NamBaoTri, dto.ThangBaoTri, maYeuCau);
+            if (trung)
+                return (false, $"Thiết bị đã có yêu cầu bảo trì khác trong tháng {dto.ThangBaoTri}/{dto.NamBaoTri}.");
+
+            yc.MaThietBi = dto.MaThietBi;
+            yc.ThangBaoTri = dto.ThangBaoTri;
+            yc.NamBaoTri = dto.NamBaoTri;
+            yc.NgayBaoTri = dto.NgayBaoTri;
+            yc.ThoiGianDuKien = dto.ThoiGianDuKien;
+            yc.GioBatDau = dto.GioBatDau;
+            yc.GioKetThuc = dto.GioKetThuc;
+            yc.GhiChu = dto.GhiChu;
+            yc.TrangThai = "Chờ xác nhận";
+            yc.LyDoTuChoi = null;
+            yc.MaNhanVienXacNhan = null;
+            yc.NgayXacNhan = null;
+
+            await _repo.SaveChangesAsync();
+            return (true, null);
         }
 
     }

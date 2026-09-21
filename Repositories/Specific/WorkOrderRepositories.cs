@@ -57,6 +57,7 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         Task<YeuCauBaoTriThietBi?> GetYeuCauBaoTriByIdAsync(int id);
         Task<List<YeuCauBaoTriThietBi>> GetYeuCauBaoTriListAsync(string? trangThai, int? nam, int? thang);
         Task<bool> TonTaiYeuCauBaoTriThangAsync(int maThietBi, int nam, int thang);
+        Task<bool> TonTaiYeuCauBaoTriThangKhacIdAsync(int maThietBi, int nam, int thang, int excludeId);
 
         Task<int> SaveChangesAsync();
     }
@@ -317,6 +318,14 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
                 y.MaThietBi == maThietBi
                 && y.NamBaoTri == nam
                 && y.ThangBaoTri == thang
+                && y.TrangThai != "Từ chối");
+
+        public async Task<bool> TonTaiYeuCauBaoTriThangKhacIdAsync(int maThietBi, int nam, int thang, int excludeId) =>
+            await _context.YeuCauBaoTriThietBis.AnyAsync(y =>
+                y.MaThietBi == maThietBi
+                && y.NamBaoTri == nam
+                && y.ThangBaoTri == thang
+                && y.MaYeuCauBaoTri != excludeId
                 && y.TrangThai != "Từ chối");
 
         public async Task<int> SaveChangesAsync() => await _context.SaveChangesAsync();

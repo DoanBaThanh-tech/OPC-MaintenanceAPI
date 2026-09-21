@@ -229,7 +229,10 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 var pcCu = await _repo.GetPhanCongByIdAsync(hoSo.MaPhanCong.Value);
                 if (pcCu != null && pcCu.TrangThai is "Chờ xác nhận" or "Đã phân công" or "Xác nhận" or "Đang thực hiện")
                     return (false, "Hồ sơ đang có phân công chưa kết thúc. Không thể phân công thêm.");
-                // Trạng thái Từ chối / Đã hủy → cho phép phân công lại (tạo bản ghi mới)
+                // Nhân viên vừa từ chối → không được chọn lại cùng người
+                if (pcCu != null && pcCu.TrangThai == "Từ chối"
+                    && pcCu.MaNhanVienThucHien == dto.MaNhanVienThucHien)
+                    return (false, "Nhân viên này đã từ chối phân công. Vui lòng chọn nhân viên khác.");
             }
 
             if (await _repo.ThietBiDangTrongQuyTrinhKhacAsync(hoSo.MaThieBi, "BaoTri", maHoSo))
@@ -926,6 +929,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 // Thông tin phân công (để hiện Từ chối + lý do trên chi tiết hồ sơ)
                 TrangThaiPhanCong = pc?.TrangThai,
                 LyDoTuChoiPhanCong = pc?.LyDoTuChoi,
+                MaNhanVienThucHien = pc?.MaNhanVienThucHien,
                 TenNhanVienThucHien = pc?.MaNhanVienThucHienNavigation?.HoTen,
                 NgayPhanCong = pc?.NgayPhanCong,
                 NgayDuKienBaoTri = ngayDuKien,

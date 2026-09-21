@@ -333,7 +333,17 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             // Cập nhật nội dung + thời lượng + giờ
             hoSo.NoiDungCongViec = dto.NoiDungCongViec.Trim();
             if (dto.ThoiGianDuKien != null)
-                hoSo.ThoiGianDuKien = dto.ThoiGianDuKien.Trim();
+            {
+                var raw = dto.ThoiGianDuKien.Trim();
+                // Chỉ nhận số giờ thuần (có thể kèm "giờ")
+                var soStr = raw.Replace("giờ", "", StringComparison.OrdinalIgnoreCase).Trim();
+                if (!decimal.TryParse(soStr, System.Globalization.NumberStyles.Number,
+                        System.Globalization.CultureInfo.InvariantCulture, out var soGio) || soGio <= 0)
+                    return (false, "Giờ dự kiến phải là số dương lớn hơn 0.");
+                if (soGio > 24)
+                    return (false, "Bảo trì trong ngày — thời gian dự kiến tối đa 24 giờ.");
+                hoSo.ThoiGianDuKien = soGio.ToString("0.#");
+            }
 
             if (!string.IsNullOrWhiteSpace(dto.GioBatDauDuKien) &&
                 TimeSpan.TryParse(dto.GioBatDauDuKien, out var gbd))

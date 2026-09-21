@@ -545,9 +545,16 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             var ngayGhi = dto.NgayGhiNhan ?? DateTime.Now;
             if (ngayDuKien.HasValue)
             {
+                // Không được chọn ngày/tháng trước ngày dự kiến bảo trì trong hồ sơ
+                var ngayDk = ngayDuKien.Value.ToDateTime(TimeOnly.MinValue);
+                var ngayGhiDate = ngayGhi.Date;
+                if (ngayGhiDate < ngayDk.Date)
+                    return (false,
+                        $"Ngày ghi nhận không được trước ngày dự kiến bảo trì ({ngayDuKien.Value:dd/MM/yyyy}).");
+                // Phải nằm đúng tháng/năm dự kiến bảo trì theo hồ sơ
                 if (ngayGhi.Year != ngayDuKien.Value.Year || ngayGhi.Month != ngayDuKien.Value.Month)
                     return (false,
-                        $"Ngày ghi nhận phải nằm trong tháng {ngayDuKien.Value.Month}/{ngayDuKien.Value.Year} (tháng dự kiến bảo trì).");
+                        $"Ngày ghi nhận phải nằm trong tháng {ngayDuKien.Value.Month}/{ngayDuKien.Value.Year} (tháng dự kiến bảo trì theo hồ sơ).");
             }
 
             var maNvGhiNhan = dto.MaNhanVienGhiNhan;

@@ -5,10 +5,13 @@ namespace OPC.MaintenanceAPI.DTOs.WorkOrder
         public int MaThietBi { get; set; }
         public string? NoiDungCongViec { get; set; }
         public string? ThoiGianDuKien { get; set; }
+        /// <summary>true = Gửi bảo trì cho xưởng (trạng thái Chờ xưởng).</summary>
         public bool GuiDuyet { get; set; }
         public int? MaChiTietKeHoach { get; set; }
-        /// <summary>Yêu cầu bảo trì đã được xưởng (Tổ trưởng sản xuất) xác nhận.</summary>
+        /// <summary>Không còn bắt buộc — giữ để tương thích client cũ (bỏ qua).</summary>
         public int? MaYeuCauBaoTri { get; set; }
+        public string? GioBatDauDuKien { get; set; }
+        public string? GioKetThucDuKien { get; set; }
     }
 
     public class TaoHoSoSuaChuaDto
@@ -22,10 +25,23 @@ namespace OPC.MaintenanceAPI.DTOs.WorkOrder
 
     public class PhanCongDto
     {
+        /// <summary>1 nhân viên (tương thích cũ). Ưu tiên DanhSachMaNhanVienThucHien nếu có.</summary>
         public int MaNhanVienThucHien { get; set; }
+        /// <summary>Nhiều nhân viên thực hiện (luồng mới).</summary>
+        public List<int>? DanhSachMaNhanVienThucHien { get; set; }
         public int MaNhanVienPhanCong { get; set; }
         public DateTime NgayBatDauDuKien { get; set; }
         public DateTime NgayKetThucDuKien { get; set; }
+    }
+
+    /// <summary>Xưởng chỉnh sửa hồ sơ đang Chờ xưởng.</summary>
+    public class XuongCapNhatHoSoDto
+    {
+        public string? NoiDungCongViec { get; set; }
+        public string? ThoiGianDuKien { get; set; }
+        public string? GioBatDauDuKien { get; set; }
+        public string? GioKetThucDuKien { get; set; }
+        public DateOnly? NgayDuKienBaoTri { get; set; }
     }
 
     public class GhiNhanKetQuaDto

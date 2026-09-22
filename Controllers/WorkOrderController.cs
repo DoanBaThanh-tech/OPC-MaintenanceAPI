@@ -162,6 +162,36 @@ namespace OPC.MaintenanceAPI.Controllers
             return Result(await _service.CapNhatHoSoBaoTriBiTuChoiAsync(id, dto));
         }
 
+        /// Xưởng chỉnh sửa hồ sơ đang Chờ xưởng (Lưu)
+        [HttpPut("bao-tri/{id}/xuong-cap-nhat")]
+        public async Task<IActionResult> XuongCapNhatHoSo(int id, XuongCapNhatHoSoDto dto)
+        {
+            var claim = User.FindFirst("MaNguoiDung")?.Value;
+            if (claim == null || !int.TryParse(claim, out var maNguoiDung))
+                return Unauthorized();
+            return Result(await _service.XuongCapNhatHoSoBaoTriAsync(id, maNguoiDung, dto));
+        }
+
+        /// Xưởng xác nhận & gửi Giám đốc duyệt
+        [HttpPut("bao-tri/{id}/xuong-gui-giam-doc")]
+        public async Task<IActionResult> XuongGuiGiamDoc(int id)
+        {
+            var claim = User.FindFirst("MaNguoiDung")?.Value;
+            if (claim == null || !int.TryParse(claim, out var maNguoiDung))
+                return Unauthorized();
+            return Result(await _service.XuongGuiGiamDocAsync(id, maNguoiDung));
+        }
+
+        /// NVKT bấm Hoàn thành bảo trì (1 người → đồng bộ tất cả)
+        [HttpPut("bao-tri/{id}/hoan-thanh")]
+        public async Task<IActionResult> NhanVienHoanThanhBaoTri(int id)
+        {
+            var claim = User.FindFirst("MaNguoiDung")?.Value;
+            if (claim == null || !int.TryParse(claim, out var maNguoiDung))
+                return Unauthorized();
+            return Result(await _service.NhanVienHoanThanhBaoTriAsync(id, maNguoiDung));
+        }
+
         // Sửa chữa
         [HttpPost("sua-chua")]
         public async Task<IActionResult> TaoSuaChua(TaoHoSoSuaChuaDto dto) => Result(await _service.TaoHoSoSuaChuaAsync(dto));

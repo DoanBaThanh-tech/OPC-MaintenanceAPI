@@ -466,6 +466,13 @@ public partial class OPCDbContext : DbContext
                 .HasForeignKey(d => d.MaNhanVienThucHien)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_PhanCong_NhanVienThucHien");
+
+            // Nhiều phân công cho 1 hồ sơ bảo trì
+            entity.HasIndex(e => e.MaHoSoBaoTri, "IX_PhanCong_MaHoSoBaoTri");
+            entity.HasOne(d => d.MaHoSoBaoTriNavigation).WithMany(p => p.PhanCongCongViecs)
+                .HasForeignKey(d => d.MaHoSoBaoTri)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_PhanCong_HoSoBaoTri");
         });
 
         modelBuilder.Entity<PhanQuyenVaiTro>(entity =>

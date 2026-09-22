@@ -48,6 +48,9 @@ public partial class HoSoBaoTri
 
     public virtual PhanCongCongViec? MaPhanCongNavigation { get; set; }
 
+    /// <summary>Danh sách phân công nhiều NV (luồng mới qua PhanCong.MaHoSoBaoTri).</summary>
+    public virtual ICollection<PhanCongCongViec> PhanCongCongViecs { get; set; } = new List<PhanCongCongViec>();
+
     public virtual YeuCauBaoTriThietBi? MaYeuCauBaoTriNavigation { get; set; }
 
     public virtual ThietBi MaThieBiNavigation { get; set; } = null!;

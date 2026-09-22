@@ -5,10 +5,10 @@ namespace OPC.MaintenanceAPI.DTOs.WorkOrder
         public int MaThietBi { get; set; }
         public string? NoiDungCongViec { get; set; }
         public string? ThoiGianDuKien { get; set; }
-        /// <summary>true = Gửi bảo trì cho xưởng (trạng thái Chờ duyệt).</summary>
+        /// <summary>true = gửi xưởng (trạng thái Chờ xưởng).</summary>
         public bool GuiDuyet { get; set; }
         public int? MaChiTietKeHoach { get; set; }
-        /// <summary>Không còn bắt buộc — giữ để tương thích client cũ (bỏ qua).</summary>
+        /// <summary>Legacy – không còn bắt buộc.</summary>
         public int? MaYeuCauBaoTri { get; set; }
         public string? GioBatDauDuKien { get; set; }
         public string? GioKetThucDuKien { get; set; }
@@ -23,25 +23,16 @@ namespace OPC.MaintenanceAPI.DTOs.WorkOrder
         public bool GuiDuyet { get; set; }
     }
 
+    /// <summary>Phân công nhiều nhân viên cho một hồ sơ bảo trì.</summary>
     public class PhanCongDto
     {
-        /// <summary>1 nhân viên (tương thích cũ). Ưu tiên DanhSachMaNhanVienThucHien nếu có.</summary>
-        public int MaNhanVienThucHien { get; set; }
-        /// <summary>Nhiều nhân viên thực hiện (luồng mới).</summary>
-        public List<int>? DanhSachMaNhanVienThucHien { get; set; }
+        /// <summary>Một nhân viên (tương thích cũ).</summary>
+        public int? MaNhanVienThucHien { get; set; }
+        /// <summary>Nhiều nhân viên (ưu tiên nếu có).</summary>
+        public List<int>? MaNhanVienThucHiens { get; set; }
         public int MaNhanVienPhanCong { get; set; }
         public DateTime NgayBatDauDuKien { get; set; }
         public DateTime NgayKetThucDuKien { get; set; }
-    }
-
-    /// <summary>Xưởng chỉnh sửa hồ sơ đang Chờ duyệt.</summary>
-    public class XuongCapNhatHoSoDto
-    {
-        public string? NoiDungCongViec { get; set; }
-        public string? ThoiGianDuKien { get; set; }
-        public string? GioBatDauDuKien { get; set; }
-        public string? GioKetThucDuKien { get; set; }
-        public DateOnly? NgayDuKienBaoTri { get; set; }
     }
 
     public class GhiNhanKetQuaDto
@@ -72,6 +63,14 @@ namespace OPC.MaintenanceAPI.DTOs.WorkOrder
         public DateOnly? NgayDuKienBaoTri { get; set; }
     }
 
+    /// <summary>Xưởng xác nhận hồ sơ và gửi Giám đốc duyệt.</summary>
+    public class XuongGuiGiamDocDto
+    {
+        public string? NoiDungCongViec { get; set; }
+        public string? ThoiGianDuKien { get; set; }
+        public string? GioBatDauDuKien { get; set; }
+        public string? GioKetThucDuKien { get; set; }
+    }
 
     public class TaoYeuCauBaoTriDto
     {
@@ -87,12 +86,10 @@ namespace OPC.MaintenanceAPI.DTOs.WorkOrder
 
     public class XacNhanYeuCauBaoTriDto
     {
-        /// <summary>Xác nhận | Từ chối</summary>
         public string QuyetDinh { get; set; } = null!;
         public string? LyDo { get; set; }
     }
 
-    /// <summary>Tổ trưởng cơ điện sửa yêu cầu bị xưởng từ chối rồi gửi lại.</summary>
     public class SuaYeuCauBaoTriDto
     {
         public int MaThietBi { get; set; }

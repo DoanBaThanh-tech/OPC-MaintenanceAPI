@@ -12,8 +12,8 @@ using OPC.MaintenanceAPI.Data;
 namespace OPC.MaintenanceAPI.Migrations
 {
     [DbContext(typeof(OPCDbContext))]
-    [Migration("20260922024830_PhanCongNhieuNhanVien")]
-    partial class PhanCongNhieuNhanVien
+    [Migration("20260922065823_ThemMaHoSoBaoTriChoPhanCongVaLuongXuong")]
+    partial class ThemMaHoSoBaoTriChoPhanCongVaLuongXuong
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -710,11 +710,11 @@ namespace OPC.MaintenanceAPI.Migrations
                     b.HasKey("MaPhanCong")
                         .HasName("PK__PhanCong__C279D9162720337F");
 
+                    b.HasIndex("MaHoSoBaoTri");
+
                     b.HasIndex("MaNhanVienPhanCong");
 
                     b.HasIndex("MaNhanVienThucHien");
-
-                    b.HasIndex(new[] { "MaHoSoBaoTri" }, "IX_PhanCong_MaHoSoBaoTri");
 
                     b.ToTable("PhanCongCongViec", (string)null);
                 });
@@ -1328,7 +1328,7 @@ namespace OPC.MaintenanceAPI.Migrations
                     b.HasOne("OPC.MaintenanceAPI.Core.Entities.HoSoBaoTri", "MaHoSoBaoTriNavigation")
                         .WithMany("PhanCongCongViecs")
                         .HasForeignKey("MaHoSoBaoTri")
-                        .HasConstraintName("FK_PhanCong_HoSoBaoTri");
+                        .HasConstraintName("FK_PhanCong_HoSoBaoTri_Multi");
 
                     b.HasOne("OPC.MaintenanceAPI.Core.Entities.NhanVien", "MaNhanVienPhanCongNavigation")
                         .WithMany("PhanCongCongViecMaNhanVienPhanCongNavigations")

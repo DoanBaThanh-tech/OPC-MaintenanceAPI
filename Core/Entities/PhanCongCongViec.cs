@@ -11,7 +11,7 @@ public partial class PhanCongCongViec
 
     public int MaNhanVienPhanCong { get; set; }
 
-    /// <summary>Liên kết hồ sơ bảo trì (hỗ trợ phân công nhiều NV cho 1 hồ sơ).</summary>
+    /// <summary>Liên kết nhiều phân công tới cùng một hồ sơ bảo trì (hỗ trợ chọn nhiều nhân viên).</summary>
     public int? MaHoSoBaoTri { get; set; }
 
     public DateTime? NgayBatDauDuKien { get; set; }
@@ -19,15 +19,14 @@ public partial class PhanCongCongViec
 
     public string? TrangThai { get; set; }
 
-    /// Lý do từ chối nhận việc của nhân viên kỹ thuật (nếu có) — không dùng ở luồng mới
+    /// Lý do từ chối nhận việc của nhân viên kỹ thuật (nếu có)
     public string? LyDoTuChoi { get; set; }
 
     public DateTime NgayPhanCong { get; set; }
 
-    /// Navigation 1-1 cũ qua HoSoBaoTri.MaPhanCong (giữ tương thích)
     public virtual HoSoBaoTri? HoSoBaoTri { get; set; }
 
-    /// Navigation nhiều phân công → 1 hồ sơ (luồng mới)
+    /// <summary>Navigation khi phân công nhiều NV cho cùng hồ sơ bảo trì (qua MaHoSoBaoTri).</summary>
     public virtual HoSoBaoTri? MaHoSoBaoTriNavigation { get; set; }
 
     public virtual HoSoSuaChua? HoSoSuaChua { get; set; }

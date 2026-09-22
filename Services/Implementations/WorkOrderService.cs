@@ -26,12 +26,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             var nhanVien = await _nhanVienRepo.GetByMaNguoiDungAsync(maNguoiDungTao);
             if (nhanVien == null) return (false, "Không xác định được người tạo hồ sơ.");
 
-            // Luồng mới: không còn bắt buộc Yêu cầu bảo trì từ xưởng.
-            // Tổ trưởng cơ điện tạo & gửi thẳng cho xưởng.
-
-            if (string.IsNullOrWhiteSpace(dto.NoiDungCongViec))
-                return (false, "Vui lòng nhập nội dung công việc.");
-
+            // Không còn bắt buộc Yêu cầu bảo trì — Tổ trưởng tạo hồ sơ và gửi xưởng trực tiếp
             if (dto.MaChiTietKeHoach.HasValue)
             {
                 var chiTiet = await _repo.GetChiTietKeHoachByIdAsync(dto.MaChiTietKeHoach.Value);
@@ -49,29 +44,28 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 var thang = chiTiet.NgayDuKienBaoTri.Month;
                 if (await _repo.TonTaiHoSoBaoTriTheoThietBiThangAsync(dto.MaThietBi, nam, thang))
                     return (false,
-                        $"Thiết bị này đã có hồ sơ bảo trì được tạo/gửi trong tháng {thang}/{nam}. Không thể tạo và gửi thêm hồ sơ bảo trì cho cùng thiết bị trong tháng này.");
+                        $"Thiết bị này đã có hồ sơ bảo trì trong tháng {thang}/{nam}. Không thể tạo thêm hồ sơ.");
             }
 
-            TimeSpan? gioBd = null, gioKt = null;
+            TimeSpan? gioBatDau = null;
+            TimeSpan? gioKetThuc = null;
             if (!string.IsNullOrWhiteSpace(dto.GioBatDauDuKien) && TimeSpan.TryParse(dto.GioBatDauDuKien, out var gbd))
-                gioBd = gbd;
+                gioBatDau = gbd;
             if (!string.IsNullOrWhiteSpace(dto.GioKetThucDuKien) && TimeSpan.TryParse(dto.GioKetThucDuKien, out var gkt))
-                gioKt = gkt;
-            if (gioBd != null && gioKt != null && gioKt <= gioBd)
-                return (false, "Giờ kết thúc phải sau giờ bắt đầu.");
+                gioKetThuc = gkt;
 
-            // GuiDuyet = true → tạo hồ sơ Chờ duyệt (xưởng gửi GĐ); false → lưu nháp (có thể mở rộng sau)
-            var trangThai = dto.GuiDuyet ? "Chờ duyệt" : "Nháp";
+            // GuiDuyet = true → gửi xưởng (Chờ xưởng); false → nháp (không dùng trong UI mới)
+            var trangThai = dto.GuiDuyet ? "Chờ xưởng" : "Nháp";
 
             var hoSo = new HoSoBaoTri
             {
                 MaThieBi = dto.MaThietBi,
                 MaNhanVienTao = nhanVien.MaNhanVien,
-                NoiDungCongViec = dto.NoiDungCongViec.Trim(),
-                ThoiGianDuKien = string.IsNullOrWhiteSpace(dto.ThoiGianDuKien) ? "4" : dto.ThoiGianDuKien.Trim(),
-                MaYeuCauBaoTri = null, // không còn dùng
-                GioBatDauDuKien = gioBd,
-                GioKetThucDuKien = gioKt,
+                NoiDungCongViec = dto.NoiDungCongViec,
+                ThoiGianDuKien = dto.ThoiGianDuKien,
+                GioBatDauDuKien = gioBatDau,
+                GioKetThucDuKien = gioKetThuc,
+                MaYeuCauBaoTri = dto.MaYeuCauBaoTri, // legacy optional
                 NgayTao = DateTime.Now,
                 TrangThai = trangThai
             };
@@ -104,9 +98,6 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 chiTiet.TrangThai = trangThai;
                 await _repo.SaveChangesAsync();
             }
-
-            // Chỉ chuyển thiết bị sang "Bảo trì" khi đã gửi xưởng (không phải nháp)
-            if (dto.GuiDuyet)
             {
                 var tbTrangThai = await _repo.GetThietBiByIdAsync(dto.MaThietBi);
                 if (tbTrangThai != null)
@@ -115,6 +106,70 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     await _repo.SaveChangesAsync();
                 }
             }
+            return (true, null);
+        }
+
+        /// <summary>
+        /// Xưởng chỉnh sửa (nếu cần) rồi gửi hồ sơ cho Giám đốc duyệt.
+        /// Trạng thái: Chờ xưởng → Chờ duyệt. Người gửi ghi nhận là xưởng (MaNhanVienTao cập nhật).
+        /// </summary>
+        public async Task<(bool, string?)> XuongGuiGiamDocAsync(int id, int maNguoiDungXuong, XuongGuiGiamDocDto dto)
+        {
+            var nhanVien = await _nhanVienRepo.GetByMaNguoiDungAsync(maNguoiDungXuong);
+            if (nhanVien == null) return (false, "Không xác định được nhân viên xưởng.");
+
+            var hoSo = await _repo.GetHoSoBaoTriByIdAsync(id);
+            if (hoSo == null) return (false, "Không tìm thấy hồ sơ.");
+            if (hoSo.TrangThai != "Chờ xưởng")
+                return (false, "Chỉ gửi Giám đốc được khi hồ sơ đang ở trạng thái Chờ xưởng.");
+
+            if (!string.IsNullOrWhiteSpace(dto.NoiDungCongViec))
+                hoSo.NoiDungCongViec = dto.NoiDungCongViec;
+            if (!string.IsNullOrWhiteSpace(dto.ThoiGianDuKien))
+                hoSo.ThoiGianDuKien = dto.ThoiGianDuKien;
+            if (!string.IsNullOrWhiteSpace(dto.GioBatDauDuKien) && TimeSpan.TryParse(dto.GioBatDauDuKien, out var gbd))
+                hoSo.GioBatDauDuKien = gbd;
+            if (!string.IsNullOrWhiteSpace(dto.GioKetThucDuKien) && TimeSpan.TryParse(dto.GioKetThucDuKien, out var gkt))
+                hoSo.GioKetThucDuKien = gkt;
+
+            // Người gửi hồ sơ cho Giám đốc là xưởng
+            hoSo.MaNhanVienTao = nhanVien.MaNhanVien;
+            hoSo.TrangThai = "Chờ duyệt";
+
+            var chiTiet = await _repo.GetChiTietKeHoachByHoSoBaoTriAsync(hoSo.MaHoSoBaoTri);
+            if (chiTiet != null)
+                chiTiet.TrangThai = "Chờ duyệt";
+
+            await _repo.SaveChangesAsync();
+            return (true, null);
+        }
+
+        /// <summary>Xưởng chỉ lưu chỉnh sửa, không gửi Giám đốc (vẫn Chờ xưởng).</summary>
+        public async Task<(bool, string?)> XuongLuuHoSoAsync(int id, int maNguoiDungXuong, CapNhatHoSoBaoTriDto dto)
+        {
+            var nhanVien = await _nhanVienRepo.GetByMaNguoiDungAsync(maNguoiDungXuong);
+            if (nhanVien == null) return (false, "Không xác định được nhân viên xưởng.");
+
+            var hoSo = await _repo.GetHoSoBaoTriByIdAsync(id);
+            if (hoSo == null) return (false, "Không tìm thấy hồ sơ.");
+            if (hoSo.TrangThai != "Chờ xưởng")
+                return (false, "Chỉ chỉnh sửa được hồ sơ đang chờ xưởng.");
+
+            if (dto.NoiDungCongViec != null) hoSo.NoiDungCongViec = dto.NoiDungCongViec;
+            if (dto.ThoiGianDuKien != null) hoSo.ThoiGianDuKien = dto.ThoiGianDuKien;
+            if (!string.IsNullOrWhiteSpace(dto.GioBatDauDuKien) && TimeSpan.TryParse(dto.GioBatDauDuKien, out var gbd))
+                hoSo.GioBatDauDuKien = gbd;
+            if (!string.IsNullOrWhiteSpace(dto.GioKetThucDuKien) && TimeSpan.TryParse(dto.GioKetThucDuKien, out var gkt))
+                hoSo.GioKetThucDuKien = gkt;
+
+            if (dto.NgayDuKienBaoTri.HasValue)
+            {
+                var chiTiet = await _repo.GetChiTietKeHoachByHoSoBaoTriAsync(hoSo.MaHoSoBaoTri);
+                if (chiTiet != null)
+                    chiTiet.NgayDuKienBaoTri = dto.NgayDuKienBaoTri.Value;
+            }
+
+            await _repo.SaveChangesAsync();
             return (true, null);
         }
 
@@ -215,29 +270,30 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
             var hoSo = await _repo.GetHoSoBaoTriByIdAsync(maHoSo);
             if (hoSo == null) return (false, "Không tìm thấy hồ sơ.");
-            if (hoSo.TrangThai != "Đã duyệt" && hoSo.TrangThai != "Đang thực hiện")
-                return (false, "Hồ sơ chưa được duyệt hoặc đã hoàn thành.");
+            if (hoSo.TrangThai != "Đã duyệt") return (false, "Hồ sơ chưa được duyệt.");
 
-            // Danh sách NV: ưu tiên list, fallback 1 người
-            var dsNv = (dto.DanhSachMaNhanVienThucHien != null && dto.DanhSachMaNhanVienThucHien.Count > 0)
-                ? dto.DanhSachMaNhanVienThucHien.Distinct().ToList()
-                : (dto.MaNhanVienThucHien > 0 ? new List<int> { dto.MaNhanVienThucHien } : new List<int>());
+            // Danh sách nhân viên được chọn (nhiều người)
+            var dsNv = new List<int>();
+            if (dto.MaNhanVienThucHiens != null && dto.MaNhanVienThucHiens.Count > 0)
+                dsNv.AddRange(dto.MaNhanVienThucHiens.Distinct());
+            else if (dto.MaNhanVienThucHien.HasValue && dto.MaNhanVienThucHien.Value > 0)
+                dsNv.Add(dto.MaNhanVienThucHien.Value);
 
             if (dsNv.Count == 0)
                 return (false, "Vui lòng chọn ít nhất một nhân viên thực hiện.");
 
-            if (dto.NgayKetThucDuKien < dto.NgayBatDauDuKien)
-                return (false, "Ngày kết thúc không được trước ngày bắt đầu.");
+            // Nếu đã có phân công đang mở → hủy mềm các bản cũ rồi phân công lại
+            var pcDangMo = await _repo.GetPhanCongTheoHoSoBaoTriAsync(maHoSo);
+            foreach (var pc in pcDangMo.Where(p => p.TrangThai is "Chờ xác nhận" or "Đã phân công" or "Xác nhận" or "Đang thực hiện"))
+            {
+                pc.TrangThai = "Đã hủy";
+            }
 
             if (await _repo.ThietBiDangTrongQuyTrinhKhacAsync(hoSo.MaThieBi, "BaoTri", maHoSo))
                 return (false, "Thiết bị này đang trong quy trình bảo trì/sửa chữa khác, không thể phân công.");
 
-            // Hủy các phân công cũ chưa hoàn thành của hồ sơ này (cho phép phân công lại / bỏ tích NV bận)
-            var pcCuList = await _repo.GetPhanCongTheoMaHoSoBaoTriAsync(maHoSo);
-            foreach (var pcCu in pcCuList.Where(p => p.TrangThai is "Đã phân công" or "Chờ xác nhận" or "Xác nhận" or "Đang thực hiện"))
-            {
-                pcCu.TrangThai = "Đã hủy";
-            }
+            if (dto.NgayKetThucDuKien < dto.NgayBatDauDuKien)
+                return (false, "Ngày kết thúc không được trước ngày bắt đầu.");
 
             int? maPhanCongDau = null;
             foreach (var maNv in dsNv)
@@ -249,7 +305,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     MaHoSoBaoTri = maHoSo,
                     NgayBatDauDuKien = dto.NgayBatDauDuKien,
                     NgayKetThucDuKien = dto.NgayKetThucDuKien,
-                    // Luồng mới: không cần NV xác nhận/từ chối — hiện lên là biết phải làm
+                    // Không cần NV xác nhận/từ chối — hiện lên là biết phải làm
                     TrangThai = "Đã phân công",
                     NgayPhanCong = DateTime.Now
                 };
@@ -258,18 +314,60 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 maPhanCongDau ??= phanCong.MaPhanCong;
             }
 
-            // Giữ MaPhanCong trên hồ sơ trỏ bản đầu (tương thích code cũ)
+            // Giữ MaPhanCong (1) để tương thích code cũ; danh sách đầy đủ qua MaHoSoBaoTri
             hoSo.MaPhanCong = maPhanCongDau;
-            // Phân công xong → đang thực hiện (không chờ xác nhận)
+            // Phân công xong → Đang thực hiện ngay (không chờ xác nhận NV)
             hoSo.TrangThai = "Đang thực hiện";
 
             var chiTiet = await _repo.GetChiTietKeHoachByHoSoBaoTriAsync(hoSo.MaHoSoBaoTri);
             if (chiTiet != null)
                 chiTiet.TrangThai = "Đang thực hiện";
 
-            var tb = await _repo.GetThietBiByIdAsync(hoSo.MaThieBi);
-            if (tb != null)
-                tb.TinhTrangHienTai = "Bảo trì";
+            await _repo.SaveChangesAsync();
+            return (true, null);
+        }
+
+        /// <summary>
+        /// Nhân viên kỹ thuật bấm "Hoàn thành bảo trì".
+        /// Một người bấm → đồng bộ tất cả phân công cùng hồ sơ + hồ sơ + kế hoạch + thiết bị.
+        /// </summary>
+        public async Task<(bool, string?)> NhanVienHoanThanhBaoTriAsync(int maHoSo, int maNguoiDung)
+        {
+            var nhanVien = await _nhanVienRepo.GetByMaNguoiDungAsync(maNguoiDung);
+            if (nhanVien == null) return (false, "Không xác định được nhân viên.");
+
+            var hoSo = await _repo.GetHoSoBaoTriByIdAsync(maHoSo);
+            if (hoSo == null) return (false, "Không tìm thấy hồ sơ.");
+            if (hoSo.TrangThai is not ("Đang thực hiện" or "Đã duyệt"))
+                return (false, "Hồ sơ không ở trạng thái đang thực hiện.");
+
+            var dsPc = await _repo.GetPhanCongTheoHoSoBaoTriAsync(maHoSo);
+            if (dsPc.Count == 0 && hoSo.MaPhanCong != null)
+            {
+                var pc = await _repo.GetPhanCongByIdAsync(hoSo.MaPhanCong.Value);
+                if (pc != null) dsPc.Add(pc);
+            }
+
+            var duocPhanCong = dsPc.Any(p => p.MaNhanVienThucHien == nhanVien.MaNhanVien
+                && p.TrangThai is not ("Đã hủy" or "Hoàn thành"));
+            if (!duocPhanCong)
+                return (false, "Bạn không được phân công hồ sơ này hoặc đã hoàn thành.");
+
+            foreach (var pc in dsPc.Where(p => p.TrangThai is not ("Đã hủy" or "Hoàn thành")))
+                pc.TrangThai = "Hoàn thành";
+
+            hoSo.TrangThai = "Đã hoàn thành";
+            var chiTiet = await _repo.GetChiTietKeHoachByHoSoBaoTriAsync(hoSo.MaHoSoBaoTri);
+            if (chiTiet != null)
+                chiTiet.TrangThai = "Đã hoàn thành";
+
+            var conHoSoMo = await _repo.CoHoSoBaoTriDangMoAsync(hoSo.MaThieBi, loaiTruMaHoSo: maHoSo);
+            if (!conHoSoMo)
+            {
+                var tb = await _repo.GetThietBiByIdAsync(hoSo.MaThieBi);
+                if (tb != null)
+                    tb.TinhTrangHienTai = "Sản xuất";
+            }
 
             await _repo.SaveChangesAsync();
             return (true, null);
@@ -429,112 +527,6 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             var tb = await _repo.GetThietBiByIdAsync(hoSo.MaThieBi);
             if (tb != null)
                 tb.TinhTrangHienTai = "Bảo trì";
-
-            await _repo.SaveChangesAsync();
-            return (true, null);
-        }
-
-        /// <summary>Xưởng chỉnh sửa — chỉ được đổi Ngày dự kiến bảo trì; đồng bộ Chi tiết kế hoạch.</summary>
-        public async Task<(bool, string?)> XuongCapNhatHoSoBaoTriAsync(int id, int maNguoiDung, XuongCapNhatHoSoDto dto)
-        {
-            var nv = await _nhanVienRepo.GetByMaNguoiDungAsync(maNguoiDung);
-            if (nv == null) return (false, "Không xác định được người dùng.");
-
-            var hoSo = await _repo.GetHoSoBaoTriByIdAsync(id);
-            if (hoSo == null) return (false, "Không tìm thấy hồ sơ.");
-            // Chờ duyệt (mới gửi) hoặc Từ chối (GĐ trả về) — xưởng được sửa ngày
-            if (hoSo.TrangThai != "Chờ duyệt" && hoSo.TrangThai != "Từ chối")
-                return (false, "Chỉ chỉnh sửa hồ sơ đang Chờ duyệt hoặc bị Giám đốc từ chối.");
-
-            if (!dto.NgayDuKienBaoTri.HasValue)
-                return (false, "Vui lòng chọn ngày dự kiến bảo trì.");
-
-            var chiTiet = await _repo.GetChiTietKeHoachByHoSoBaoTriAsync(hoSo.MaHoSoBaoTri);
-            if (chiTiet == null)
-                return (false, "Không tìm thấy chi tiết kế hoạch gắn với hồ sơ này.");
-
-            var ngayMoi = dto.NgayDuKienBaoTri.Value;
-            if (ngayMoi < DateOnly.FromDateTime(DateTime.Today))
-                return (false, "Ngày bảo trì dự kiến không được ở quá khứ.");
-
-            var ngayLap = chiTiet.MaKeHoachNavigation?.NgayLapKeHoach;
-            if (ngayLap != null && ngayMoi <= ngayLap.Value)
-                return (false, "Ngày bảo trì dự kiến phải sau ngày lập kế hoạch.");
-
-            // Đồng bộ Ngày dự kiến trên kế hoạch (Tổ trưởng cơ điện sẽ thấy)
-            chiTiet.NgayDuKienBaoTri = ngayMoi;
-
-            // Cập nhật lịch thiết bị: Bảo trì tiếp theo = ngày mới
-            var tb = await _repo.GetThietBiByIdAsync(hoSo.MaThieBi);
-            if (tb != null)
-                tb.NgayBaoTriTiepTheo = ngayMoi;
-
-            await _repo.SaveChangesAsync();
-            return (true, null);
-        }
-
-        /// <summary>Xưởng xác nhận & gửi hồ sơ cho Giám đốc duyệt. Người gửi = xưởng.</summary>
-        public async Task<(bool, string?)> XuongGuiGiamDocAsync(int id, int maNguoiDung)
-        {
-            var nv = await _nhanVienRepo.GetByMaNguoiDungAsync(maNguoiDung);
-            if (nv == null) return (false, "Không xác định được người dùng.");
-
-            var hoSo = await _repo.GetHoSoBaoTriByIdAsync(id);
-            if (hoSo == null) return (false, "Không tìm thấy hồ sơ.");
-            if (hoSo.TrangThai != "Chờ duyệt" && hoSo.TrangThai != "Từ chối")
-                return (false, "Chỉ gửi Giám đốc khi hồ sơ đang Chờ duyệt hoặc bị từ chối.");
-
-            // Người gửi lên GĐ = xưởng
-            hoSo.MaNhanVienTao = nv.MaNhanVien;
-            hoSo.TrangThai = "Chờ duyệt";
-            hoSo.LyDoTuChoi = null;
-            hoSo.MaNhanVienDuyet = null;
-            hoSo.NgayDuyet = null;
-            hoSo.NgayTao = DateTime.Now;
-
-            var chiTiet = await _repo.GetChiTietKeHoachByHoSoBaoTriAsync(hoSo.MaHoSoBaoTri);
-            if (chiTiet != null)
-                chiTiet.TrangThai = "Chờ duyệt";
-
-            await _repo.SaveChangesAsync();
-            return (true, null);
-        }
-
-        /// <summary>
-        /// NVKT bấm "Hoàn thành bảo trì" — 1 người bấm là đồng bộ tất cả phân công cùng hồ sơ.
-        /// </summary>
-        public async Task<(bool, string?)> NhanVienHoanThanhBaoTriAsync(int maHoSo, int maNguoiDung)
-        {
-            var nv = await _nhanVienRepo.GetByMaNguoiDungAsync(maNguoiDung);
-            if (nv == null) return (false, "Không xác định được nhân viên.");
-
-            var hoSo = await _repo.GetHoSoBaoTriByIdAsync(maHoSo);
-            if (hoSo == null) return (false, "Không tìm thấy hồ sơ.");
-            if (hoSo.TrangThai == "Đã hoàn thành")
-                return (true, null);
-            if (hoSo.TrangThai != "Đang thực hiện" && hoSo.TrangThai != "Đã duyệt")
-                return (false, "Hồ sơ không ở trạng thái đang thực hiện.");
-
-            var dsPc = await _repo.GetPhanCongTheoMaHoSoBaoTriAsync(maHoSo);
-            if (!dsPc.Any(p => p.MaNhanVienThucHien == nv.MaNhanVien && p.TrangThai != "Đã hủy"))
-                return (false, "Bạn không được phân công hồ sơ này.");
-
-            foreach (var pc in dsPc.Where(p => p.TrangThai is "Đã phân công" or "Xác nhận" or "Đang thực hiện" or "Chờ xác nhận"))
-                pc.TrangThai = "Hoàn thành";
-
-            hoSo.TrangThai = "Đã hoàn thành";
-
-            var chiTiet = await _repo.GetChiTietKeHoachByHoSoBaoTriAsync(hoSo.MaHoSoBaoTri);
-            if (chiTiet != null)
-                chiTiet.TrangThai = "Đã hoàn thành";
-
-            var conHoSoMo = await _repo.CoHoSoBaoTriDangMoAsync(hoSo.MaThieBi, loaiTruMaHoSo: hoSo.MaHoSoBaoTri);
-            if (!conHoSoMo)
-            {
-                var tb = await _repo.GetThietBiByIdAsync(hoSo.MaThieBi);
-                if (tb != null)
-                    tb.TinhTrangHienTai = "Sản xuất";
-            }
 
             await _repo.SaveChangesAsync();
             return (true, null);
@@ -952,9 +944,17 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
             if (dto.NgayKetThucDuKien < dto.NgayBatDauDuKien)
                 return (false, "Ngày kết thúc không được trước ngày bắt đầu.");
+
+            // PhanCongDto.MaNhanVienThucHien giờ là int? (hỗ trợ nhiều NV ở bảo trì)
+            var maNvThucHien = dto.MaNhanVienThucHien
+                ?? dto.MaNhanVienThucHiens?.FirstOrDefault()
+                ?? 0;
+            if (maNvThucHien <= 0)
+                return (false, "Vui lòng chọn nhân viên thực hiện.");
+
             var phanCong = new PhanCongCongViec
             {
-                MaNhanVienThucHien = dto.MaNhanVienThucHien,
+                MaNhanVienThucHien = maNvThucHien,
                 MaNhanVienPhanCong = dto.MaNhanVienPhanCong,
                 NgayBatDauDuKien = dto.NgayBatDauDuKien,
                 NgayKetThucDuKien = dto.NgayKetThucDuKien,

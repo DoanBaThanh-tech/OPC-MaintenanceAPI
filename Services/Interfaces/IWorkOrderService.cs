@@ -20,16 +20,16 @@ namespace OPC.MaintenanceAPI.Services.Interfaces
         Task<(bool, string?)> NhanVienXacNhanBaoTriAsync(int maHoSo, int maNguoiDung);
         Task<(bool, string?)> NhanVienTuChoiBaoTriAsync(int maHoSo, int maNguoiDung, TuChoiNhanViecDto dto);
         Task<(bool, string?)> CapNhatHoSoBaoTriBiTuChoiAsync(int id, CapNhatHoSoBaoTriDto dto);
-
-        // Xưởng: nhận hồ sơ từ Tổ trưởng cơ điện → chỉnh sửa / gửi Giám đốc
-        Task<(bool, string?)> XuongCapNhatHoSoBaoTriAsync(int id, int maNguoiDung, XuongCapNhatHoSoDto dto);
-        Task<(bool, string?)> XuongGuiGiamDocAsync(int id, int maNguoiDung);
-        /// <summary>NVKT bấm Hoàn thành → đồng bộ tất cả phân công + hồ sơ + kế hoạch + thiết bị.</summary>
+        /// <summary>Xưởng lưu chỉnh sửa hồ sơ (giữ Chờ xưởng).</summary>
+        Task<(bool, string?)> XuongLuuHoSoAsync(int id, int maNguoiDungXuong, CapNhatHoSoBaoTriDto dto);
+        /// <summary>Xưởng gửi hồ sơ cho Giám đốc (Chờ xưởng → Chờ duyệt).</summary>
+        Task<(bool, string?)> XuongGuiGiamDocAsync(int id, int maNguoiDungXuong, XuongGuiGiamDocDto dto);
+        /// <summary>NVKT bấm Hoàn thành — đồng bộ tất cả phân công cùng hồ sơ.</summary>
         Task<(bool, string?)> NhanVienHoanThanhBaoTriAsync(int maHoSo, int maNguoiDung);
 
         /// Danh sách yêu cầu được phân công cho NVKT đang đăng nhập (Bảo trì / Sửa chữa)
         Task<List<object>> GetYeuCauCuaNhanVienAsync(int maNguoiDung, string? loai = null, string? trangThaiPhanCong = null);
-        /// Danh sách yêu cầu đã Xác nhận (dùng cho combobox Kết quả thực hiện — sẽ bỏ UI)
+        /// Danh sách yêu cầu đã Xác nhận (dùng cho combobox Kết quả thực hiện)
         Task<List<object>> GetYeuCauDaXacNhanAsync(int maNguoiDung, string? loai = null);
 
         // Sửa chữa
@@ -42,11 +42,13 @@ namespace OPC.MaintenanceAPI.Services.Interfaces
         Task<(bool, string?)> NhanVienXacNhanSuaChuaAsync(int maHoSo, int maNguoiDung);
         Task<(bool, string?)> NhanVienTuChoiSuaChuaAsync(int maHoSo, int maNguoiDung, TuChoiNhanViecDto dto);
 
-        // Yêu cầu bảo trì — giữ API để không phá build, UI đã bỏ
+        // Yêu cầu bảo trì: Tổ trưởng cơ điện tạo → Xưởng (TTSX) xác nhận/từ chối
         Task<(bool, string?)> TaoYeuCauBaoTriAsync(int maNguoiDung, TaoYeuCauBaoTriDto dto);
         Task<List<object>> GetYeuCauBaoTriAsync(string? trangThai, int? nam, int? thang);
         Task<(bool, string?)> XacNhanYeuCauBaoTriAsync(int maYeuCau, int maNguoiDung, XacNhanYeuCauBaoTriDto dto);
+        /// Sửa yêu cầu bị từ chối → gửi lại (trạng thái về Chờ xác nhận)
         Task<(bool, string?)> SuaYeuCauBaoTriAsync(int maYeuCau, int maNguoiDung, SuaYeuCauBaoTriDto dto);
+        /// Danh sách YC đã xác nhận — dùng khi Tổ trưởng cơ điện tạo kế hoạch/hồ sơ
         Task<List<object>> GetYeuCauDaXacNhanDeTaoHoSoAsync(int? nam, int? thang);
     }
 }

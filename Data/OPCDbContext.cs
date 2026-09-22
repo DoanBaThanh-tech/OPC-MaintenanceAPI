@@ -467,12 +467,11 @@ public partial class OPCDbContext : DbContext
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_PhanCong_NhanVienThucHien");
 
-            // Nhiều phân công cho 1 hồ sơ bảo trì
-            entity.HasIndex(e => e.MaHoSoBaoTri, "IX_PhanCong_MaHoSoBaoTri");
+            // Nhiều phân công → một hồ sơ bảo trì (chọn nhiều nhân viên)
             entity.HasOne(d => d.MaHoSoBaoTriNavigation).WithMany(p => p.PhanCongCongViecs)
                 .HasForeignKey(d => d.MaHoSoBaoTri)
                 .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("FK_PhanCong_HoSoBaoTri");
+                .HasConstraintName("FK_PhanCong_HoSoBaoTri_Multi");
         });
 
         modelBuilder.Entity<PhanQuyenVaiTro>(entity =>

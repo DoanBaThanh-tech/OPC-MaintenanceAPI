@@ -15,10 +15,14 @@ public partial class HoSoBaoTri
 
     public int? MaPhanCong { get; set; }
 
-    /// <summary>Yêu cầu bảo trì từ Tổ trưởng sản xuất (bắt buộc khi tạo hồ sơ).</summary>
+    /// <summary>Yêu cầu bảo trì (legacy, không còn bắt buộc).</summary>
     public int? MaYeuCauBaoTri { get; set; }
 
     public string? NoiDungCongViec { get; set; }
+
+    /// <summary>Danh sách phân công (nhiều nhân viên) gắn qua PhanCongCongViec.MaHoSoBaoTri.</summary>
+    public virtual ICollection<PhanCongCongViec> PhanCongCongViecs { get; set; } = new List<PhanCongCongViec>();
+
 
     public string? ThoiGianDuKien { get; set; }
 
@@ -47,9 +51,6 @@ public partial class HoSoBaoTri
     public virtual NhanVien MaNhanVienTaoNavigation { get; set; } = null!;
 
     public virtual PhanCongCongViec? MaPhanCongNavigation { get; set; }
-
-    /// <summary>Danh sách phân công nhiều NV (luồng mới qua PhanCong.MaHoSoBaoTri).</summary>
-    public virtual ICollection<PhanCongCongViec> PhanCongCongViecs { get; set; } = new List<PhanCongCongViec>();
 
     public virtual YeuCauBaoTriThietBi? MaYeuCauBaoTriNavigation { get; set; }
 

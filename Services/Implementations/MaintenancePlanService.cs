@@ -112,7 +112,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (gioBatDau == null || gioKetThuc == null)
                 return (false, "Vui lòng chọn giờ bắt đầu và giờ kết thúc dự kiến.");
 
-            // Luồng mới: tạo từ kế hoạch → gửi xưởng (Chờ xưởng), không gửi thẳng Giám đốc
+            // Tạo hồ sơ gửi xưởng xem lịch — trạng thái Chờ duyệt (GĐ duyệt sau)
             var hoSo = new HoSoBaoTri
             {
                 MaThieBi = dto.MaThietBi,
@@ -122,7 +122,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 GioBatDauDuKien = gioBatDau,
                 GioKetThucDuKien = gioKetThuc,
                 NgayTao = DateTime.Now,
-                TrangThai = "Chờ xưởng"
+                TrangThai = "Chờ duyệt"
             };
             await _repo.AddHoSoBaoTriAsync(hoSo);
             await _repo.SaveChangesAsync(); // có MaHoSoBaoTri

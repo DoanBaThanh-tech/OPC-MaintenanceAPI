@@ -111,8 +111,8 @@ namespace OPC.MaintenanceAPI.Controllers
             return Result(await _service.TaoHoSoBaoTriAsync(maNguoiDung, dto));
         }
 
-        /// <summary>Xưởng lưu chỉnh sửa hồ sơ (vẫn Chờ xưởng). Kéo xuống refresh để xem bản cập nhật.</summary>
-        [Authorize(Roles = "Tổ trưởng sản xuất")]
+        /// <summary>Xưởng lưu chỉnh sửa hồ sơ (Chờ duyệt).</summary>
+        [Authorize(Roles = "Xưởng,Tổ trưởng sản xuất")]
         [HttpPut("bao-tri/{id}/xuong-luu")]
         public async Task<IActionResult> XuongLuuHoSo(int id, CapNhatHoSoBaoTriDto dto)
         {
@@ -122,8 +122,8 @@ namespace OPC.MaintenanceAPI.Controllers
             return Result(await _service.XuongLuuHoSoAsync(id, maNguoiDung, dto));
         }
 
-        /// <summary>Xưởng xác nhận và gửi hồ sơ cho Giám đốc (Chờ xưởng → Chờ duyệt).</summary>
-        [Authorize(Roles = "Tổ trưởng sản xuất")]
+        /// <summary>Xưởng xác nhận lịch — hồ sơ vẫn Chờ duyệt để Giám đốc duyệt.</summary>
+        [Authorize(Roles = "Xưởng,Tổ trưởng sản xuất")]
         [HttpPut("bao-tri/{id}/xuong-gui-giam-doc")]
         public async Task<IActionResult> XuongGuiGiamDoc(int id, XuongGuiGiamDocDto dto)
         {

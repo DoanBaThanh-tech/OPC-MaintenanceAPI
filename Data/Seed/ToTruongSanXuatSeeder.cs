@@ -4,26 +4,36 @@ using OPC.MaintenanceAPI.Core.Entities;
 namespace OPC.MaintenanceAPI.Data.Seed
 {
     /// <summary>
-    /// Seed vai trò + 2 tài khoản Tổ trưởng sản xuất.
+    /// Seed vai trò Xưởng (+ tương thích tên cũ Tổ trưởng sản xuất) + 2 tài khoản.
     /// Mật khẩu: 123456aA@
     /// </summary>
     public static class ToTruongSanXuatSeeder
     {
         public const string MatKhauChung = "123456aA@";
+        public const string TenVaiTroXuong = "Xưởng";
 
         public static async Task SeedAsync(IServiceProvider serviceProvider)
         {
             using var scope = serviceProvider.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<OPCDbContext>();
 
-            var vaiTro = await db.VaiTros.FirstOrDefaultAsync(v => v.TenVaiTro == "Tổ trưởng sản xuất");
+            // Đổi tên vai trò cũ → Xưởng (nếu còn)
+            var vaiTroCu = await db.VaiTros.FirstOrDefaultAsync(v => v.TenVaiTro == "Tổ trưởng sản xuất");
+            if (vaiTroCu != null)
+            {
+                vaiTroCu.TenVaiTro = TenVaiTroXuong;
+                vaiTroCu.MoTa = "Xưởng xem/điều chỉnh ngày bảo trì trên hồ sơ trước khi GĐ duyệt";
+                await db.SaveChangesAsync();
+            }
+
+            var vaiTro = await db.VaiTros.FirstOrDefaultAsync(v => v.TenVaiTro == TenVaiTroXuong);
             if (vaiTro == null)
             {
                 vaiTro = new VaiTro
                 {
-                    TenVaiTro = "Tổ trưởng sản xuất",
+                    TenVaiTro = TenVaiTroXuong,
                     CapDoQuyen = 4,
-                    MoTa = "Gửi yêu cầu bảo trì thiết bị theo lịch xưởng",
+                    MoTa = "Xưởng xem/điều chỉnh ngày bảo trì trên hồ sơ trước khi GĐ duyệt",
                     TrangThai = true,
                     NgayTao = DateTime.Now
                 };
@@ -63,7 +73,7 @@ namespace OPC.MaintenanceAPI.Data.Seed
                         HoTen = m.HoTen,
                         Email = m.Email,
                         SoDienThoai = m.Sdt,
-                        ChucVu = "Tổ trưởng sản xuất",
+                        ChucVu = "Xưởng",
                         NgayVaoLam = DateOnly.FromDateTime(DateTime.Today.AddYears(-2)),
                         TrangThai = "Đang làm việc",
                         NgayTao = DateTime.Now,
@@ -78,7 +88,7 @@ namespace OPC.MaintenanceAPI.Data.Seed
                     if (user.NhanVien != null)
                     {
                         user.NhanVien.HoTen = m.HoTen;
-                        user.NhanVien.ChucVu = "Tổ trưởng sản xuất";
+                        user.NhanVien.ChucVu = "Xưởng";
                         user.NhanVien.TrangThai = "Đang làm việc";
                     }
                     await db.SaveChangesAsync();

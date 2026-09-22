@@ -54,8 +54,8 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (!string.IsNullOrWhiteSpace(dto.GioKetThucDuKien) && TimeSpan.TryParse(dto.GioKetThucDuKien, out var gkt))
                 gioKetThuc = gkt;
 
-            // GuiDuyet = true → gửi xưởng (Chờ xưởng); false → nháp (không dùng trong UI mới)
-            var trangThai = dto.GuiDuyet ? "Chờ xưởng" : "Nháp";
+            // GuiDuyet = true → gửi xưởng xem lịch, trạng thái vẫn Chờ duyệt (GĐ duyệt sau)
+            var trangThai = dto.GuiDuyet ? "Chờ duyệt" : "Nháp";
 
             var hoSo = new HoSoBaoTri
             {
@@ -110,8 +110,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
         }
 
         /// <summary>
-        /// Xưởng chỉnh sửa (nếu cần) rồi gửi hồ sơ cho Giám đốc duyệt.
-        /// Trạng thái: Chờ xưởng → Chờ duyệt. Người gửi ghi nhận là xưởng (MaNhanVienTao cập nhật).
+        /// Xưởng xác nhận lịch (đã xem/sửa ngày) — hồ sơ vẫn Chờ duyệt để Giám đốc duyệt.
         /// </summary>
         public async Task<(bool, string?)> XuongGuiGiamDocAsync(int id, int maNguoiDungXuong, XuongGuiGiamDocDto dto)
         {
@@ -120,8 +119,9 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
             var hoSo = await _repo.GetHoSoBaoTriByIdAsync(id);
             if (hoSo == null) return (false, "Không tìm thấy hồ sơ.");
-            if (hoSo.TrangThai != "Chờ xưởng")
-                return (false, "Chỉ gửi Giám đốc được khi hồ sơ đang ở trạng thái Chờ xưởng.");
+            // Chấp nhận cả dữ liệu cũ "Chờ xưởng" và luồng mới "Chờ duyệt"
+            if (hoSo.TrangThai is not ("Chờ duyệt" or "Chờ xưởng"))
+                return (false, "Chỉ xử lý được hồ sơ đang chờ duyệt.");
 
             if (!string.IsNullOrWhiteSpace(dto.NoiDungCongViec))
                 hoSo.NoiDungCongViec = dto.NoiDungCongViec;
@@ -132,8 +132,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (!string.IsNullOrWhiteSpace(dto.GioKetThucDuKien) && TimeSpan.TryParse(dto.GioKetThucDuKien, out var gkt))
                 hoSo.GioKetThucDuKien = gkt;
 
-            // Người gửi hồ sơ cho Giám đốc là xưởng
-            hoSo.MaNhanVienTao = nhanVien.MaNhanVien;
+            // Đồng bộ về Chờ duyệt (GĐ mới được đổi sang Đã duyệt)
             hoSo.TrangThai = "Chờ duyệt";
 
             var chiTiet = await _repo.GetChiTietKeHoachByHoSoBaoTriAsync(hoSo.MaHoSoBaoTri);
@@ -144,7 +143,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             return (true, null);
         }
 
-        /// <summary>Xưởng chỉ lưu chỉnh sửa, không gửi Giám đốc (vẫn Chờ xưởng).</summary>
+        /// <summary>Xưởng lưu chỉnh sửa ngày/nội dung khi hồ sơ còn Chờ duyệt.</summary>
         public async Task<(bool, string?)> XuongLuuHoSoAsync(int id, int maNguoiDungXuong, CapNhatHoSoBaoTriDto dto)
         {
             var nhanVien = await _nhanVienRepo.GetByMaNguoiDungAsync(maNguoiDungXuong);
@@ -152,8 +151,8 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
             var hoSo = await _repo.GetHoSoBaoTriByIdAsync(id);
             if (hoSo == null) return (false, "Không tìm thấy hồ sơ.");
-            if (hoSo.TrangThai != "Chờ xưởng")
-                return (false, "Chỉ chỉnh sửa được hồ sơ đang chờ xưởng.");
+            if (hoSo.TrangThai is not ("Chờ duyệt" or "Chờ xưởng"))
+                return (false, "Chỉ chỉnh sửa được hồ sơ đang chờ duyệt.");
 
             if (dto.NoiDungCongViec != null) hoSo.NoiDungCongViec = dto.NoiDungCongViec;
             if (dto.ThoiGianDuKien != null) hoSo.ThoiGianDuKien = dto.ThoiGianDuKien;
@@ -162,11 +161,19 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (!string.IsNullOrWhiteSpace(dto.GioKetThucDuKien) && TimeSpan.TryParse(dto.GioKetThucDuKien, out var gkt))
                 hoSo.GioKetThucDuKien = gkt;
 
+            // Nếu còn trạng thái cũ → chuẩn hóa về Chờ duyệt
+            if (hoSo.TrangThai == "Chờ xưởng")
+                hoSo.TrangThai = "Chờ duyệt";
+
             if (dto.NgayDuKienBaoTri.HasValue)
             {
                 var chiTiet = await _repo.GetChiTietKeHoachByHoSoBaoTriAsync(hoSo.MaHoSoBaoTri);
                 if (chiTiet != null)
+                {
                     chiTiet.NgayDuKienBaoTri = dto.NgayDuKienBaoTri.Value;
+                    if (chiTiet.TrangThai == "Chờ xưởng")
+                        chiTiet.TrangThai = "Chờ duyệt";
+                }
             }
 
             await _repo.SaveChangesAsync();

@@ -5,7 +5,7 @@ namespace OPC.MaintenanceAPI.DTOs.WorkOrder
         public int MaThietBi { get; set; }
         public string? NoiDungCongViec { get; set; }
         public string? ThoiGianDuKien { get; set; }
-        /// <summary>true = Gửi bảo trì cho xưởng (trạng thái Chờ xưởng).</summary>
+        /// <summary>true = Gửi bảo trì cho xưởng (trạng thái Chờ duyệt).</summary>
         public bool GuiDuyet { get; set; }
         public int? MaChiTietKeHoach { get; set; }
         /// <summary>Không còn bắt buộc — giữ để tương thích client cũ (bỏ qua).</summary>
@@ -34,7 +34,7 @@ namespace OPC.MaintenanceAPI.DTOs.WorkOrder
         public DateTime NgayKetThucDuKien { get; set; }
     }
 
-    /// <summary>Xưởng chỉnh sửa hồ sơ đang Chờ xưởng.</summary>
+    /// <summary>Xưởng chỉnh sửa hồ sơ đang Chờ duyệt.</summary>
     public class XuongCapNhatHoSoDto
     {
         public string? NoiDungCongViec { get; set; }

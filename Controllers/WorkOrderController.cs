@@ -162,7 +162,7 @@ namespace OPC.MaintenanceAPI.Controllers
             return Result(await _service.CapNhatHoSoBaoTriBiTuChoiAsync(id, dto));
         }
 
-        /// Xưởng chỉnh sửa hồ sơ đang Chờ xưởng (Lưu)
+        /// Xưởng chỉnh sửa hồ sơ đang Chờ duyệt (Lưu)
         [HttpPut("bao-tri/{id}/xuong-cap-nhat")]
         public async Task<IActionResult> XuongCapNhatHoSo(int id, XuongCapNhatHoSoDto dto)
         {

@@ -75,7 +75,7 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         {
             var q = _context.HoSoBaoTris.Where(h =>
                 h.MaThieBi == maThietBi &&
-                (h.TrangThai == "Chờ xưởng" ||
+                (h.TrangThai == "Chờ duyệt" ||
                  h.TrangThai == "Chờ duyệt" ||
                  h.TrangThai == "Đã duyệt" ||
                  h.TrangThai == "Đang thực hiện" ||

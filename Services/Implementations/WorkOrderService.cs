@@ -132,12 +132,12 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (!string.IsNullOrWhiteSpace(dto.GioKetThucDuKien) && TimeSpan.TryParse(dto.GioKetThucDuKien, out var gkt))
                 hoSo.GioKetThucDuKien = gkt;
 
-            // Đồng bộ về Chờ duyệt (GĐ mới được đổi sang Đã duyệt)
-            hoSo.TrangThai = "Chờ duyệt";
+            // Xưởng đã xác nhận lịch → chờ Giám đốc duyệt (khác "Chờ duyệt" để ẩn nút chỉnh sửa/gửi của Xưởng)
+            hoSo.TrangThai = "Chờ GĐ duyệt";
 
             var chiTiet = await _repo.GetChiTietKeHoachByHoSoBaoTriAsync(hoSo.MaHoSoBaoTri);
             if (chiTiet != null)
-                chiTiet.TrangThai = "Chờ duyệt";
+                chiTiet.TrangThai = "Chờ GĐ duyệt";
 
             await _repo.SaveChangesAsync();
             return (true, null);
@@ -214,7 +214,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
             var hoSo = await _repo.GetHoSoBaoTriByIdAsync(id);
             if (hoSo == null) return (false, "Không tìm thấy hồ sơ.");
-            if (hoSo.TrangThai != "Chờ duyệt")
+            if (hoSo.TrangThai is not ("Chờ duyệt" or "Chờ GĐ duyệt"))
                 return (false, "Hồ sơ đã được xử lý trước đó.");
             if (dto.QuyetDinh != "Duyệt" && dto.QuyetDinh != "Từ chối")
                 return (false, "QuyetDinh chỉ nhận 'Duyệt' hoặc 'Từ chối'.");

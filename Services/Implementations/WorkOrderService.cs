@@ -519,16 +519,17 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 chiTiet.NgayDuKienBaoTri = ngayMoi;
             }
 
-            // Gửi lại duyệt — Ngày duyệt để null, khi GĐ duyệt mới ghi
+            // Xưởng đã chỉnh sửa sau khi GĐ từ chối → gửi thẳng lại Giám đốc duyệt
+            // (không quay về "Chờ duyệt"/chờ xưởng để tránh xưởng phải gửi lại lần nữa)
             hoSo.NgayTao = DateTime.Now;
 
-            hoSo.TrangThai = "Chờ duyệt";
+            hoSo.TrangThai = "Chờ GĐ duyệt";
             hoSo.LyDoTuChoi = null;
             hoSo.MaNhanVienDuyet = null;
             hoSo.NgayDuyet = null;
 
             if (chiTiet != null)
-                chiTiet.TrangThai = "Chờ duyệt";
+                chiTiet.TrangThai = "Chờ GĐ duyệt";
 
             // Giữ thiết bị = Bảo trì (nếu bạn đã thêm dòng này trước đó)
             var tb = await _repo.GetThietBiByIdAsync(hoSo.MaThieBi);

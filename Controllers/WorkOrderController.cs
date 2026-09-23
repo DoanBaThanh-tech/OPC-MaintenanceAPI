@@ -188,8 +188,10 @@ namespace OPC.MaintenanceAPI.Controllers
             return Result(await _service.NhanVienTuChoiBaoTriAsync(id, maNguoiDung, dto));
         }
 
-        /// Tổ trưởng chỉnh sửa hồ sơ bị từ chối rồi gửi lại duyệt
+        /// Xưởng chỉnh sửa hồ sơ bị Giám đốc từ chối rồi gửi lại duyệt (Chờ GĐ duyệt).
+        /// Tổ trưởng cơ điện không được chỉnh sửa hồ sơ từ chối — chỉ phân công khi đã duyệt.
         [HttpPut("bao-tri/{id}/sua-tu-choi")]
+        [Authorize(Roles = "Xưởng,Tổ trưởng sản xuất")]
         public async Task<IActionResult> CapNhatHoSoBiTuChoi(int id, CapNhatHoSoBaoTriDto dto)
         {
             return Result(await _service.CapNhatHoSoBaoTriBiTuChoiAsync(id, dto));

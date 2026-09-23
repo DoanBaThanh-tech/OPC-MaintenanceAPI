@@ -277,7 +277,9 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
             var hoSo = await _repo.GetHoSoBaoTriByIdAsync(maHoSo);
             if (hoSo == null) return (false, "Không tìm thấy hồ sơ.");
-            if (hoSo.TrangThai != "Đã duyệt") return (false, "Hồ sơ chưa được duyệt.");
+            // Cho phép phân công lần đầu (Đã duyệt) hoặc cập nhật phân công (Đang thực hiện)
+            if (hoSo.TrangThai is not ("Đã duyệt" or "Đang thực hiện"))
+                return (false, "Chỉ phân công/cập nhật khi hồ sơ đã duyệt hoặc đang thực hiện.");
 
             // Danh sách nhân viên được chọn (nhiều người)
             var dsNv = new List<int>();
@@ -289,7 +291,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (dsNv.Count == 0)
                 return (false, "Vui lòng chọn ít nhất một nhân viên thực hiện.");
 
-            // Nếu đã có phân công đang mở → hủy mềm các bản cũ rồi phân công lại
+            // Nếu đã có phân công đang mở → hủy mềm các bản cũ rồi phân công lại (cập nhật danh sách NV)
             var pcDangMo = await _repo.GetPhanCongTheoHoSoBaoTriAsync(maHoSo);
             foreach (var pc in pcDangMo.Where(p => p.TrangThai is "Chờ xác nhận" or "Đã phân công" or "Xác nhận" or "Đang thực hiện"))
             {
@@ -1043,6 +1045,19 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (pc != null && pc.MaNhanVienThucHienNavigation == null && h.MaPhanCong.HasValue)
                 pc = await _repo.GetPhanCongByIdAsync(h.MaPhanCong.Value) ?? pc;
 
+            // Danh sách NV đang được phân công (chưa hủy / chưa hoàn thành) — phục vụ cập nhật phân công
+            var dsPc = await _repo.GetPhanCongTheoHoSoBaoTriAsync(h.MaHoSoBaoTri);
+            var dsNvDangPc = dsPc
+                .Where(p => p.TrangThai is "Đã phân công" or "Chờ xác nhận" or "Xác nhận" or "Đang thực hiện")
+                .Select(p => new
+                {
+                    MaNhanVien = p.MaNhanVienThucHien,
+                    TenNhanVien = p.MaNhanVienThucHienNavigation?.HoTen,
+                    p.TrangThai,
+                    p.MaPhanCong
+                })
+                .ToList();
+
             return new
             {
                 h.MaHoSoBaoTri,
@@ -1064,6 +1079,10 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 MaNhanVienThucHien = pc?.MaNhanVienThucHien,
                 TenNhanVienThucHien = pc?.MaNhanVienThucHienNavigation?.HoTen,
                 NgayPhanCong = pc?.NgayPhanCong,
+                // Nhiều NV
+                DanhSachNhanVienPhanCong = dsNvDangPc,
+                MaNhanVienThucHiens = dsNvDangPc.Select(x => x.MaNhanVien).ToList(),
+                TenNhanVienThucHiens = string.Join(", ", dsNvDangPc.Select(x => x.TenNhanVien).Where(t => !string.IsNullOrEmpty(t))),
                 NgayDuKienBaoTri = ngayDuKien,
                 RowVersion = Convert.ToBase64String(h.RowVersion),
                 Nam = namTuKeHoach ?? h.NgayTao.Year,

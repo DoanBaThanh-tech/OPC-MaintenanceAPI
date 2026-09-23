@@ -66,10 +66,22 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             var token = JwtHelper.TaoToken(user.MaNguoiDung, user.Email, user.MaVaiTro,
                 user.MaVaiTroNavigation!.TenVaiTro, _config);
 
+            // Lấy họ tên nhân viên gắn với tài khoản (nếu có) để hiện trên slide menu
+            var nhanVien = await _nhanVienRepo.GetByMaNguoiDungAsync(user.MaNguoiDung);
+            var hoTen = nhanVien?.HoTen ?? user.Email;
+
             return new AuthResult
             {
                 ThanhCong = true,
-                Data = new { user.MaNguoiDung, user.Email, VaiTro = user.MaVaiTroNavigation.TenVaiTro, user.MaVaiTro, Token = token }
+                Data = new
+                {
+                    user.MaNguoiDung,
+                    user.Email,
+                    HoTen = hoTen,
+                    VaiTro = user.MaVaiTroNavigation.TenVaiTro,
+                    user.MaVaiTro,
+                    Token = token
+                }
             };
         }
 

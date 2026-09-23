@@ -14,6 +14,9 @@ public partial class PhanCongCongViec
     /// <summary>Liên kết nhiều phân công tới cùng một hồ sơ bảo trì (hỗ trợ chọn nhiều nhân viên).</summary>
     public int? MaHoSoBaoTri { get; set; }
 
+    /// <summary>Liên kết nhiều phân công tới cùng một hồ sơ sửa chữa.</summary>
+    public int? MaHoSoSuaChua { get; set; }
+
     public DateTime? NgayBatDauDuKien { get; set; }
     public DateTime? NgayKetThucDuKien { get; set; }
 
@@ -30,6 +33,8 @@ public partial class PhanCongCongViec
     public virtual HoSoBaoTri? MaHoSoBaoTriNavigation { get; set; }
 
     public virtual HoSoSuaChua? HoSoSuaChua { get; set; }
+
+    public virtual HoSoSuaChua? MaHoSoSuaChuaNavigation { get; set; }
 
     public virtual KetQuaThucHien? KetQuaThucHien { get; set; }
 

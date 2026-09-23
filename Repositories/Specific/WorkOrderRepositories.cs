@@ -29,12 +29,14 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         Task<bool> ThietBiDangTrongQuyTrinhKhacAsync(int maThietBi, string boQuaLoaiHoSo, int? boQuaMaHoSo);
         Task<ChiTietKeHoachBaoTri?> GetChiTietKeHoachByHoSoBaoTriAsync(int maHoSoBaoTri);
         Task<bool> CoHoSoBaoTriDangMoAsync(int maThietBi, int? loaiTruMaHoSo = null);
+        Task<bool> CoHoSoSuaChuaDangMoAsync(int maThietBi, int? loaiTruMaHoSo = null);
 
         // Hồ sơ sửa chữa
         Task AddHoSoSuaChuaAsync(HoSoSuaChua hoSo);
         Task<HoSoSuaChua?> GetHoSoSuaChuaByIdAsync(int id);
-        Task<List<HoSoSuaChua>> GetHoSoSuaChuaByTrangThaiAsync(string trangThai);
+        Task<List<HoSoSuaChua>> GetHoSoSuaChuaByTrangThaiAsync(string? trangThai);
         Task<ThietBi?> GetThietBiByIdAsync(int maThietBi);
+        Task<List<PhanCongCongViec>> GetPhanCongTheoHoSoSuaChuaAsync(int maHoSoSuaChua);
 
         // Phân công + kết quả
         Task AddPhanCongAsync(PhanCongCongViec phanCong);
@@ -83,6 +85,21 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
 
             if (loaiTruMaHoSo.HasValue)
                 q = q.Where(h => h.MaHoSoBaoTri != loaiTruMaHoSo.Value);
+
+            return await q.AnyAsync();
+        }
+
+        public async Task<bool> CoHoSoSuaChuaDangMoAsync(int maThietBi, int? loaiTruMaHoSo = null)
+        {
+            var q = _context.HoSoSuaChuas.Where(h =>
+                h.MaThieBi == maThietBi &&
+                h.TrangThai != "Đã hoàn thành" &&
+                h.TrangThai != "Từ chối" &&
+                h.TrangThai != "Nháp" &&
+                h.TrangThai != "Đã hủy");
+
+            if (loaiTruMaHoSo.HasValue)
+                q = q.Where(h => h.MaHoSoSuaChua != loaiTruMaHoSo.Value);
 
             return await q.AnyAsync();
         }
@@ -186,15 +203,29 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         public async Task<HoSoSuaChua?> GetHoSoSuaChuaByIdAsync(int id) =>
             await _context.HoSoSuaChuas
                 .Include(h => h.MaThieBiNavigation)
-                .Include(h => h.MaPhanCongNavigation)
+                .Include(h => h.MaNhanVienTaoNavigation)
+                .Include(h => h.MaPhanCongNavigation)!.ThenInclude(p => p!.MaNhanVienThucHienNavigation)
                 .FirstOrDefaultAsync(h => h.MaHoSoSuaChua == id);
 
-        public async Task<List<HoSoSuaChua>> GetHoSoSuaChuaByTrangThaiAsync(string trangThai) =>
-            await _context.HoSoSuaChuas
+        public async Task<List<HoSoSuaChua>> GetHoSoSuaChuaByTrangThaiAsync(string? trangThai)
+        {
+            var q = _context.HoSoSuaChuas
                 .Include(h => h.MaThieBiNavigation)
-                .Where(h => h.TrangThai == trangThai)
-                .AsNoTracking()
+                .Include(h => h.MaNhanVienTaoNavigation)
+                .AsQueryable();
+            if (!string.IsNullOrWhiteSpace(trangThai))
+                q = q.Where(h => h.TrangThai == trangThai);
+            return await q.OrderByDescending(h => h.NgayTao).AsNoTracking().ToListAsync();
+        }
+
+        public async Task<List<PhanCongCongViec>> GetPhanCongTheoHoSoSuaChuaAsync(int maHoSoSuaChua)
+        {
+            return await _context.PhanCongCongViecs
+                .Include(p => p.MaNhanVienThucHienNavigation)
+                .Where(p => p.MaHoSoSuaChua == maHoSoSuaChua
+                    || _context.HoSoSuaChuas.Any(h => h.MaHoSoSuaChua == maHoSoSuaChua && h.MaPhanCong == p.MaPhanCong))
                 .ToListAsync();
+        }
 
         public async Task AddPhanCongAsync(PhanCongCongViec phanCong) =>
             await _context.PhanCongCongViecs.AddAsync(phanCong);

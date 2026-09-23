@@ -17,10 +17,13 @@ namespace OPC.MaintenanceAPI.DTOs.WorkOrder
     public class TaoHoSoSuaChuaDto
     {
         public int MaThietBi { get; set; }
-        public int MaNhanVienTao { get; set; }
+        /// <summary>Không bắt buộc — server lấy từ JWT.</summary>
+        public int? MaNhanVienTao { get; set; }
         public string MoTaHuHong { get; set; } = null!;
         public string? PhuongAnSuaChua { get; set; }
-        public bool GuiDuyet { get; set; }
+        /// <summary>true = gửi Tổ trưởng cơ điện phân công (Chờ phân công).</summary>
+        public bool GuiDuyet { get; set; } = true;
+        public string? MucDoUuTien { get; set; }
     }
 
     /// <summary>Phân công nhiều nhân viên cho một hồ sơ bảo trì.</summary>

@@ -198,8 +198,28 @@ namespace OPC.MaintenanceAPI.Controllers
         }
 
         // Sửa chữa
+        /// <summary>Danh sách hồ sơ SC (trangThai null = tất cả).</summary>
+        [HttpGet("sua-chua")]
+        public async Task<IActionResult> GetSuaChua([FromQuery] string? trangThai = null) =>
+            Ok(await _service.GetHoSoSuaChuaTheoTrangThaiAsync(trangThai));
+
+        [HttpGet("sua-chua/{id}")]
+        public async Task<IActionResult> GetChiTietSuaChua(int id)
+        {
+            var r = await _service.GetChiTietHoSoSuaChuaAsync(id);
+            return r == null ? NotFound(new { message = "Không tìm thấy hồ sơ." }) : Ok(r);
+        }
+
+        /// <summary>Xưởng tạo hồ sơ sửa chữa → gửi Tổ trưởng phân công; thiết bị → Sửa chữa.</summary>
         [HttpPost("sua-chua")]
-        public async Task<IActionResult> TaoSuaChua(TaoHoSoSuaChuaDto dto) => Result(await _service.TaoHoSoSuaChuaAsync(dto));
+        [Authorize(Roles = "Xưởng,Tổ trưởng sản xuất")]
+        public async Task<IActionResult> TaoSuaChua(TaoHoSoSuaChuaDto dto)
+        {
+            var claim = User.FindFirst("MaNguoiDung")?.Value;
+            if (claim == null || !int.TryParse(claim, out var maNguoiDung))
+                return Unauthorized();
+            return Result(await _service.TaoHoSoSuaChuaAsync(maNguoiDung, dto));
+        }
 
         [HttpPut("sua-chua/{id}/duyet")]
         [Authorize(Roles = "Giám đốc,Phó giám đốc")]
@@ -213,7 +233,24 @@ namespace OPC.MaintenanceAPI.Controllers
         }
 
         [HttpPost("sua-chua/{id}/phan-cong")]
-        public async Task<IActionResult> PhanCongSuaChua(int id, PhanCongDto dto) => Result(await _service.PhanCongSuaChuaAsync(id, dto));
+        [Authorize(Roles = "Tổ trưởng cơ điện,Tổ trưởng kỹ thuật,Tổ trưởng")]
+        public async Task<IActionResult> PhanCongSuaChua(int id, PhanCongDto dto)
+        {
+            var claim = User.FindFirst("MaNguoiDung")?.Value;
+            if (claim == null || !int.TryParse(claim, out var maNguoiDung))
+                return Unauthorized();
+            return Result(await _service.PhanCongSuaChuaAsync(id, maNguoiDung, dto));
+        }
+
+        [HttpPut("sua-chua/{id}/hoan-thanh")]
+        [Authorize(Roles = "Nhân viên kỹ thuật")]
+        public async Task<IActionResult> HoanThanhSuaChua(int id)
+        {
+            var claim = User.FindFirst("MaNguoiDung")?.Value;
+            if (claim == null || !int.TryParse(claim, out var maNguoiDung))
+                return Unauthorized();
+            return Result(await _service.NhanVienHoanThanhSuaChuaAsync(id, maNguoiDung));
+        }
 
         [HttpPut("sua-chua/{id}/xac-nhan")]
         public async Task<IActionResult> XacNhanSuaChua(int id, XacNhanDto dto) => Result(await _service.XacNhanHoanThanhSuaChuaAsync(id, dto));

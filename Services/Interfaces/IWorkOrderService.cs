@@ -33,11 +33,12 @@ namespace OPC.MaintenanceAPI.Services.Interfaces
         Task<List<object>> GetYeuCauDaXacNhanAsync(int maNguoiDung, string? loai = null);
 
         // Sửa chữa
-        Task<List<object>> GetHoSoSuaChuaTheoTrangThaiAsync(string trangThai);
+        Task<List<object>> GetHoSoSuaChuaTheoTrangThaiAsync(string? trangThai);
         Task<object?> GetChiTietHoSoSuaChuaAsync(int id);
-        Task<(bool, string?)> TaoHoSoSuaChuaAsync(TaoHoSoSuaChuaDto dto);
+        Task<(bool, string?)> TaoHoSoSuaChuaAsync(int maNguoiDungTao, TaoHoSoSuaChuaDto dto);
         Task<(bool, string?)> DuyetHoSoSuaChuaAsync(int id, int maNguoiDungDuyet, DuyetHoSoDto dto);
-        Task<(bool, string?)> PhanCongSuaChuaAsync(int maHoSo, PhanCongDto dto);
+        Task<(bool, string?)> PhanCongSuaChuaAsync(int maHoSo, int maNguoiDungPhanCong, PhanCongDto dto);
+        Task<(bool, string?)> NhanVienHoanThanhSuaChuaAsync(int maHoSo, int maNguoiDung);
         Task<(bool, string?)> XacNhanHoanThanhSuaChuaAsync(int maHoSo, XacNhanDto dto);
         Task<(bool, string?)> NhanVienXacNhanSuaChuaAsync(int maHoSo, int maNguoiDung);
         Task<(bool, string?)> NhanVienTuChoiSuaChuaAsync(int maHoSo, int maNguoiDung, TuChoiNhanViecDto dto);

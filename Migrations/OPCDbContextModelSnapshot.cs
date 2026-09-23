@@ -683,6 +683,9 @@ namespace OPC.MaintenanceAPI.Migrations
                     b.Property<int?>("MaHoSoBaoTri")
                         .HasColumnType("int");
 
+                    b.Property<int?>("MaHoSoSuaChua")
+                        .HasColumnType("int");
+
                     b.Property<int>("MaNhanVienPhanCong")
                         .HasColumnType("int");
 
@@ -708,6 +711,8 @@ namespace OPC.MaintenanceAPI.Migrations
                         .HasName("PK__PhanCong__C279D9162720337F");
 
                     b.HasIndex("MaHoSoBaoTri");
+
+                    b.HasIndex("MaHoSoSuaChua");
 
                     b.HasIndex("MaNhanVienPhanCong");
 
@@ -1327,6 +1332,11 @@ namespace OPC.MaintenanceAPI.Migrations
                         .HasForeignKey("MaHoSoBaoTri")
                         .HasConstraintName("FK_PhanCong_HoSoBaoTri_Multi");
 
+                    b.HasOne("OPC.MaintenanceAPI.Core.Entities.HoSoSuaChua", "MaHoSoSuaChuaNavigation")
+                        .WithMany()
+                        .HasForeignKey("MaHoSoSuaChua")
+                        .HasConstraintName("FK_PhanCong_HoSoSuaChua_Multi");
+
                     b.HasOne("OPC.MaintenanceAPI.Core.Entities.NhanVien", "MaNhanVienPhanCongNavigation")
                         .WithMany("PhanCongCongViecMaNhanVienPhanCongNavigations")
                         .HasForeignKey("MaNhanVienPhanCong")
@@ -1340,6 +1350,8 @@ namespace OPC.MaintenanceAPI.Migrations
                         .HasConstraintName("FK_PhanCong_NhanVienThucHien");
 
                     b.Navigation("MaHoSoBaoTriNavigation");
+
+                    b.Navigation("MaHoSoSuaChuaNavigation");
 
                     b.Navigation("MaNhanVienPhanCongNavigation");
 

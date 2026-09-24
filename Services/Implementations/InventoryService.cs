@@ -241,8 +241,20 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (hoSo == null) return (false, "Không tìm thấy hồ sơ vật tư.");
             if (hoSo.TrangThai != "Chờ gửi")
                 return (false, "Hồ sơ đã được gửi trước đó.");
-            hoSo.TrangThai = "Đã gửi GĐ";
+            // Tổ trưởng gửi → chờ Giám đốc duyệt / xác nhận
+            hoSo.TrangThai = "Chờ duyệt";
             hoSo.NgayGuiGiamDoc = DateTime.Now;
+            await _repo.SaveChangesAsync();
+            return (true, null);
+        }
+
+        public async Task<(bool, string?)> XacNhanHoSoVatTuAsync(int id)
+        {
+            var hoSo = await _repo.GetHoSoSuDungEntityByIdAsync(id);
+            if (hoSo == null) return (false, "Không tìm thấy hồ sơ vật tư.");
+            if (hoSo.TrangThai != "Chờ duyệt" && hoSo.TrangThai != "Đã gửi GĐ")
+                return (false, "Chỉ xác nhận hồ sơ đang chờ duyệt.");
+            hoSo.TrangThai = "Xác nhận";
             await _repo.SaveChangesAsync();
             return (true, null);
         }

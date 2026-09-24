@@ -74,14 +74,21 @@ namespace OPC.MaintenanceAPI.Controllers
             return data == null ? NotFound(new { loi = "Không tìm thấy hồ sơ vật tư." }) : Ok(data);
         }
 
-        /// <summary>Tổ trưởng gửi hồ sơ vật tư cho Giám đốc.</summary>
+        /// <summary>Tổ trưởng gửi hồ sơ vật tư cho Giám đốc (Chờ gửi → Chờ duyệt).</summary>
         [HttpPut("ho-so-vat-tu/{id}/gui-giam-doc")]
         public async Task<IActionResult> GuiGiamDoc(int id)
         {
             var (ok, loi) = await _service.GuiHoSoVatTuChoGiamDocAsync(id);
-            return ok ? Ok(new { message = "Đã gửi hồ sơ vật tư cho Giám đốc." }) : BadRequest(new { loi });
+            return ok ? Ok(new { message = "Đã gửi hồ sơ vật tư — trạng thái Chờ duyệt." }) : BadRequest(new { loi });
         }
 
+        /// <summary>Giám đốc xác nhận hồ sơ vật tư (Chờ duyệt → Xác nhận).</summary>
+        [HttpPut("ho-so-vat-tu/{id}/xac-nhan")]
+        public async Task<IActionResult> XacNhanHoSoVatTu(int id)
+        {
+            var (ok, loi) = await _service.XacNhanHoSoVatTuAsync(id);
+            return ok ? Ok(new { message = "Đã xác nhận hồ sơ vật tư." }) : BadRequest(new { loi });
+        }
 
         /// <summary>Quy trình bảo trì/sửa chữa theo từng thiết bị (tối đa 4 bước).</summary>
         [HttpGet("quy-trinh")]

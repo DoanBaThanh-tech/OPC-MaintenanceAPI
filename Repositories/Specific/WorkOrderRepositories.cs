@@ -75,13 +75,14 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
 
         public async Task<bool> CoHoSoBaoTriDangMoAsync(int maThietBi, int? loaiTruMaHoSo = null)
         {
+            // Chỉ hồ sơ còn hiệu lực (không tính Nháp / Từ chối / Đã hoàn thành / Đã hủy)
             var q = _context.HoSoBaoTris.Where(h =>
                 h.MaThieBi == maThietBi &&
                 (h.TrangThai == "Chờ xưởng" ||
                  h.TrangThai == "Chờ duyệt" ||
+                 h.TrangThai == "Chờ GĐ duyệt" ||
                  h.TrangThai == "Đã duyệt" ||
-                 h.TrangThai == "Đang thực hiện" ||
-                 h.TrangThai == "Từ chối"));
+                 h.TrangThai == "Đang thực hiện"));
 
             if (loaiTruMaHoSo.HasValue)
                 q = q.Where(h => h.MaHoSoBaoTri != loaiTruMaHoSo.Value);

@@ -16,6 +16,7 @@ namespace OPC.MaintenanceAPI.Services.Interfaces
         Task<List<HoSoVatTuResponseDto>> GetDanhSachHoSoVatTuAsync(string? trangThai = null);
         Task<HoSoVatTuResponseDto?> GetHoSoVatTuByIdAsync(int id);
         Task<(bool, string?)> GuiHoSoVatTuChoGiamDocAsync(int id);
+        Task<(bool, string?)> XacNhanHoSoVatTuAsync(int id);
         Task<List<BuocQuyTrinhDto>> GetQuyTrinhThietBiAsync(int maThietBi, string loaiCongViec);
     }
 }

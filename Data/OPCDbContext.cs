@@ -622,8 +622,32 @@ public partial class OPCDbContext : DbContext
             entity.Property(e => e.NgayThucHien).HasColumnType("datetime");
             entity.Property(e => e.NgayTao).HasColumnType("datetime");
             entity.Property(e => e.NgayGuiGiamDoc).HasColumnType("datetime");
+
+            // Map navigation → đúng cột FK trên DB (tránh shadow: MaHoSoBaoTriNavigationMaHoSoBaoTri…)
+            entity.HasOne(e => e.MaHoSoBaoTriNavigation).WithMany()
+                .HasForeignKey(e => e.MaHoSoBaoTri)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_HSVT_HoSoBT");
+
+            entity.HasOne(e => e.MaHoSoSuaChuaNavigation).WithMany()
+                .HasForeignKey(e => e.MaHoSoSuaChua)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_HSVT_HoSoSC");
+
+            entity.HasOne(e => e.MaThietBiNavigation).WithMany()
+                .HasForeignKey(e => e.MaThietBi)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_HSVT_ThietBi");
+
+            entity.HasOne(e => e.MaNhanVienTHNavigation).WithMany()
+                .HasForeignKey(e => e.MaNhanVienTH)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_HSVT_NV");
+
             entity.HasMany(e => e.ChiTietSuDungVatTus).WithOne(c => c.MaHoSoVatTuNavigation)
-                .HasForeignKey(c => c.MaHoSoVatTu).OnDelete(DeleteBehavior.Cascade);
+                .HasForeignKey(c => c.MaHoSoVatTu)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("FK_CTSDVT_HoSo");
         });
 
         modelBuilder.Entity<ChiTietSuDungVatTu>(entity =>
@@ -633,7 +657,13 @@ public partial class OPCDbContext : DbContext
             entity.Property(e => e.MoTaBuoc).HasMaxLength(500);
             entity.Property(e => e.TenVatTu).HasMaxLength(150);
             entity.Property(e => e.DonGia).HasColumnType("decimal(18,0)");
+            // Cột computed trên SQL Server — không insert/update
             entity.Ignore("ThanhTien");
+
+            entity.HasOne(e => e.MaVatTuNavigation).WithMany()
+                .HasForeignKey(e => e.MaVatTu)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_CTSDVT_VT");
         });
 
 

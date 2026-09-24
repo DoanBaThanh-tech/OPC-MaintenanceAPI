@@ -10,6 +10,12 @@ namespace OPC.MaintenanceAPI.Services.Interfaces
         Task<(bool, string?)> NhapKhoAsync(NhapKhoDto dto);
         Task<(bool, string?)> XuatKhoAsync(int maYeuCauVatTu, int maNhanVienGiaoDich);
         Task<bool> DaXuatChoYeuCauAsync(int maYeuCauVatTu);
-        
+
+        Task<List<VatTuDto>> GetDanhSachVatTuAsync();
+        Task<(bool, string?, HoSoVatTuResponseDto?)> TaoHoSoSuDungVatTuAsync(TaoHoSoVatTuDto dto, int maNguoiDung);
+        Task<List<HoSoVatTuResponseDto>> GetDanhSachHoSoVatTuAsync(string? trangThai = null);
+        Task<HoSoVatTuResponseDto?> GetHoSoVatTuByIdAsync(int id);
+        Task<(bool, string?)> GuiHoSoVatTuChoGiamDocAsync(int id);
+        Task<List<BuocQuyTrinhDto>> GetQuyTrinhThietBiAsync(int maThietBi, string loaiCongViec);
     }
 }

@@ -173,5 +173,82 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             return (true, canhBao);
         }
 
+        public async Task<List<VatTuDto>> GetDanhSachVatTuAsync()
+        {
+            return await _repo.GetAllVatTuAsync();
+        }
+
+        public async Task<(bool, string?, HoSoVatTuResponseDto?)> TaoHoSoSuDungVatTuAsync(TaoHoSoVatTuDto dto, int maNguoiDung)
+        {
+            var nhanVien = await _nhanVienRepo.GetByMaNguoiDungAsync(maNguoiDung);
+            if (nhanVien == null) return (false, "Không xác định được nhân viên.", null);
+
+            if (string.IsNullOrWhiteSpace(dto.LoaiCongViec) ||
+                (dto.LoaiCongViec != "Bảo trì" && dto.LoaiCongViec != "Sửa chữa"))
+                return (false, "Loại công việc phải là Bảo trì hoặc Sửa chữa.", null);
+
+            if (dto.ChiTiet == null || dto.ChiTiet.Count == 0)
+                return (false, "Cần ít nhất 1 bước quy trình.", null);
+            if (dto.ChiTiet.Count > 4)
+                return (false, "Tối đa 4 bước quy trình.", null);
+            if (dto.ChiTiet.Any(c => c.SoLuong < 0))
+                return (false, "Số lượng vật tư không được âm.", null);
+
+            var tong = dto.ChiTiet.Sum(c => c.SoLuong * c.DonGia);
+            var hoSo = new HoSoSuDungVatTu
+            {
+                MaHoSoBaoTri = dto.MaHoSoBaoTri,
+                MaHoSoSuaChua = dto.MaHoSoSuaChua,
+                MaThietBi = dto.MaThietBi > 0 ? dto.MaThietBi : null,
+                TenThietBi = dto.TenThietBi,
+                LoaiCongViec = dto.LoaiCongViec,
+                NgayThucHien = dto.NgayThucHien ?? DateTime.Now,
+                MaNhanVienTH = nhanVien.MaNhanVien,
+                TongTien = tong,
+                TrangThai = "Chờ gửi",
+                NgayTao = DateTime.Now
+            };
+
+            foreach (var c in dto.ChiTiet)
+            {
+                hoSo.ChiTietSuDungVatTus.Add(new ChiTietSuDungVatTu
+                {
+                    SoBuoc = c.SoBuoc,
+                    MoTaBuoc = c.MoTaBuoc,
+                    MaVatTu = c.MaVatTu,
+                    TenVatTu = c.TenVatTu,
+                    SoLuong = c.SoLuong,
+                    DonGia = c.DonGia
+                });
+            }
+
+            await _repo.AddHoSoSuDungVatTuAsync(hoSo);
+            await _repo.SaveChangesAsync();
+
+            var response = await _repo.GetHoSoSuDungVatTuByIdAsync(hoSo.MaHoSoVatTu);
+            return (true, null, response);
+        }
+
+        public async Task<List<HoSoVatTuResponseDto>> GetDanhSachHoSoVatTuAsync(string? trangThai = null)
+            => await _repo.GetDanhSachHoSoSuDungVatTuAsync(trangThai);
+
+        public async Task<HoSoVatTuResponseDto?> GetHoSoVatTuByIdAsync(int id)
+            => await _repo.GetHoSoSuDungVatTuByIdAsync(id);
+
+        public async Task<(bool, string?)> GuiHoSoVatTuChoGiamDocAsync(int id)
+        {
+            var hoSo = await _repo.GetHoSoSuDungEntityByIdAsync(id);
+            if (hoSo == null) return (false, "Không tìm thấy hồ sơ vật tư.");
+            if (hoSo.TrangThai != "Chờ gửi")
+                return (false, "Hồ sơ đã được gửi trước đó.");
+            hoSo.TrangThai = "Đã gửi GĐ";
+            hoSo.NgayGuiGiamDoc = DateTime.Now;
+            await _repo.SaveChangesAsync();
+            return (true, null);
+        }
+
+        public async Task<List<BuocQuyTrinhDto>> GetQuyTrinhThietBiAsync(int maThietBi, string loaiCongViec)
+            => await _repo.GetQuyTrinhThietBiAsync(maThietBi, loaiCongViec);
+
     }
 }

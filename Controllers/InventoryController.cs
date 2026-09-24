@@ -47,6 +47,52 @@ namespace OPC.MaintenanceAPI.Controllers
             return Result(await _service.XuatKhoAsync(id, maNhanVienGiaoDich));
         }
 
+        /// <summary>Danh sách vật tư kho.</summary>
+        [HttpGet("vat-tu")]
+        public async Task<IActionResult> DanhSachVatTu() => Ok(await _service.GetDanhSachVatTuAsync());
+
+        /// <summary>NVKT tạo hồ sơ vật tư khi hoàn thành quy trình bảo trì/sửa chữa.</summary>
+        [HttpPost("ho-so-vat-tu")]
+        public async Task<IActionResult> TaoHoSoVatTu(TaoHoSoVatTuDto dto)
+        {
+            var claim = User.FindFirst("MaNguoiDung")?.Value;
+            if (claim == null || !int.TryParse(claim, out var maNguoiDung))
+                return Unauthorized();
+            var (ok, loi, data) = await _service.TaoHoSoSuDungVatTuAsync(dto, maNguoiDung);
+            return ok ? Ok(data) : BadRequest(new { loi });
+        }
+
+        /// <summary>Tổ trưởng cơ điện / Giám đốc xem danh sách hồ sơ vật tư.</summary>
+        [HttpGet("ho-so-vat-tu")]
+        public async Task<IActionResult> DanhSachHoSoVatTu([FromQuery] string? trangThai)
+            => Ok(await _service.GetDanhSachHoSoVatTuAsync(trangThai));
+
+        [HttpGet("ho-so-vat-tu/{id}")]
+        public async Task<IActionResult> ChiTietHoSoVatTu(int id)
+        {
+            var data = await _service.GetHoSoVatTuByIdAsync(id);
+            return data == null ? NotFound(new { loi = "Không tìm thấy hồ sơ vật tư." }) : Ok(data);
+        }
+
+        /// <summary>Tổ trưởng gửi hồ sơ vật tư cho Giám đốc.</summary>
+        [HttpPut("ho-so-vat-tu/{id}/gui-giam-doc")]
+        public async Task<IActionResult> GuiGiamDoc(int id)
+        {
+            var (ok, loi) = await _service.GuiHoSoVatTuChoGiamDocAsync(id);
+            return ok ? Ok(new { message = "Đã gửi hồ sơ vật tư cho Giám đốc." }) : BadRequest(new { loi });
+        }
+
+
+        /// <summary>Quy trình bảo trì/sửa chữa theo từng thiết bị (tối đa 4 bước).</summary>
+        [HttpGet("quy-trinh")]
+        public async Task<IActionResult> QuyTrinhThietBi([FromQuery] int maThietBi, [FromQuery] string loaiCongViec)
+        {
+            if (maThietBi <= 0) return BadRequest(new { loi = "maThietBi không hợp lệ." });
+            if (string.IsNullOrWhiteSpace(loaiCongViec)) return BadRequest(new { loi = "loaiCongViec bắt buộc." });
+            var data = await _service.GetQuyTrinhThietBiAsync(maThietBi, loaiCongViec);
+            return Ok(data);
+        }
+
         private IActionResult Result((bool ok, string? loi) r) => r.ok ? Ok(new { canhBao = r.loi }) : BadRequest(new { loi = r.loi });
     }
 }

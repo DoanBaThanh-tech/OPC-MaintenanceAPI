@@ -26,13 +26,14 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             var nhanVien = await _nhanVienRepo.GetByMaNguoiDungAsync(maNguoiDungTao);
             if (nhanVien == null) return (false, "Không xác định được người tạo hồ sơ.");
 
-            // Không lập bảo trì khi thiết bị đang sửa chữa / có hồ sơ SC chưa xong
+            // Không lập bảo trì khi thiết bị đang sửa chữa / bảo trì / có hồ sơ SC hoặc BT chưa xong
             var tbKiemTra = await _repo.GetThietBiByIdAsync(dto.MaThietBi);
             if (tbKiemTra == null) return (false, "Không tìm thấy thiết bị.");
-            if (tbKiemTra.TinhTrangHienTai == "Sửa chữa")
-                return (false, "Thiết bị đang ở trạng thái Sửa chữa — hoàn tất quy trình sửa chữa trước khi lập hồ sơ bảo trì.");
-            if (await _repo.CoHoSoSuaChuaDangMoAsync(dto.MaThietBi))
-                return (false, "Thiết bị đang có hồ sơ sửa chữa chưa hoàn thành — không thể lập hồ sơ bảo trì.");
+            var ttTb = OPC.MaintenanceAPI.DTOs.Equipment.TrangThaiThietBiConst.ChuanHoa(tbKiemTra.TinhTrangHienTai);
+            if (ttTb == "Sửa chữa" || await _repo.CoHoSoSuaChuaDangMoAsync(dto.MaThietBi))
+                return (false, "Thiết bị đang sửa chữa — không thể tạo hồ sơ bảo trì. Hoàn tất sửa chữa trước.");
+            if (ttTb == "Bảo trì" || await _repo.CoHoSoBaoTriDangMoAsync(dto.MaThietBi))
+                return (false, "Thiết bị đang bảo trì — không thể tạo thêm hồ sơ bảo trì.");
 
             // Không còn bắt buộc Yêu cầu bảo trì — Tổ trưởng tạo hồ sơ và gửi xưởng trực tiếp
             if (dto.MaChiTietKeHoach.HasValue)
@@ -110,7 +111,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 var tbTrangThai = await _repo.GetThietBiByIdAsync(dto.MaThietBi);
                 if (tbTrangThai != null)
                 {
-                    tbTrangThai.TinhTrangHienTai = "Bảo trì";
+                    tbTrangThai.TinhTrangHienTai = OPC.MaintenanceAPI.DTOs.Equipment.TrangThaiThietBiConst.BaoTri;
                     await _repo.SaveChangesAsync();
                 }
             }
@@ -883,11 +884,12 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             var tb = await _repo.GetThietBiByIdAsync(dto.MaThietBi);
             if (tb == null) return (false, "Không tìm thấy thiết bị.");
 
-            // Đang bảo trì / sửa chữa → không tạo thêm SC
-            if (tb.TinhTrangHienTai == "Bảo trì")
-                return (false, "Thiết bị đang bảo trì — không thể tạo hồ sơ sửa chữa.");
-            if (tb.TinhTrangHienTai == "Sửa chữa" || await _repo.CoHoSoSuaChuaDangMoAsync(dto.MaThietBi))
-                return (false, "Thiết bị đã có hồ sơ sửa chữa chưa hoàn thành.");
+            // Đang bảo trì / sửa chữa → không tạo SC (và ngược lại với BT)
+            var ttTb = OPC.MaintenanceAPI.DTOs.Equipment.TrangThaiThietBiConst.ChuanHoa(tb.TinhTrangHienTai);
+            if (ttTb == "Bảo trì" || await _repo.CoHoSoBaoTriDangMoAsync(dto.MaThietBi))
+                return (false, "Thiết bị đang bảo trì — không thể tạo hồ sơ sửa chữa. Hoàn tất bảo trì trước.");
+            if (ttTb == "Sửa chữa" || await _repo.CoHoSoSuaChuaDangMoAsync(dto.MaThietBi))
+                return (false, "Thiết bị đã có hồ sơ sửa chữa chưa hoàn thành — không thể tạo thêm.");
 
             // Gửi Tổ trưởng phân công (không qua GĐ)
             var trangThai = dto.GuiDuyet ? "Chờ phân công" : "Nháp";
@@ -905,9 +907,8 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             };
             await _repo.AddHoSoSuaChuaAsync(hoSo);
 
-            // Xưởng tạo SC → thiết bị chuyển Sửa chữa ngay
-            if (dto.GuiDuyet)
-                tb.TinhTrangHienTai = "Sửa chữa";
+            // Tạo hồ sơ SC → thiết bị Sản xuất → Sửa chữa ngay (kể cả nháp đã gửi)
+            tb.TinhTrangHienTai = "Sửa chữa";
 
             await _repo.SaveChangesAsync();
             return (true, null);
@@ -1082,8 +1083,11 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 pc.TrangThai = "Hoàn thành";
 
             hoSo.TrangThai = "Đã hoàn thành";
+            // Sửa chữa xong → về Sản xuất nếu không còn hồ sơ SC/BT đang mở
+            var conScMo = await _repo.CoHoSoSuaChuaDangMoAsync(hoSo.MaThieBi, loaiTruMaHoSo: maHoSo);
+            var conBtMo = await _repo.CoHoSoBaoTriDangMoAsync(hoSo.MaThieBi);
             var tb = await _repo.GetThietBiByIdAsync(hoSo.MaThieBi);
-            if (tb != null)
+            if (tb != null && !conScMo && !conBtMo)
                 tb.TinhTrangHienTai = "Sản xuất";
 
             await _repo.SaveChangesAsync();

@@ -57,6 +57,12 @@ public partial class OPCDbContext : DbContext
     public virtual DbSet<XacThucQuenMatKhau> XacThucQuenMatKhaus { get; set; }
 
     public virtual DbSet<YeuCauBaoTriThietBi> YeuCauBaoTriThietBis { get; set; }
+
+    public virtual DbSet<HoSoSuDungVatTu> HoSoSuDungVatTus { get; set; }
+    public virtual DbSet<ChiTietSuDungVatTu> ChiTietSuDungVatTus { get; set; }
+
+    public virtual DbSet<QuyTrinhThietBi> QuyTrinhThietBis { get; set; }
+
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
         => optionsBuilder.UseSqlServer("Name=ConnectionStrings:DefaultConnection");
 
@@ -602,6 +608,44 @@ public partial class OPCDbContext : DbContext
             entity.HasOne(d => d.MaNhanVienXacNhanNavigation).WithMany()
                 .HasForeignKey(d => d.MaNhanVienXacNhan)
                 .HasConstraintName("FK_YeuCauBaoTri_NVXacNhan");
+        });
+
+
+        modelBuilder.Entity<HoSoSuDungVatTu>(entity =>
+        {
+            entity.HasKey(e => e.MaHoSoVatTu);
+            entity.ToTable("HoSoSuDungVatTu");
+            entity.Property(e => e.TenThietBi).HasMaxLength(150);
+            entity.Property(e => e.LoaiCongViec).HasMaxLength(30);
+            entity.Property(e => e.TrangThai).HasMaxLength(30);
+            entity.Property(e => e.TongTien).HasColumnType("decimal(18,0)");
+            entity.Property(e => e.NgayThucHien).HasColumnType("datetime");
+            entity.Property(e => e.NgayTao).HasColumnType("datetime");
+            entity.Property(e => e.NgayGuiGiamDoc).HasColumnType("datetime");
+            entity.HasMany(e => e.ChiTietSuDungVatTus).WithOne(c => c.MaHoSoVatTuNavigation)
+                .HasForeignKey(c => c.MaHoSoVatTu).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ChiTietSuDungVatTu>(entity =>
+        {
+            entity.HasKey(e => e.MaChiTiet);
+            entity.ToTable("ChiTietSuDungVatTu");
+            entity.Property(e => e.MoTaBuoc).HasMaxLength(500);
+            entity.Property(e => e.TenVatTu).HasMaxLength(150);
+            entity.Property(e => e.DonGia).HasColumnType("decimal(18,0)");
+            entity.Ignore("ThanhTien");
+        });
+
+
+        modelBuilder.Entity<QuyTrinhThietBi>(entity =>
+        {
+            entity.HasKey(e => e.MaQuyTrinh);
+            entity.ToTable("QuyTrinhThietBi");
+            entity.Property(e => e.LoaiCongViec).HasMaxLength(30);
+            entity.Property(e => e.MoTaBuoc).HasMaxLength(500);
+            entity.HasOne(d => d.MaThietBiNavigation).WithMany()
+                .HasForeignKey(d => d.MaThietBi)
+                .OnDelete(DeleteBehavior.ClientSetNull);
         });
 
         OnModelCreatingPartial(modelBuilder);

@@ -18,6 +18,8 @@ public partial class VatTu
 
     public string? GhiChu { get; set; }
 
+    public decimal DonGia { get; set; }
+
     public virtual ICollection<ChiTietYeuCauVatTu> ChiTietYeuCauVatTus { get; set; } = new List<ChiTietYeuCauVatTu>();
 
     public virtual ICollection<NhapXuatVatTu> NhapXuatVatTus { get; set; } = new List<NhapXuatVatTu>();

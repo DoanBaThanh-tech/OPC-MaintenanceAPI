@@ -26,10 +26,6 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         private readonly OPCDbContext _context;
         public EquipmentRepository(OPCDbContext context) => _context = context;
 
-        private static readonly string[] TrangThaiHoSoHieuLuc =
-        {
-            "Chờ duyệt", "Đã duyệt", "Đang thực hiện","Từ chối"
-        };
 
         public async Task<List<ThietBi>> GetAllAsync() =>
             await _context.ThietBis
@@ -71,14 +67,21 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
 
         public async Task<int> DongBoTrangThaiTuHoSoAsync()
         {
+            // Hồ sơ còn mở (kể cả Chờ phân công / Chờ duyệt / Nháp / Đang thực hiện)
+            // → thiết bị hiển thị tab Sửa chữa hoặc Bảo trì trên danh sách Tổ trưởng cơ điện.
+            // Chỉ "Đã hoàn thành" / "Đã hủy" / "Từ chối" mới trả về Sản xuất.
             var maTbSuaChua = await _context.HoSoSuaChuas
-                .Where(h => TrangThaiHoSoHieuLuc.Contains(h.TrangThai))
+                .Where(h => h.TrangThai != "Đã hoàn thành"
+                            && h.TrangThai != "Đã hủy"
+                            && h.TrangThai != "Từ chối")
                 .Select(h => h.MaThieBi)
                 .Distinct()
                 .ToListAsync();
 
             var maTbBaoTri = await _context.HoSoBaoTris
-                .Where(h => TrangThaiHoSoHieuLuc.Contains(h.TrangThai))
+                .Where(h => h.TrangThai != "Đã hoàn thành"
+                            && h.TrangThai != "Đã hủy"
+                            && h.TrangThai != "Từ chối")
                 .Select(h => h.MaThieBi)
                 .Distinct()
                 .ToListAsync();
@@ -86,12 +89,12 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
             var setSC = maTbSuaChua.ToHashSet();
             var setBT = maTbBaoTri.ToHashSet();
 
-            // Cần tracking để cập nhật
             var all = await _context.ThietBis.ToListAsync();
             var soDoi = 0;
 
             foreach (var t in all)
             {
+                // 3 trạng thái trang danh sách Tổ trưởng cơ điện
                 string moi;
                 if (setSC.Contains(t.MaThietBi))
                     moi = "Sửa chữa";

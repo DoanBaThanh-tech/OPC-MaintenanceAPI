@@ -242,6 +242,17 @@ namespace OPC.MaintenanceAPI.Controllers
             return Result(await _service.PhanCongSuaChuaAsync(id, maNguoiDung, dto));
         }
 
+        /// <summary>NVKT bấm Tiến hành sửa chữa → hồ sơ + phân công = Đang thực hiện.</summary>
+        [HttpPut("sua-chua/{id}/tien-hanh")]
+        [Authorize(Roles = "Nhân viên kỹ thuật")]
+        public async Task<IActionResult> TienHanhSuaChua(int id)
+        {
+            var claim = User.FindFirst("MaNguoiDung")?.Value;
+            if (claim == null || !int.TryParse(claim, out var maNguoiDung))
+                return Unauthorized();
+            return Result(await _service.NhanVienBatDauSuaChuaAsync(id, maNguoiDung));
+        }
+
         [HttpPut("sua-chua/{id}/hoan-thanh")]
         [Authorize(Roles = "Nhân viên kỹ thuật")]
         public async Task<IActionResult> HoanThanhSuaChua(int id)

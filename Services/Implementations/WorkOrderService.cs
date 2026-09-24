@@ -738,7 +738,8 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             foreach (var p in list)
             {
                 var bt = p.HoSoBaoTri ?? p.MaHoSoBaoTriNavigation;
-                var sc = p.HoSoSuaChua;
+                // Nhiều NV cùng 1 HS SC: PC đầu có HoSoSuaChua; PC còn lại có MaHoSoSuaChuaNavigation
+                var sc = p.HoSoSuaChua ?? p.MaHoSoSuaChuaNavigation;
                 DateOnly? ngayDuKien = null;
                 if (bt != null)
                     ngayDuKien = await _repo.GetNgayDuKienBaoTriTheoHoSoBaoTriAsync(bt.MaHoSoBaoTri);
@@ -752,8 +753,8 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     NgayBatDauDuKien = p.NgayBatDauDuKien,
                     NgayKetThucDuKien = p.NgayKetThucDuKien,
                     TenNhanVienPhanCong = p.MaNhanVienPhanCongNavigation?.HoTen,
-                    Loai = bt != null ? "Bảo trì" : "Sửa chữa",
-                    MaHoSo = bt?.MaHoSoBaoTri ?? sc?.MaHoSoSuaChua,
+                    Loai = bt != null ? "Bảo trì" : (sc != null ? "Sửa chữa" : null),
+                    MaHoSo = bt?.MaHoSoBaoTri ?? sc?.MaHoSoSuaChua ?? p.MaHoSoSuaChua,
                     MaThietBi = bt?.MaThieBi ?? sc?.MaThieBi,
                     TenThietBi = bt?.MaThieBiNavigation?.TenThietBi ?? sc?.MaThieBiNavigation?.TenThietBi,
                     NoiDung = bt?.NoiDungCongViec ?? sc?.MoTaHuHong,
@@ -1054,6 +1055,41 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             }
 
             hoSo.MaPhanCong = maPhanCongDau;
+            // Giữ "Chờ phân công" trên hồ sơ cho đến khi NVKT bấm "Tiến hành sửa chữa"
+            // → hồ sơ vẫn hiện trên thanh trạng thái Tổ trưởng để quản lý.
+            if (hoSo.TrangThai is "Chờ phân công" or "Đã duyệt")
+                hoSo.TrangThai = "Chờ phân công";
+            if (hoSo.MaThieBiNavigation != null)
+                hoSo.MaThieBiNavigation.TinhTrangHienTai = "Sửa chữa";
+
+            await _repo.SaveChangesAsync();
+            return (true, null);
+        }
+
+        /// <summary>
+        /// NVKT bấm "Tiến hành sửa chữa" → hồ sơ + mọi phân công đồng bộ "Đang thực hiện"
+        /// (hiển thị cho mọi vai trò trên thanh trạng thái).
+        /// </summary>
+        public async Task<(bool, string?)> NhanVienBatDauSuaChuaAsync(int maHoSo, int maNguoiDung)
+        {
+            var nhanVien = await _nhanVienRepo.GetByMaNguoiDungAsync(maNguoiDung);
+            if (nhanVien == null) return (false, "Không xác định được nhân viên.");
+
+            var hoSo = await _repo.GetHoSoSuaChuaByIdAsync(maHoSo);
+            if (hoSo == null) return (false, "Không tìm thấy hồ sơ.");
+            if (hoSo.TrangThai == "Đã hoàn thành" || hoSo.TrangThai == "Đã hủy" || hoSo.TrangThai == "Từ chối")
+                return (false, "Hồ sơ đã kết thúc, không thể tiến hành.");
+
+            var dsPc = await _repo.GetPhanCongTheoHoSoSuaChuaAsync(maHoSo);
+            var duocPc = dsPc.Any(p => p.MaNhanVienThucHien == nhanVien.MaNhanVien
+                && p.TrangThai is not ("Đã hủy" or "Hoàn thành"));
+            if (!duocPc)
+                return (false, "Bạn không được phân công hồ sơ này.");
+
+            // Đồng bộ tất cả phân công còn mở + hồ sơ → Đang thực hiện
+            foreach (var pc in dsPc.Where(p => p.TrangThai is not ("Đã hủy" or "Hoàn thành")))
+                pc.TrangThai = "Đang thực hiện";
+
             hoSo.TrangThai = "Đang thực hiện";
             if (hoSo.MaThieBiNavigation != null)
                 hoSo.MaThieBiNavigation.TinhTrangHienTai = "Sửa chữa";

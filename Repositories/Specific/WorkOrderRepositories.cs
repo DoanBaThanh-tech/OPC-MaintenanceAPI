@@ -256,13 +256,17 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
 
         public async Task<List<PhanCongCongViec>> GetPhanCongCuaNhanVienAsync(int maNhanVien, string? loai, string? trangThaiPhanCong)
         {
+            // Include cả MaHoSoSuaChuaNavigation: khi phân công N NV, chỉ PC đầu
+            // gắn inverse HoSoSuaChua (qua HoSo.MaPhanCong); các PC còn lại dùng MaHoSoSuaChua.
             var q = _context.PhanCongCongViecs
                 .Include(p => p.MaNhanVienPhanCongNavigation)
                 .Include(p => p.MaNhanVienThucHienNavigation)
                 .Include(p => p.HoSoBaoTri)!.ThenInclude(h => h!.MaThieBiNavigation)
                 .Include(p => p.MaHoSoBaoTriNavigation)!.ThenInclude(h => h!.MaThieBiNavigation)
                 .Include(p => p.HoSoSuaChua)!.ThenInclude(h => h!.MaThieBiNavigation)
-                .Where(p => p.MaNhanVienThucHien == maNhanVien);
+                .Include(p => p.MaHoSoSuaChuaNavigation)!.ThenInclude(h => h!.MaThieBiNavigation)
+                .Where(p => p.MaNhanVienThucHien == maNhanVien
+                            && p.TrangThai != "Đã hủy");
 
             if (!string.IsNullOrWhiteSpace(trangThaiPhanCong))
                 q = q.Where(p => p.TrangThai == trangThaiPhanCong);
@@ -272,7 +276,7 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
                 if (loai.Equals("BaoTri", StringComparison.OrdinalIgnoreCase) || loai == "Bảo trì")
                     q = q.Where(p => p.HoSoBaoTri != null || p.MaHoSoBaoTri != null);
                 else if (loai.Equals("SuaChua", StringComparison.OrdinalIgnoreCase) || loai == "Sửa chữa")
-                    q = q.Where(p => p.HoSoSuaChua != null);
+                    q = q.Where(p => p.HoSoSuaChua != null || p.MaHoSoSuaChua != null);
             }
 
             return await q.OrderByDescending(p => p.NgayPhanCong).AsNoTracking().ToListAsync();
@@ -292,10 +296,19 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
                 .Include(h => h.MaThieBiNavigation)
                 .FirstOrDefaultAsync(h => h.MaPhanCong == maPhanCong);
 
-        public async Task<HoSoSuaChua?> GetHoSoSuaChuaByMaPhanCongAsync(int maPhanCong) =>
-            await _context.HoSoSuaChuas
+        public async Task<HoSoSuaChua?> GetHoSoSuaChuaByMaPhanCongAsync(int maPhanCong)
+        {
+            // Ưu tiên MaHoSoSuaChua trên phân công (hỗ trợ nhiều NV); fallback HoSo.MaPhanCong
+            var viaPc = await _context.PhanCongCongViecs
+                .Where(p => p.MaPhanCong == maPhanCong && p.MaHoSoSuaChua != null)
+                .Select(p => p.MaHoSoSuaChua!.Value)
+                .FirstOrDefaultAsync();
+            if (viaPc > 0)
+                return await GetHoSoSuaChuaByIdAsync(viaPc);
+            return await _context.HoSoSuaChuas
                 .Include(h => h.MaThieBiNavigation)
                 .FirstOrDefaultAsync(h => h.MaPhanCong == maPhanCong);
+        }
 
         public void RemovePhanCong(PhanCongCongViec phanCong) =>
             _context.PhanCongCongViecs.Remove(phanCong);

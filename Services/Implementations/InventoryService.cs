@@ -188,11 +188,13 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 return (false, "Loại công việc phải là Bảo trì hoặc Sửa chữa.", null);
 
             if (dto.ChiTiet == null || dto.ChiTiet.Count == 0)
-                return (false, "Cần ít nhất 1 bước quy trình.", null);
-            if (dto.ChiTiet.Count > 4)
-                return (false, "Tối đa 4 bước quy trình.", null);
+                return (false, "Cần ít nhất 1 dòng vật tư.", null);
+            // Mỗi bước có thể nhiều vật tư → không giới hạn 4 dòng; chỉ kiểm tra số bước hợp lệ
+            if (dto.ChiTiet.Any(c => c.SoBuoc < 1 || c.SoBuoc > 20))
+                return (false, "Số bước không hợp lệ.", null);
             if (dto.ChiTiet.Any(c => c.SoLuong < 0))
                 return (false, "Số lượng vật tư không được âm.", null);
+            // Chỉ nhận số nguyên (SoLuong là int) — không âm đã check
 
             var tong = dto.ChiTiet.Sum(c => c.SoLuong * c.DonGia);
             var hoSo = new HoSoSuDungVatTu
@@ -227,6 +229,60 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
             var response = await _repo.GetHoSoSuDungVatTuByIdAsync(hoSo.MaHoSoVatTu);
             return (true, null, response);
+        }
+
+        public async Task<(bool, string?, HoSoVatTuResponseDto?)> CapNhatHoSoSuDungVatTuAsync(int id, TaoHoSoVatTuDto dto, int maNguoiDung)
+        {
+            var nhanVien = await _nhanVienRepo.GetByMaNguoiDungAsync(maNguoiDung);
+            if (nhanVien == null) return (false, "Không xác định được nhân viên.", null);
+
+            var hoSo = await _repo.GetHoSoSuDungEntityWithChiTietByIdAsync(id);
+            if (hoSo == null) return (false, "Không tìm thấy hồ sơ vật tư.", null);
+            if (hoSo.TrangThai != "Chờ gửi")
+                return (false, "Chỉ được cập nhật hồ sơ vật tư khi còn trạng thái Chờ gửi.", null);
+
+            if (dto.ChiTiet == null || dto.ChiTiet.Count == 0)
+                return (false, "Cần ít nhất 1 dòng vật tư.", null);
+            if (dto.ChiTiet.Any(c => c.SoBuoc < 1 || c.SoBuoc > 20))
+                return (false, "Số bước không hợp lệ.", null);
+            if (dto.ChiTiet.Any(c => c.SoLuong < 0))
+                return (false, "Số lượng vật tư không được âm.", null);
+
+            // Xóa chi tiết cũ, ghi lại danh sách mới
+            if (hoSo.ChiTietSuDungVatTus.Count > 0)
+                await _repo.RemoveChiTietSuDungRangeAsync(hoSo.ChiTietSuDungVatTus.ToList());
+
+            hoSo.ChiTietSuDungVatTus.Clear();
+            foreach (var c in dto.ChiTiet)
+            {
+                hoSo.ChiTietSuDungVatTus.Add(new ChiTietSuDungVatTu
+                {
+                    SoBuoc = c.SoBuoc,
+                    MoTaBuoc = c.MoTaBuoc,
+                    MaVatTu = c.MaVatTu,
+                    TenVatTu = c.TenVatTu,
+                    SoLuong = c.SoLuong,
+                    DonGia = c.DonGia
+                });
+            }
+
+            hoSo.TongTien = dto.ChiTiet.Sum(c => c.SoLuong * c.DonGia);
+            if (!string.IsNullOrWhiteSpace(dto.TenThietBi))
+                hoSo.TenThietBi = dto.TenThietBi;
+            if (dto.MaThietBi > 0)
+                hoSo.MaThietBi = dto.MaThietBi;
+            hoSo.NgayThucHien = dto.NgayThucHien ?? DateTime.Now;
+
+            await _repo.SaveChangesAsync();
+            var response = await _repo.GetHoSoSuDungVatTuByIdAsync(hoSo.MaHoSoVatTu);
+            return (true, null, response);
+        }
+
+        public async Task<HoSoVatTuResponseDto?> GetHoSoVatTuTheoCongViecAsync(int? maHoSoBaoTri, int? maHoSoSuaChua)
+        {
+            var entity = await _repo.GetHoSoSuDungEntityByCongViecAsync(maHoSoBaoTri, maHoSoSuaChua);
+            if (entity == null) return null;
+            return await _repo.GetHoSoSuDungVatTuByIdAsync(entity.MaHoSoVatTu);
         }
 
         public async Task<List<HoSoVatTuResponseDto>> GetDanhSachHoSoVatTuAsync(string? trangThai = null)

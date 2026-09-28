@@ -22,6 +22,9 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         Task AddHoSoSuDungVatTuAsync(HoSoSuDungVatTu hoSo);
         Task<HoSoVatTuResponseDto?> GetHoSoSuDungVatTuByIdAsync(int id);
         Task<HoSoSuDungVatTu?> GetHoSoSuDungEntityByIdAsync(int id);
+        Task<HoSoSuDungVatTu?> GetHoSoSuDungEntityWithChiTietByIdAsync(int id);
+        Task<HoSoSuDungVatTu?> GetHoSoSuDungEntityByCongViecAsync(int? maHoSoBaoTri, int? maHoSoSuaChua);
+        Task RemoveChiTietSuDungRangeAsync(IEnumerable<ChiTietSuDungVatTu> chiTiets);
         Task<List<HoSoVatTuResponseDto>> GetDanhSachHoSoSuDungVatTuAsync(string? trangThai);
         Task<List<BuocQuyTrinhDto>> GetQuyTrinhThietBiAsync(int maThietBi, string loaiCongViec);
     }
@@ -80,6 +83,32 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
 
         public async Task<HoSoSuDungVatTu?> GetHoSoSuDungEntityByIdAsync(int id) =>
             await _context.HoSoSuDungVatTus.FirstOrDefaultAsync(h => h.MaHoSoVatTu == id);
+
+        public async Task<HoSoSuDungVatTu?> GetHoSoSuDungEntityWithChiTietByIdAsync(int id) =>
+            await _context.HoSoSuDungVatTus
+                .Include(x => x.ChiTietSuDungVatTus)
+                .FirstOrDefaultAsync(h => h.MaHoSoVatTu == id);
+
+        public async Task<HoSoSuDungVatTu?> GetHoSoSuDungEntityByCongViecAsync(int? maHoSoBaoTri, int? maHoSoSuaChua)
+        {
+            var q = _context.HoSoSuDungVatTus
+                .Include(x => x.ChiTietSuDungVatTus)
+                .AsQueryable();
+            if (maHoSoBaoTri.HasValue && maHoSoBaoTri.Value > 0)
+                q = q.Where(h => h.MaHoSoBaoTri == maHoSoBaoTri.Value);
+            else if (maHoSoSuaChua.HasValue && maHoSoSuaChua.Value > 0)
+                q = q.Where(h => h.MaHoSoSuaChua == maHoSoSuaChua.Value);
+            else
+                return null;
+            // Lấy hồ sơ mới nhất (có thể có nhiều lần tạo)
+            return await q.OrderByDescending(h => h.NgayTao).FirstOrDefaultAsync();
+        }
+
+        public Task RemoveChiTietSuDungRangeAsync(IEnumerable<ChiTietSuDungVatTu> chiTiets)
+        {
+            _context.ChiTietSuDungVatTus.RemoveRange(chiTiets);
+            return Task.CompletedTask;
+        }
 
         public async Task<HoSoVatTuResponseDto?> GetHoSoSuDungVatTuByIdAsync(int id)
         {

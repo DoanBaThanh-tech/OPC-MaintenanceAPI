@@ -356,6 +356,11 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
             var hoSo = await _repo.GetHoSoBaoTriByIdAsync(maHoSo);
             if (hoSo == null) return (false, "Không tìm thấy hồ sơ.");
+
+            // Idempotent: quy trình Flutter gọi ghiNhanKetQua trước (đã set "Đã hoàn thành") rồi mới gọi endpoint này.
+            if (hoSo.TrangThai == "Đã hoàn thành")
+                return (true, null);
+
             if (hoSo.TrangThai is not ("Đang thực hiện" or "Đã duyệt"))
                 return (false, "Hồ sơ không ở trạng thái đang thực hiện.");
 
@@ -366,8 +371,9 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 if (pc != null) dsPc.Add(pc);
             }
 
+            // Cho phép NV đã được phân công (kể cả PC đã "Hoàn thành" do GhiNhanKetQua)
             var duocPhanCong = dsPc.Any(p => p.MaNhanVienThucHien == nhanVien.MaNhanVien
-                && p.TrangThai is not ("Đã hủy" or "Hoàn thành"));
+                && p.TrangThai is not "Đã hủy");
             if (!duocPhanCong)
                 return (false, "Bạn không được phân công hồ sơ này hoặc đã hoàn thành.");
 
@@ -1106,12 +1112,19 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
             var hoSo = await _repo.GetHoSoSuaChuaByIdAsync(maHoSo);
             if (hoSo == null) return (false, "Không tìm thấy hồ sơ.");
+
+            // Idempotent: nếu GhiNhanKetQua (hoặc lần hoàn thành trước) đã set "Đã hoàn thành" thì coi như thành công.
+            // Quy trình Flutter gọi ghiNhanKetQua rồi mới gọi endpoint này → tránh 400 "không ở trạng thái đang sửa chữa".
+            if (hoSo.TrangThai == "Đã hoàn thành")
+                return (true, null);
+
             if (hoSo.TrangThai is not ("Đang thực hiện" or "Chờ phân công" or "Đã duyệt"))
                 return (false, "Hồ sơ không ở trạng thái đang sửa chữa.");
 
             var dsPc = await _repo.GetPhanCongTheoHoSoSuaChuaAsync(maHoSo);
+            // Cho phép NV đã được phân công (kể cả PC đã "Hoàn thành" do GhiNhanKetQua) hoàn tất hồ sơ
             var duocPc = dsPc.Any(p => p.MaNhanVienThucHien == nhanVien.MaNhanVien
-                && p.TrangThai is not ("Đã hủy" or "Hoàn thành"));
+                && p.TrangThai is not "Đã hủy");
             if (!duocPc)
                 return (false, "Bạn không được phân công hồ sơ này hoặc đã hoàn thành.");
 

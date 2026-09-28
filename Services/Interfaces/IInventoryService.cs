@@ -13,6 +13,9 @@ namespace OPC.MaintenanceAPI.Services.Interfaces
 
         Task<List<VatTuDto>> GetDanhSachVatTuAsync();
         Task<(bool, string?, HoSoVatTuResponseDto?)> TaoHoSoSuDungVatTuAsync(TaoHoSoVatTuDto dto, int maNguoiDung);
+        /// <summary>Cập nhật chi tiết vật tư (số lượng / thêm / xóa dòng) khi hồ sơ còn Chờ gửi.</summary>
+        Task<(bool, string?, HoSoVatTuResponseDto?)> CapNhatHoSoSuDungVatTuAsync(int id, TaoHoSoVatTuDto dto, int maNguoiDung);
+        Task<HoSoVatTuResponseDto?> GetHoSoVatTuTheoCongViecAsync(int? maHoSoBaoTri, int? maHoSoSuaChua);
         Task<List<HoSoVatTuResponseDto>> GetDanhSachHoSoVatTuAsync(string? trangThai = null);
         Task<HoSoVatTuResponseDto?> GetHoSoVatTuByIdAsync(int id);
         Task<(bool, string?)> GuiHoSoVatTuChoGiamDocAsync(int id);

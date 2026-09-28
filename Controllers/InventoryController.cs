@@ -62,6 +62,25 @@ namespace OPC.MaintenanceAPI.Controllers
             return ok ? Ok(data) : BadRequest(new { loi });
         }
 
+        /// <summary>NVKT cập nhật hồ sơ vật tư (chỉ khi còn Chờ gửi) — số lượng / thêm / xóa dòng.</summary>
+        [HttpPut("ho-so-vat-tu/{id}")]
+        public async Task<IActionResult> CapNhatHoSoVatTu(int id, TaoHoSoVatTuDto dto)
+        {
+            var claim = User.FindFirst("MaNguoiDung")?.Value;
+            if (claim == null || !int.TryParse(claim, out var maNguoiDung))
+                return Unauthorized();
+            var (ok, loi, data) = await _service.CapNhatHoSoSuDungVatTuAsync(id, dto, maNguoiDung);
+            return ok ? Ok(data) : BadRequest(new { loi });
+        }
+
+        /// <summary>Lấy hồ sơ vật tư theo mã hồ sơ BT hoặc SC (mới nhất).</summary>
+        [HttpGet("ho-so-vat-tu/theo-cong-viec")]
+        public async Task<IActionResult> HoSoVatTuTheoCongViec([FromQuery] int? maHoSoBaoTri, [FromQuery] int? maHoSoSuaChua)
+        {
+            var data = await _service.GetHoSoVatTuTheoCongViecAsync(maHoSoBaoTri, maHoSoSuaChua);
+            return data == null ? NotFound(new { loi = "Chưa có hồ sơ vật tư cho công việc này." }) : Ok(data);
+        }
+
         /// <summary>Tổ trưởng cơ điện / Giám đốc xem danh sách hồ sơ vật tư.</summary>
         [HttpGet("ho-so-vat-tu")]
         public async Task<IActionResult> DanhSachHoSoVatTu([FromQuery] string? trangThai)

@@ -311,91 +311,13 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (hoSo.TrangThai != "Chờ duyệt" && hoSo.TrangThai != "Đã gửi GĐ")
                 return (false, "Chỉ xác nhận hồ sơ đang chờ duyệt.");
 
+            // Xác thực người đăng nhập (Giám đốc) trước khi xác nhận
             var nhanVien = await _nhanVienRepo.GetByMaNguoiDungAsync(maNguoiDung);
             if (nhanVien == null) return (false, "Không xác định được người xác nhận.");
 
             hoSo.TrangThai = "Xác nhận";
-            // Lưu thông tin người xác nhận + thời điểm vào GhiChu (không đổi schema LichSuPheDuyet)
-            // Format: XN|{MaNhanVien}|{HoTen}|{ISO8601}
-            var ngayXn = DateTime.Now;
-            hoSo.GhiChu = $"XN|{nhanVien.MaNhanVien}|{nhanVien.HoTen}|{ngayXn:O}";
             await _repo.SaveChangesAsync();
             return (true, null);
-        }
-
-        public async Task<List<object>> GetLichSuXacNhanVatTuAsync(int? nam = null)
-        {
-            // Hồ sơ đã được GĐ xác nhận
-            var list = await _repo.GetDanhSachHoSoSuDungVatTuAsync("Xác nhận");
-            if (nam.HasValue)
-                list = list.Where(h =>
-                {
-                    var ngay = _ngayXacNhanTuGhiChu(h.GhiChu) ?? h.NgayGuiGiamDoc ?? h.NgayThucHien;
-                    return ngay.Year == nam.Value;
-                }).ToList();
-
-            return list
-                .OrderByDescending(h => _ngayXacNhanTuGhiChu(h.GhiChu) ?? h.NgayGuiGiamDoc ?? h.NgayThucHien)
-                .Select(h =>
-                {
-                    var (tenDuyet, ngayXn) = _parseXacNhanGhiChu(h.GhiChu);
-                    var ngay = ngayXn ?? h.NgayGuiGiamDoc ?? h.NgayThucHien;
-                    return (object)new
-                    {
-                        MaPheDuyet = h.MaHoSoVatTu, // dùng mã HS VT làm id hiển thị
-                        Loai = "Vật tư",
-                        MaHoSo = h.MaHoSoVatTu,
-                        TenThietBi = h.TenThietBi,
-                        TenNguoiLap = h.TenNhanVien,
-                        NoiDung = $"{h.LoaiCongViec} · Tổng {_fmtTien(h.TongTien)} · {h.ChiTiet.Count} dòng VT",
-                        TenNguoiDuyet = tenDuyet,
-                        QuyetDinh = "Xác nhận",
-                        TrangThaiHoSo = "Xác nhận",
-                        LyDo = (string?)null,
-                        NgayDuyet = ngay,
-                        Nam = ngay.Year,
-                    };
-                }).ToList();
-        }
-
-        public async Task<List<int>> GetCacNamCoLichSuVatTuAsync()
-        {
-            var list = await _repo.GetDanhSachHoSoSuDungVatTuAsync("Xác nhận");
-            return list
-                .Select(h => (_ngayXacNhanTuGhiChu(h.GhiChu) ?? h.NgayGuiGiamDoc ?? h.NgayThucHien).Year)
-                .Distinct()
-                .OrderByDescending(y => y)
-                .ToList();
-        }
-
-        private static DateTime? _ngayXacNhanTuGhiChu(string? ghiChu)
-        {
-            var (_, ngay) = _parseXacNhanGhiChu(ghiChu);
-            return ngay;
-        }
-
-        private static (string? tenDuyet, DateTime? ngay) _parseXacNhanGhiChu(string? ghiChu)
-        {
-            if (string.IsNullOrWhiteSpace(ghiChu) || !ghiChu.StartsWith("XN|"))
-                return (null, null);
-            var parts = ghiChu.Split('|');
-            if (parts.Length < 4) return (null, null);
-            var ten = parts[2];
-            DateTime? ngay = DateTime.TryParse(parts[3], out var d) ? d : null;
-            return (string.IsNullOrWhiteSpace(ten) ? null : ten, ngay);
-        }
-
-        private static string _fmtTien(decimal v)
-        {
-            var n = (long)v;
-            var s = n.ToString();
-            var buf = new System.Text.StringBuilder();
-            for (var i = 0; i < s.Length; i++)
-            {
-                if (i > 0 && (s.Length - i) % 3 == 0) buf.Append('.');
-                buf.Append(s[i]);
-            }
-            return buf + " ₫";
         }
 
         public async Task<List<BuocQuyTrinhDto>> GetQuyTrinhThietBiAsync(int maThietBi, string loaiCongViec)

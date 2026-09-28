@@ -19,11 +19,7 @@ namespace OPC.MaintenanceAPI.Services.Interfaces
         Task<List<HoSoVatTuResponseDto>> GetDanhSachHoSoVatTuAsync(string? trangThai = null);
         Task<HoSoVatTuResponseDto?> GetHoSoVatTuByIdAsync(int id);
         Task<(bool, string?)> GuiHoSoVatTuChoGiamDocAsync(int id);
-        /// <summary>Giám đốc xác nhận hồ sơ vật tư — ghi người xác nhận vào GhiChu để lịch sử phê duyệt.</summary>
         Task<(bool, string?)> XacNhanHoSoVatTuAsync(int id, int maNguoiDung);
-        /// <summary>Lịch sử xác nhận hồ sơ vật tư (Giám đốc) — cùng shape lịch sử BT/SC.</summary>
-        Task<List<object>> GetLichSuXacNhanVatTuAsync(int? nam = null);
-        Task<List<int>> GetCacNamCoLichSuVatTuAsync();
         Task<List<BuocQuyTrinhDto>> GetQuyTrinhThietBiAsync(int maThietBi, string loaiCongViec);
     }
 }

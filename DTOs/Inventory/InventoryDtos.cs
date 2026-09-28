@@ -69,6 +69,8 @@ namespace OPC.MaintenanceAPI.DTOs.Inventory
         public decimal TongTien { get; set; }
         public string TrangThai { get; set; } = "";
         public DateTime? NgayGuiGiamDoc { get; set; }
+        /// <summary>Có thể chứa XN|maNV|ten|ISO khi GĐ xác nhận (lịch sử phê duyệt).</summary>
+        public string? GhiChu { get; set; }
         public List<ChiTietSuDungResponseDto> ChiTiet { get; set; } = new();
     }
 

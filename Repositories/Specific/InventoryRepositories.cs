@@ -144,6 +144,7 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
             TongTien = h.TongTien,
             TrangThai = h.TrangThai,
             NgayGuiGiamDoc = h.NgayGuiGiamDoc,
+            GhiChu = h.GhiChu,
             ChiTiet = h.ChiTietSuDungVatTus
                 .OrderBy(c => c.SoBuoc)
                 .Select(c => new ChiTietSuDungResponseDto

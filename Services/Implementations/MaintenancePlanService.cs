@@ -20,8 +20,9 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (dto.Nam < 2000 || dto.Nam > 9999)
                 return (false, "Năm áp dụng không hợp lệ.");
 
+            // Idempotent: năm đã có khung kế hoạch → coi như thành công (không báo trùng)
             if (await _repo.NamDaTonTaiAsync(dto.Nam))
-                return (false, $"Kế hoạch năm {dto.Nam} đã tồn tại.");
+                return (true, $"Kế hoạch năm {dto.Nam} đã có sẵn.");
 
             var nhanVien = await _nhanVienRepo.GetByMaNguoiDungAsync(maNguoiDungTao);
             if (nhanVien == null) return (false, "Không xác định được người lập.");
@@ -41,7 +42,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
         /// <summary>
         /// Lập bảo trì cho thiết bị = tạo Chi tiết kế hoạch + Hồ sơ bảo trì (Chờ duyệt) trong 1 lần.
-        /// Sau khi xong: hiện trên lịch Kế hoạch + trang Hồ sơ bảo trì.
+        /// Nếu chưa có khung kế hoạch năm → tự tạo (sau khi dọn dữ liệu test không cần bấm "Tạo kế hoạch năm" riêng).
         /// </summary>
         public async Task<(bool, string?)> ThemThietBiVaoNamAsync(int maNguoiDungTao, ThemThietBiVaoNamDto dto)
         {
@@ -50,8 +51,21 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 return (false, "Không xác định được người thao tác.");
 
             var keHoach = await _repo.GetKeHoachByNamAsync(dto.Nam);
+            // Tự tạo khung kế hoạch năm nếu thiếu (tránh 400 sau khi xóa HS/KH test)
             if (keHoach == null)
-                return (false, $"Chưa có kế hoạch cho năm {dto.Nam}. Vui lòng tạo kế hoạch năm trước.");
+            {
+                if (dto.Nam < 2000 || dto.Nam > 9999)
+                    return (false, "Năm áp dụng không hợp lệ.");
+                keHoach = new KeHoachBaoTri
+                {
+                    Nam = dto.Nam,
+                    MaNhanVienLap = nhanVien.MaNhanVien,
+                    NgayLapKeHoach = DateOnly.FromDateTime(DateTime.Now),
+                    TrangThai = "Đang lập"
+                };
+                await _repo.AddKeHoachAsync(keHoach);
+                await _repo.SaveChangesAsync();
+            }
 
             if (dto.NgayDuKienBaoTri.Year != dto.Nam)
                 return (false, "Ngày dự kiến phải thuộc năm của kế hoạch.");

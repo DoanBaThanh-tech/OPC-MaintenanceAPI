@@ -82,7 +82,8 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
                  h.TrangThai == "Chờ duyệt" ||
                  h.TrangThai == "Chờ GĐ duyệt" ||
                  h.TrangThai == "Đã duyệt" ||
-                 h.TrangThai == "Đang thực hiện"));
+                 h.TrangThai == "Đang thực hiện" ||
+                 h.TrangThai == "Chờ xác nhận"));
 
             if (loaiTruMaHoSo.HasValue)
                 q = q.Where(h => h.MaHoSoBaoTri != loaiTruMaHoSo.Value);

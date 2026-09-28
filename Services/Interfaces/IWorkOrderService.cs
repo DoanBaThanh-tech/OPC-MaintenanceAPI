@@ -16,6 +16,8 @@ namespace OPC.MaintenanceAPI.Services.Interfaces
         Task<List<int>> GetCacNamCoLichSuPheDuyetAsync(string? loai);
         Task<(bool, string?)> HuyPhanCongAsync(int maPhanCong, int maNguoiDung);
         Task<(bool, string?)> GhiNhanKetQuaAsync(int maPhanCong, GhiNhanKetQuaDto dto);
+        /// <summary>Xưởng xác nhận/từ chối kết quả sau khi NVKT bấm Xong.</summary>
+        Task<(bool, string?)> XuongXacNhanKetQuaAsync(int? maHoSoBaoTri, int? maHoSoSuaChua, int maNguoiDung, bool xacNhan, string? lyDo);
         Task<(bool, string?)> XacNhanHoanThanhBaoTriAsync(int maHoSo, XacNhanDto dto);
         Task<(bool, string?)> NhanVienXacNhanBaoTriAsync(int maHoSo, int maNguoiDung);
         Task<(bool, string?)> NhanVienTuChoiBaoTriAsync(int maHoSo, int maNguoiDung, TuChoiNhanViecDto dto);

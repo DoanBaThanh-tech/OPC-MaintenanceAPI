@@ -190,7 +190,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (dto.ChiTiet == null || dto.ChiTiet.Count == 0)
                 return (false, "Cần ít nhất 1 dòng vật tư.", null);
             // Mỗi bước có thể nhiều vật tư → không giới hạn 4 dòng; chỉ kiểm tra số bước hợp lệ
-            if (dto.ChiTiet.Any(c => c.SoBuoc < 1 || c.SoBuoc > 20))
+            if (dto.ChiTiet.Any(c => c.SoBuoc < 1 || c.SoBuoc > 100))
                 return (false, "Số bước không hợp lệ.", null);
             if (dto.ChiTiet.Any(c => c.SoLuong < 0))
                 return (false, "Số lượng vật tư không được âm.", null);
@@ -243,7 +243,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
             if (dto.ChiTiet == null || dto.ChiTiet.Count == 0)
                 return (false, "Cần ít nhất 1 dòng vật tư.", null);
-            if (dto.ChiTiet.Any(c => c.SoBuoc < 1 || c.SoBuoc > 20))
+            if (dto.ChiTiet.Any(c => c.SoBuoc < 1 || c.SoBuoc > 100))
                 return (false, "Số bước không hợp lệ.", null);
             if (dto.ChiTiet.Any(c => c.SoLuong < 0))
                 return (false, "Số lượng vật tư không được âm.", null);

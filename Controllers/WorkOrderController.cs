@@ -133,7 +133,7 @@ namespace OPC.MaintenanceAPI.Controllers
             return Result(await _service.XuongGuiGiamDocAsync(id, maNguoiDung, dto));
         }
 
-        /// <summary>NVKT bấm Hoàn thành bảo trì — đồng bộ trạng thái tất cả NV cùng hồ sơ.</summary>
+        /// <summary>NVKT bấm Xong — chuyển Chờ xác nhận (Xưởng duyệt kết quả).</summary>
         [Authorize(Roles = "Nhân viên kỹ thuật")]
         [HttpPut("bao-tri/{id}/nhan-vien-hoan-thanh")]
         public async Task<IActionResult> NhanVienHoanThanhBaoTri(int id)
@@ -142,6 +142,18 @@ namespace OPC.MaintenanceAPI.Controllers
             if (claim == null || !int.TryParse(claim, out var maNguoiDung))
                 return Unauthorized();
             return Result(await _service.NhanVienHoanThanhBaoTriAsync(id, maNguoiDung));
+        }
+
+        /// <summary>Xưởng xác nhận / từ chối kết quả BT hoặc SC do NVKT gửi.</summary>
+        [Authorize(Roles = "Xưởng,Tổ trưởng sản xuất")]
+        [HttpPut("xuong-xac-nhan-ket-qua")]
+        public async Task<IActionResult> XuongXacNhanKetQua([FromBody] XuongXacNhanKetQuaDto dto)
+        {
+            var claim = User.FindFirst("MaNguoiDung")?.Value;
+            if (claim == null || !int.TryParse(claim, out var maNguoiDung))
+                return Unauthorized();
+            return Result(await _service.XuongXacNhanKetQuaAsync(
+                dto.MaHoSoBaoTri, dto.MaHoSoSuaChua, maNguoiDung, dto.XacNhan, dto.LyDo));
         }
 
         [Authorize(Roles = "Giám đốc,Phó giám đốc")]

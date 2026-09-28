@@ -75,6 +75,15 @@ namespace OPC.MaintenanceAPI.DTOs.WorkOrder
         public string? GioKetThucDuKien { get; set; }
     }
 
+    /// <summary>Xưởng xác nhận / từ chối kết quả thực hiện do NVKT gửi (sau Xong).</summary>
+    public class XuongXacNhanKetQuaDto
+    {
+        public int? MaHoSoBaoTri { get; set; }
+        public int? MaHoSoSuaChua { get; set; }
+        public bool XacNhan { get; set; }
+        public string? LyDo { get; set; }
+    }
+
     public class TaoYeuCauBaoTriDto
     {
         public int MaThietBi { get; set; }

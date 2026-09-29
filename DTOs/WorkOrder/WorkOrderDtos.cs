@@ -24,6 +24,10 @@ namespace OPC.MaintenanceAPI.DTOs.WorkOrder
         /// <summary>true = gửi Tổ trưởng cơ điện phân công (Chờ phân công).</summary>
         public bool GuiDuyet { get; set; } = true;
         public string? MucDoUuTien { get; set; }
+        /// <summary>"4" = giờ, "15p" = phút.</summary>
+        public string? ThoiGianDuKien { get; set; }
+        public string? GioBatDauDuKien { get; set; }
+        public string? GioKetThucDuKien { get; set; }
     }
 
     /// <summary>Phân công nhiều nhân viên cho một hồ sơ bảo trì / sửa chữa.</summary>

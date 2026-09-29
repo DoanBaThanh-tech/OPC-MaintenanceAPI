@@ -1050,6 +1050,18 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             // Gửi Tổ trưởng phân công (không qua GĐ)
             var trangThai = dto.GuiDuyet ? "Chờ phân công" : "Nháp";
 
+            // Thời gian dự kiến (giờ/phút) + giờ bắt đầu/kết thúc — cùng ngày, không tràn
+            TimeSpan? gbd = null;
+            TimeSpan? gkt = null;
+            if (!string.IsNullOrWhiteSpace(dto.GioBatDauDuKien) &&
+                TimeSpan.TryParse(dto.GioBatDauDuKien, out var parsedGbd))
+                gbd = parsedGbd;
+            if (!string.IsNullOrWhiteSpace(dto.GioKetThucDuKien) &&
+                TimeSpan.TryParse(dto.GioKetThucDuKien, out var parsedGkt))
+                gkt = parsedGkt;
+            if (gbd != null && gkt != null && gkt <= gbd)
+                return (false, "Giờ kết thúc phải sau giờ bắt đầu (trong cùng ngày).");
+
             var hoSo = new HoSoSuaChua
             {
                 MaThieBi = dto.MaThietBi,
@@ -1058,6 +1070,11 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 PhuongAnSuaChua = string.IsNullOrWhiteSpace(dto.PhuongAnSuaChua)
                     ? null
                     : dto.PhuongAnSuaChua.Trim(),
+                ThoiGianDuKien = string.IsNullOrWhiteSpace(dto.ThoiGianDuKien)
+                    ? null
+                    : dto.ThoiGianDuKien.Trim(),
+                GioBatDauDuKien = gbd,
+                GioKetThucDuKien = gkt,
                 NgayTao = DateTime.Now,
                 TrangThai = trangThai
             };
@@ -1139,6 +1156,13 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 TenNhanVienTao = h.MaNhanVienTaoNavigation?.HoTen,
                 h.MoTaHuHong,
                 h.PhuongAnSuaChua,
+                h.ThoiGianDuKien,
+                GioBatDauDuKien = h.GioBatDauDuKien == null
+                    ? null
+                    : $"{(int)h.GioBatDauDuKien.Value.TotalHours:D2}:{h.GioBatDauDuKien.Value.Minutes:D2}",
+                GioKetThucDuKien = h.GioKetThucDuKien == null
+                    ? null
+                    : $"{(int)h.GioKetThucDuKien.Value.TotalHours:D2}:{h.GioKetThucDuKien.Value.Minutes:D2}",
                 h.TrangThai,
                 h.LyDoTuChoi,
                 h.NgayTao,

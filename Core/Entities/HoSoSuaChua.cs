@@ -19,6 +19,13 @@ public partial class HoSoSuaChua
 
     public string? PhuongAnSuaChua { get; set; }
 
+    /// <summary>Thời lượng dự kiến: "4" (giờ) hoặc "15p" (phút).</summary>
+    public string? ThoiGianDuKien { get; set; }
+
+    public TimeSpan? GioBatDauDuKien { get; set; }
+
+    public TimeSpan? GioKetThucDuKien { get; set; }
+
     public DateTime NgayTao { get; set; }
 
     public string TrangThai { get; set; } = null!;

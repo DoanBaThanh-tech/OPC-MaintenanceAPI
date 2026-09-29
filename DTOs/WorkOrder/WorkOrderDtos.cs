@@ -26,13 +26,18 @@ namespace OPC.MaintenanceAPI.DTOs.WorkOrder
         public string? MucDoUuTien { get; set; }
     }
 
-    /// <summary>Phân công nhiều nhân viên cho một hồ sơ bảo trì.</summary>
+    /// <summary>Phân công nhiều nhân viên cho một hồ sơ bảo trì / sửa chữa.</summary>
     public class PhanCongDto
     {
         /// <summary>Một nhân viên (tương thích cũ).</summary>
         public int? MaNhanVienThucHien { get; set; }
         /// <summary>Nhiều nhân viên (ưu tiên nếu có).</summary>
         public List<int>? MaNhanVienThucHiens { get; set; }
+        /// <summary>
+        /// Người ghi chép quy trình (tối đa 1). Bắt buộc khi ≥2 NV;
+        /// nếu 1 NV thì mặc định chính người đó.
+        /// </summary>
+        public int? MaNhanVienGhiChep { get; set; }
         public int MaNhanVienPhanCong { get; set; }
         public DateTime NgayBatDauDuKien { get; set; }
         public DateTime NgayKetThucDuKien { get; set; }

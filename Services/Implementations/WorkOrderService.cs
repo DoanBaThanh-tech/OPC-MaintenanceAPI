@@ -349,9 +349,16 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (dsNv.Count == 0)
                 return (false, "Vui lòng chọn ít nhất một nhân viên thực hiện.");
 
-            // Nếu đã có phân công đang mở → hủy mềm các bản cũ rồi phân công lại (cập nhật danh sách NV)
+            // Người ghi chép: 1 NV → auto; ≥2 → bắt buộc chọn đúng 1 trong danh sách
+            var (okGhiChep, maGhiChep, loiGhiChep) = ResolveNguoiGhiChep(dsNv, dto.MaNhanVienGhiChep);
+            if (!okGhiChep)
+                return (false, loiGhiChep);
+
+            // Nếu đã có phân công đang mở → hủy mềm (không cho đổi khi đang chờ Xưởng)
             var pcDangMo = await _repo.GetPhanCongTheoHoSoBaoTriAsync(maHoSo);
-            foreach (var pc in pcDangMo.Where(p => p.TrangThai is "Chờ xác nhận" or "Đã phân công" or "Xác nhận" or "Đang thực hiện"))
+            if (pcDangMo.Any(p => p.TrangThai == "Chờ xác nhận"))
+                return (false, "Quy trình đang chờ Xưởng xác nhận — không được đổi phân công / người ghi chép.");
+            foreach (var pc in pcDangMo.Where(p => p.TrangThai is "Đã phân công" or "Xác nhận" or "Đang thực hiện"))
             {
                 pc.TrangThai = "Đã hủy";
             }
@@ -372,13 +379,17 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     MaHoSoBaoTri = maHoSo,
                     NgayBatDauDuKien = dto.NgayBatDauDuKien,
                     NgayKetThucDuKien = dto.NgayKetThucDuKien,
-                    // Không cần NV xác nhận/từ chối — hiện lên là biết phải làm
                     TrangThai = "Đã phân công",
+                    LaNguoiGhiChep = maNv == maGhiChep,
                     NgayPhanCong = DateTime.Now
                 };
                 await _repo.AddPhanCongAsync(phanCong);
                 await _repo.SaveChangesAsync();
-                maPhanCongDau ??= phanCong.MaPhanCong;
+                // PC người ghi chép ưu tiên gắn HS.MaPhanCong
+                if (phanCong.LaNguoiGhiChep)
+                    maPhanCongDau = phanCong.MaPhanCong;
+                else
+                    maPhanCongDau ??= phanCong.MaPhanCong;
             }
 
             // Giữ MaPhanCong (1) để tương thích code cũ; danh sách đầy đủ qua MaHoSoBaoTri
@@ -426,17 +437,14 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 if (pc != null) dsPc.Add(pc);
             }
 
-            var duocPhanCong = dsPc.Any(p => p.MaNhanVienThucHien == nhanVien.MaNhanVien
-                && p.TrangThai is not "Đã hủy");
-            if (!duocPhanCong)
-                return (false, "Bạn không được phân công hồ sơ này hoặc đã hoàn thành.");
+            if (!LaNguoiDuocGhiChep(dsPc, nhanVien.MaNhanVien))
+                return (false, "Chỉ người ghi chép quy trình mới được bấm Xong / gửi Xưởng.");
 
             // Xong → PC chờ Xưởng; HS / chi tiết kế hoạch GIỮ "Đang thực hiện"
             foreach (var pc in dsPc.Where(p => p.TrangThai is not ("Đã hủy" or "Hoàn thành")))
             {
                 pc.TrangThai = "Chờ xác nhận";
                 pc.LyDoTuChoi = null;
-                // Đảm bảo gắn HS để trang Quy trình Xưởng lọc được
                 pc.MaHoSoBaoTri ??= maHoSo;
             }
 
@@ -908,6 +916,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     TrangThaiHoSo = bt?.TrangThai ?? sc?.TrangThai,
                     NgayDuKienBaoTri = ngayDuKien,
                     NgayTaoHoSo = bt?.NgayTao ?? sc?.NgayTao,
+                    LaNguoiGhiChep = p.LaNguoiGhiChep,
                 });
             }
             return ketQua;
@@ -1206,12 +1215,18 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (dsNv.Count == 0)
                 return (false, "Vui lòng chọn ít nhất một nhân viên thực hiện.");
 
+            var (okGhiChep, maGhiChep, loiGhiChep) = ResolveNguoiGhiChep(dsNv, dto.MaNhanVienGhiChep);
+            if (!okGhiChep)
+                return (false, loiGhiChep);
+
             if (dto.NgayKetThucDuKien < dto.NgayBatDauDuKien)
                 return (false, "Ngày kết thúc không được trước ngày bắt đầu.");
 
-            // Hủy mềm phân công cũ đang mở
+            // Hủy mềm PC cũ — không đổi khi đang chờ Xưởng
             var pcCu = await _repo.GetPhanCongTheoHoSoSuaChuaAsync(maHoSo);
-            foreach (var pc in pcCu.Where(p => p.TrangThai is "Chờ xác nhận" or "Đã phân công" or "Xác nhận" or "Đang thực hiện"))
+            if (pcCu.Any(p => p.TrangThai == "Chờ xác nhận"))
+                return (false, "Quy trình đang chờ Xưởng xác nhận — không được đổi phân công / người ghi chép.");
+            foreach (var pc in pcCu.Where(p => p.TrangThai is "Đã phân công" or "Xác nhận" or "Đang thực hiện"))
                 pc.TrangThai = "Đã hủy";
 
             int? maPhanCongDau = null;
@@ -1225,11 +1240,15 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     NgayBatDauDuKien = dto.NgayBatDauDuKien,
                     NgayKetThucDuKien = dto.NgayKetThucDuKien,
                     TrangThai = "Đã phân công",
+                    LaNguoiGhiChep = maNv == maGhiChep,
                     NgayPhanCong = DateTime.Now
                 };
                 await _repo.AddPhanCongAsync(phanCong);
                 await _repo.SaveChangesAsync();
-                maPhanCongDau ??= phanCong.MaPhanCong;
+                if (phanCong.LaNguoiGhiChep)
+                    maPhanCongDau = phanCong.MaPhanCong;
+                else
+                    maPhanCongDau ??= phanCong.MaPhanCong;
             }
 
             hoSo.MaPhanCong = maPhanCongDau;
@@ -1259,10 +1278,8 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 return (false, "Hồ sơ đã kết thúc, không thể tiến hành.");
 
             var dsPc = await _repo.GetPhanCongTheoHoSoSuaChuaAsync(maHoSo);
-            var duocPc = dsPc.Any(p => p.MaNhanVienThucHien == nhanVien.MaNhanVien
-                && p.TrangThai is not ("Đã hủy" or "Hoàn thành"));
-            if (!duocPc)
-                return (false, "Bạn không được phân công hồ sơ này.");
+            if (!LaNguoiDuocGhiChep(dsPc, nhanVien.MaNhanVien))
+                return (false, "Chỉ người ghi chép quy trình mới được bấm Tiến hành sửa chữa.");
 
             // Đồng bộ tất cả phân công còn mở + hồ sơ → Đang thực hiện
             foreach (var pc in dsPc.Where(p => p.TrangThai is not ("Đã hủy" or "Hoàn thành")))
@@ -1296,10 +1313,8 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (hoSo.TrangThai is not ("Đang thực hiện" or "Chờ phân công" or "Đã duyệt" or "Từ chối" or "Chờ xác nhận"))
                 return (false, "Hồ sơ không ở trạng thái đang sửa chữa.");
 
-            var duocPc = dsPc.Any(p => p.MaNhanVienThucHien == nhanVien.MaNhanVien
-                && p.TrangThai is not "Đã hủy");
-            if (!duocPc)
-                return (false, "Bạn không được phân công hồ sơ này hoặc đã hoàn thành.");
+            if (!LaNguoiDuocGhiChep(dsPc, nhanVien.MaNhanVien))
+                return (false, "Chỉ người ghi chép quy trình mới được bấm Xong / gửi Xưởng.");
 
             // Xong → PC chờ Xưởng; HS giữ Đang thực hiện
             foreach (var pc in dsPc.Where(p => p.TrangThai is not ("Đã hủy" or "Hoàn thành")))
@@ -1614,6 +1629,35 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
             await _repo.SaveChangesAsync();
             return (true, null);
+        }
+
+        /// <summary>
+        /// Chọn đúng 1 người ghi chép trong danh sách NV được phân công.
+        /// 1 NV → auto; ≥2 → bắt buộc MaNhanVienGhiChep thuộc danh sách.
+        /// </summary>
+        private static (bool Ok, int MaGhiChep, string? Loi) ResolveNguoiGhiChep(
+            List<int> dsNv, int? maNhanVienGhiChep)
+        {
+            if (dsNv.Count == 0)
+                return (false, 0, "Vui lòng chọn ít nhất một nhân viên thực hiện.");
+            if (dsNv.Count == 1)
+                return (true, dsNv[0], null);
+            if (!maNhanVienGhiChep.HasValue || maNhanVienGhiChep.Value <= 0)
+                return (false, 0, "Vui lòng chọn đúng 1 người ghi chép quy trình (trong danh sách đã chọn).");
+            if (!dsNv.Contains(maNhanVienGhiChep.Value))
+                return (false, 0, "Người ghi chép phải nằm trong danh sách nhân viên được phân công.");
+            return (true, maNhanVienGhiChep.Value, null);
+        }
+
+        /// <summary>Chỉ người ghi chép (hoặc PC không có cờ — dữ liệu cũ) mới được Tiến hành / Xong.</summary>
+        private static bool LaNguoiDuocGhiChep(IEnumerable<PhanCongCongViec> dsPc, int maNhanVien)
+        {
+            var conHieuLuc = dsPc.Where(p => p.TrangThai is not ("Đã hủy" or "Hoàn thành")).ToList();
+            if (conHieuLuc.Count == 0) return false;
+            // Dữ liệu cũ chưa gán cờ → mọi NV được phân công vẫn làm được
+            if (!conHieuLuc.Any(p => p.LaNguoiGhiChep))
+                return conHieuLuc.Any(p => p.MaNhanVienThucHien == maNhanVien);
+            return conHieuLuc.Any(p => p.MaNhanVienThucHien == maNhanVien && p.LaNguoiGhiChep);
         }
 
     }

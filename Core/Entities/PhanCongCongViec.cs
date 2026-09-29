@@ -25,6 +25,11 @@ public partial class PhanCongCongViec
     /// Lý do từ chối nhận việc của nhân viên kỹ thuật (nếu có)
     public string? LyDoTuChoi { get; set; }
 
+    /// <summary>
+    /// true = người ghi chép quy trình (duy nhất / hồ sơ) — chỉ người này Tiến hành / Xong.
+    /// </summary>
+    public bool LaNguoiGhiChep { get; set; }
+
     public DateTime NgayPhanCong { get; set; }
 
     public virtual HoSoBaoTri? HoSoBaoTri { get; set; }

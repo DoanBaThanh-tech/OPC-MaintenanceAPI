@@ -546,18 +546,39 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 return (false, "Vui lòng nhập nội dung công việc.");
 
             // Cập nhật nội dung + thời lượng + giờ
+            // ThoiGianDuKien: "4" = 4 giờ · "90p" / "90 phút" = 90 phút (≤1440)
             hoSo.NoiDungCongViec = dto.NoiDungCongViec.Trim();
             if (dto.ThoiGianDuKien != null)
             {
                 var raw = dto.ThoiGianDuKien.Trim();
-                // Chỉ nhận số giờ thuần (có thể kèm "giờ")
-                var soStr = raw.Replace("giờ", "", StringComparison.OrdinalIgnoreCase).Trim();
-                if (!decimal.TryParse(soStr, System.Globalization.NumberStyles.Number,
-                        System.Globalization.CultureInfo.InvariantCulture, out var soGio) || soGio <= 0)
-                    return (false, "Giờ dự kiến phải là số dương lớn hơn 0.");
-                if (soGio > 24)
-                    return (false, "Bảo trì trong ngày — thời gian dự kiến tối đa 24 giờ.");
-                hoSo.ThoiGianDuKien = soGio.ToString("0.#");
+                var lower = raw.ToLowerInvariant();
+                var laPhut = lower.EndsWith("p")
+                             || lower.Contains("phút")
+                             || lower.Contains("phut");
+                var soStr = lower
+                    .Replace("phút", "", StringComparison.Ordinal)
+                    .Replace("phut", "", StringComparison.Ordinal)
+                    .Replace("giờ", "", StringComparison.Ordinal)
+                    .Replace("gio", "", StringComparison.Ordinal)
+                    .TrimEnd('p')
+                    .Trim();
+                if (!int.TryParse(soStr, System.Globalization.NumberStyles.Integer,
+                        System.Globalization.CultureInfo.InvariantCulture, out var so) || so <= 0)
+                    return (false, laPhut
+                        ? "Số phút dự kiến phải là số nguyên dương lớn hơn 0."
+                        : "Giờ dự kiến phải là số nguyên dương lớn hơn 0.");
+                if (laPhut)
+                {
+                    if (so > 1440)
+                        return (false, "Số phút không quá 1440 (tối đa 1 ngày).");
+                    hoSo.ThoiGianDuKien = so + "p";
+                }
+                else
+                {
+                    if (so > 24)
+                        return (false, "Số giờ không quá 24 (tối đa 1 ngày).");
+                    hoSo.ThoiGianDuKien = so.ToString();
+                }
             }
 
             if (!string.IsNullOrWhiteSpace(dto.GioBatDauDuKien) &&

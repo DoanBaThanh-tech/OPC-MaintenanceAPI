@@ -51,9 +51,18 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
                 var nam = chiTiet.NgayDuKienBaoTri.Year;
                 var thang = chiTiet.NgayDuKienBaoTri.Month;
-                if (await _repo.TonTaiHoSoBaoTriTheoThietBiThangAsync(dto.MaThietBi, nam, thang))
+                // Đã có BT hoặc SC trong tháng (kể cả đang mở / đã hoàn thành) → không tạo thêm
+                if (await _repo.TonTaiHoSoBtHoacScTrongThangAsync(dto.MaThietBi, nam, thang))
                     return (false,
-                        $"Thiết bị này đã có hồ sơ bảo trì trong tháng {thang}/{nam}. Không thể tạo thêm hồ sơ.");
+                        $"Thiết bị này đã có hồ sơ bảo trì hoặc sửa chữa trong tháng {thang}/{nam}. Không thể tạo thêm.");
+            }
+            else
+            {
+                // Không gắn chi tiết KH — vẫn chặn theo tháng tạo
+                var now = DateTime.Now;
+                if (await _repo.TonTaiHoSoBtHoacScTrongThangAsync(dto.MaThietBi, now.Year, now.Month))
+                    return (false,
+                        $"Thiết bị này đã có hồ sơ bảo trì hoặc sửa chữa trong tháng {now.Month}/{now.Year}. Không thể tạo thêm.");
             }
 
             TimeSpan? gioBatDau = null;
@@ -1046,6 +1055,12 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 return (false, "Thiết bị đang bảo trì — không thể tạo hồ sơ sửa chữa. Hoàn tất bảo trì trước.");
             if (ttTb == "Sửa chữa" || await _repo.CoHoSoSuaChuaDangMoAsync(dto.MaThietBi))
                 return (false, "Thiết bị đã có hồ sơ sửa chữa chưa hoàn thành — không thể tạo thêm.");
+
+            // Đã có BT hoặc SC trong tháng hiện tại → không tạo thêm SC
+            var nowSc = DateTime.Now;
+            if (await _repo.TonTaiHoSoBtHoacScTrongThangAsync(dto.MaThietBi, nowSc.Year, nowSc.Month))
+                return (false,
+                    $"Thiết bị này đã có hồ sơ bảo trì hoặc sửa chữa trong tháng {nowSc.Month}/{nowSc.Year}. Không thể tạo thêm hồ sơ sửa chữa.");
 
             // Gửi Tổ trưởng phân công (không qua GĐ)
             var trangThai = dto.GuiDuyet ? "Chờ phân công" : "Nháp";

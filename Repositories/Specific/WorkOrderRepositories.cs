@@ -51,6 +51,10 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         Task<List<PhanCongCongViec>> GetPhanCongCuaNhanVienAsync(int maNhanVien, string? loai, string? trangThaiPhanCong);
         /// <summary>Tất cả phân công gắn với một hồ sơ bảo trì (hỗ trợ nhiều NV).</summary>
         Task<List<PhanCongCongViec>> GetPhanCongTheoHoSoBaoTriAsync(int maHoSoBaoTri);
+        /// <summary>Đã có hồ sơ vật tư/quy trình gắn BT (NV đã vào tiến hành quy trình).</summary>
+        Task<bool> CoHoSoVatTuTheoHoSoBaoTriAsync(int maHoSoBaoTri);
+        /// <summary>Đã có hồ sơ vật tư/quy trình gắn SC.</summary>
+        Task<bool> CoHoSoVatTuTheoHoSoSuaChuaAsync(int maHoSoSuaChua);
         Task<HoSoBaoTri?> GetHoSoBaoTriByMaPhanCongAsync(int maPhanCong);
         Task<HoSoSuaChua?> GetHoSoSuaChuaByMaPhanCongAsync(int maPhanCong);
         void RemovePhanCong(PhanCongCongViec phanCong);
@@ -297,6 +301,12 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
                     || _context.HoSoBaoTris.Any(h => h.MaHoSoBaoTri == maHoSoBaoTri && h.MaPhanCong == p.MaPhanCong))
                 .ToListAsync();
         }
+
+        public async Task<bool> CoHoSoVatTuTheoHoSoBaoTriAsync(int maHoSoBaoTri) =>
+            await _context.HoSoSuDungVatTus.AnyAsync(h => h.MaHoSoBaoTri == maHoSoBaoTri);
+
+        public async Task<bool> CoHoSoVatTuTheoHoSoSuaChuaAsync(int maHoSoSuaChua) =>
+            await _context.HoSoSuDungVatTus.AnyAsync(h => h.MaHoSoSuaChua == maHoSoSuaChua);
 
         public async Task<HoSoBaoTri?> GetHoSoBaoTriByMaPhanCongAsync(int maPhanCong) =>
             await _context.HoSoBaoTris

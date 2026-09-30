@@ -367,6 +367,13 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             var pcDangMo = await _repo.GetPhanCongTheoHoSoBaoTriAsync(maHoSo);
             if (pcDangMo.Any(p => p.TrangThai == "Chờ xác nhận"))
                 return (false, "Quy trình đang chờ Xưởng xác nhận — không được đổi phân công / người ghi chép.");
+
+            // Người ghi chép đã tiến hành quy trình → không đổi / không bỏ khỏi phân công
+            var (okKhoaGc, loiKhoaGc) = await KiemTraKhoaNguoiGhiChepAsync(
+                pcDangMo, maGhiChep, dsNv, maHoSoBaoTri: maHoSo, maHoSoSuaChua: null);
+            if (!okKhoaGc)
+                return (false, loiKhoaGc);
+
             foreach (var pc in pcDangMo.Where(p => p.TrangThai is "Đã phân công" or "Xác nhận" or "Đang thực hiện"))
             {
                 pc.TrangThai = "Đã hủy";
@@ -1286,6 +1293,12 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             var pcCu = await _repo.GetPhanCongTheoHoSoSuaChuaAsync(maHoSo);
             if (pcCu.Any(p => p.TrangThai == "Chờ xác nhận"))
                 return (false, "Quy trình đang chờ Xưởng xác nhận — không được đổi phân công / người ghi chép.");
+
+            var (okKhoaGc, loiKhoaGc) = await KiemTraKhoaNguoiGhiChepAsync(
+                pcCu, maGhiChep, dsNv, maHoSoBaoTri: null, maHoSoSuaChua: maHoSo);
+            if (!okKhoaGc)
+                return (false, loiKhoaGc);
+
             foreach (var pc in pcCu.Where(p => p.TrangThai is "Đã phân công" or "Xác nhận" or "Đang thực hiện"))
                 pc.TrangThai = "Đã hủy";
 
@@ -1688,6 +1701,44 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             yc.NgayXacNhan = null;
 
             await _repo.SaveChangesAsync();
+            return (true, null);
+        }
+
+        /// <summary>
+        /// Khóa đổi người ghi chép khi đã tiến hành quy trình
+        /// (có hồ sơ vật tư, PC Đang thực hiện của người ghi chép).
+        /// </summary>
+        private async Task<(bool Ok, string? Loi)> KiemTraKhoaNguoiGhiChepAsync(
+            List<PhanCongCongViec> pcHienTai,
+            int maGhiChepMoi,
+            List<int> dsNvMoi,
+            int? maHoSoBaoTri,
+            int? maHoSoSuaChua)
+        {
+            var pcGhiChepCu = pcHienTai
+                .Where(p => p.LaNguoiGhiChep && p.TrangThai is not "Đã hủy")
+                .OrderByDescending(p => p.NgayPhanCong)
+                .FirstOrDefault();
+            if (pcGhiChepCu == null)
+                return (true, null);
+
+            var daVaoQuyTrinh =
+                pcHienTai.Any(p => p.TrangThai == "Chờ xác nhận")
+                || pcGhiChepCu.TrangThai is "Đang thực hiện" or "Xác nhận"
+                || (maHoSoBaoTri.HasValue && await _repo.CoHoSoVatTuTheoHoSoBaoTriAsync(maHoSoBaoTri.Value))
+                || (maHoSoSuaChua.HasValue && await _repo.CoHoSoVatTuTheoHoSoSuaChuaAsync(maHoSoSuaChua.Value));
+
+            if (!daVaoQuyTrinh)
+                return (true, null);
+
+            if (!dsNvMoi.Contains(pcGhiChepCu.MaNhanVienThucHien))
+                return (false,
+                    "Người ghi chép đã tiến hành quy trình — không được bỏ người đó khỏi phân công. Chỉ được cập nhật trước khi tiến hành quy trình.");
+
+            if (maGhiChepMoi != pcGhiChepCu.MaNhanVienThucHien)
+                return (false,
+                    "Người ghi chép đã tiến hành quy trình — không được đổi người ghi chép. Chỉ được cập nhật trước khi tiến hành quy trình.");
+
             return (true, null);
         }
 

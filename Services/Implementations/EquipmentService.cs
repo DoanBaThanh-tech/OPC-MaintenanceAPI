@@ -87,6 +87,10 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (dto.NgayLapDat == null)
                 return (false, "Vui lòng nhập Ngày lắp đặt.");
 
+            var homNay = DateOnly.FromDateTime(DateTime.Now);
+            if (dto.NgayLapDat.Value > homNay)
+                return (false, "Ngày lắp đặt không được ở tương lai. Vui lòng chọn ngày hợp lý (đã lắp đặt thực tế).");
+
             if (await _repo.ExistsAsync(dto.TenThietBi, dto.ViTriLapDat))
                 return (false, "Thiết bị này đã tồn tại trong danh sách.");
 
@@ -120,7 +124,13 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             {
                 thietBi.TenThietBi = dto.TenThietBi ?? thietBi.TenThietBi;
                 thietBi.LoaiThietBi = dto.LoaiThietBi ?? thietBi.LoaiThietBi;
-                thietBi.NgayLapDat = dto.NgayLapDat ?? thietBi.NgayLapDat;
+                if (dto.NgayLapDat.HasValue)
+                {
+                    var homNay = DateOnly.FromDateTime(DateTime.Now);
+                    if (dto.NgayLapDat.Value > homNay)
+                        return (false, "Ngày lắp đặt không được ở tương lai. Vui lòng chọn ngày hợp lý.");
+                    thietBi.NgayLapDat = dto.NgayLapDat.Value;
+                }
             }
 
             await _repo.SaveChangesAsync();

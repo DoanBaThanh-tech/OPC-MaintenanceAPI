@@ -108,12 +108,27 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
                 && c.NgayDuKienBaoTri.Year == nam
                 && c.NgayDuKienBaoTri.Month == thang);
 
-        public async Task<bool> TonTaiHoSoBaoTriTheoThietBiThangAsync(int maThietBi, int nam, int thang) =>
-            await _context.ChiTietKeHoachBaoTris.AnyAsync(c =>
+        public async Task<bool> TonTaiHoSoBaoTriTheoThietBiThangAsync(int maThietBi, int nam, int thang)
+        {
+            // Có chi tiết KH gắn hồ sơ trong tháng (mọi trạng thái trừ hủy/nháp)
+            var theoKeHoach = await _context.ChiTietKeHoachBaoTris.AnyAsync(c =>
                 c.MaThietBi == maThietBi
                 && c.NgayDuKienBaoTri.Year == nam
                 && c.NgayDuKienBaoTri.Month == thang
-                && c.MaHoSoBaoTri != null);
+                && c.MaHoSoBaoTri != null
+                && c.MaHoSoBaoTriNavigation != null
+                && c.MaHoSoBaoTriNavigation.TrangThai != "Đã hủy"
+                && c.MaHoSoBaoTriNavigation.TrangThai != "Nháp");
+            if (theoKeHoach) return true;
+
+            // Fallback: hồ sơ BT theo ngày tạo (kể cả Từ chối)
+            return await _context.HoSoBaoTris.AnyAsync(h =>
+                h.MaThieBi == maThietBi
+                && h.NgayTao.Year == nam
+                && h.NgayTao.Month == thang
+                && h.TrangThai != "Đã hủy"
+                && h.TrangThai != "Nháp");
+        }
 
         public Task<ThietBi?> GetThietBiAsync(int maThietBi) =>
             _context.ThietBis.Include(t => t.MaChuKyNavigation)

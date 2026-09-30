@@ -28,6 +28,10 @@ namespace OPC.MaintenanceAPI.Services.Interfaces
         Task<(bool, string?)> XuongGuiGiamDocAsync(int id, int maNguoiDungXuong, XuongGuiGiamDocDto dto);
         /// <summary>NVKT bấm Hoàn thành — đồng bộ tất cả phân công cùng hồ sơ.</summary>
         Task<(bool, string?)> NhanVienHoanThanhBaoTriAsync(int maHoSo, int maNguoiDung);
+        /// <summary>NVKT bấm Tiến hành quy trình bảo trì — ghi nhận thời điểm bắt đầu thực tế.</summary>
+        Task<(bool, string?)> NhanVienBatDauBaoTriAsync(int maHoSo, int maNguoiDung);
+        /// <summary>Danh sách tháng trong năm đã có hồ sơ BT của thiết bị.</summary>
+        Task<object> GetThangCoBaoTriTheoThietBiAsync(int maThietBi, int nam);
 
         /// Danh sách yêu cầu được phân công cho NVKT đang đăng nhập (Bảo trì / Sửa chữa)
         Task<List<object>> GetYeuCauCuaNhanVienAsync(int maNguoiDung, string? loai = null, string? trangThaiPhanCong = null);

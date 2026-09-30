@@ -566,15 +566,28 @@ public partial class OPCDbContext : DbContext
 
         modelBuilder.Entity<VatTu>(entity =>
         {
-            entity.HasKey(e => e.MaVatTu).HasName("PK__VatTu__0BD27B6A874DA6D3");
+            entity.HasKey(e => e.MaVatTu)
+                .HasName("PK__VatTu__0BD27B6A874DA6D3");
 
             entity.ToTable("VatTu");
 
-            entity.HasIndex(e => new { e.SoLuongTonKho, e.MucTonKhoToiThieu }, "IX_VatTu_TonKho");
+            entity.HasIndex(e => new
+            {
+                e.SoLuongTonKho,
+                e.MucTonKhoToiThieu
+            }, "IX_VatTu_TonKho");
 
-            entity.Property(e => e.DonViTinh).HasMaxLength(30);
-            entity.Property(e => e.GhiChu).HasMaxLength(255);
-            entity.Property(e => e.TenVatTu).HasMaxLength(150);
+            entity.Property(e => e.DonViTinh)
+                .HasMaxLength(30);
+
+            entity.Property(e => e.GhiChu)
+                .HasMaxLength(255);
+
+            entity.Property(e => e.TenVatTu)
+                .HasMaxLength(150);
+
+            entity.Property(e => e.DonGia)
+                .HasPrecision(18, 2);
         });
 
 

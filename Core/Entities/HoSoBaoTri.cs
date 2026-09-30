@@ -26,11 +26,17 @@ public partial class HoSoBaoTri
 
     public string? ThoiGianDuKien { get; set; }
 
-    /// <summary>Giờ bắt đầu dự kiến (chỉ phần giờ).</summary>
+    /// <summary>Giờ bắt đầu dự kiến (chỉ phần giờ) — legacy.</summary>
     public TimeSpan? GioBatDauDuKien { get; set; }
 
-    /// <summary>Giờ kết thúc dự kiến (chỉ phần giờ).</summary>
+    /// <summary>Giờ kết thúc dự kiến (chỉ phần giờ) — legacy.</summary>
     public TimeSpan? GioKetThucDuKien { get; set; }
+
+    /// <summary>Thời điểm NV bấm Tiến hành quy trình lần đầu.</summary>
+    public DateTime? ThoiDiemBatDauThucTe { get; set; }
+
+    /// <summary>Thời điểm hồ sơ chuyển Hoàn thành.</summary>
+    public DateTime? ThoiDiemKetThucThucTe { get; set; }
 
     public DateTime NgayTao { get; set; }
 

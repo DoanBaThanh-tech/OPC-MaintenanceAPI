@@ -26,6 +26,12 @@ public partial class HoSoSuaChua
 
     public TimeSpan? GioKetThucDuKien { get; set; }
 
+    /// <summary>Thời điểm NV bấm Tiến hành quy trình lần đầu.</summary>
+    public DateTime? ThoiDiemBatDauThucTe { get; set; }
+
+    /// <summary>Thời điểm hồ sơ chuyển Hoàn thành.</summary>
+    public DateTime? ThoiDiemKetThucThucTe { get; set; }
+
     public DateTime NgayTao { get; set; }
 
     public string TrangThai { get; set; } = null!;

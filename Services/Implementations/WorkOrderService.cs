@@ -204,7 +204,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
         /// <summary>
         /// Ngày dự kiến khi sửa (Xưởng / sau GĐ từ chối):
-        /// - Phải thuộc đúng tháng/năm kế hoạch ban đầu (không chuyển T10 → T9).
+        /// - Cùng năm kế hoạch; tháng ≥ tháng kế hoạch gốc (T10 → T11/T12 được, T9 không).
         /// - Phải lớn hơn ngày tạo hồ sơ (phần ngày).
         /// - Không được ở quá khứ.
         /// </summary>
@@ -220,12 +220,15 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     $"Ngày dự kiến bảo trì ({ngayMoi:dd/MM/yyyy}) phải lớn hơn ngày tạo hồ sơ ({ngayTaoOnly:dd/MM/yyyy}). " +
                     "Không được đặt trùng hoặc trước ngày tạo.");
 
-            if (ngayMoi.Month != ngayDuKienCu.Month || ngayMoi.Year != ngayDuKienCu.Year)
+            if (ngayMoi.Year != ngayDuKienCu.Year)
                 return (false,
-                    $"Hồ sơ đang lập bảo trì cho tháng {ngayDuKienCu.Month}/{ngayDuKienCu.Year}. " +
-                    $"Không được chuyển ngày dự kiến sang tháng {ngayMoi.Month}/{ngayMoi.Year} " +
-                    $"(ví dụ không được sửa về ngày tạo trong tháng {ngayTaoOnly.Month}). " +
-                    "Chỉ được chọn ngày khác trong đúng tháng kế hoạch.");
+                    $"Chỉ được chọn ngày trong năm kế hoạch {ngayDuKienCu.Year}.");
+
+            if (ngayMoi.Month < ngayDuKienCu.Month)
+                return (false,
+                    $"Kế hoạch gốc tháng {ngayDuKienCu.Month}/{ngayDuKienCu.Year}. " +
+                    $"Chỉ được chọn từ tháng {ngayDuKienCu.Month} trở đi trong năm {ngayDuKienCu.Year} " +
+                    $"(không được chọn tháng {ngayMoi.Month}).");
 
             return (true, null);
         }
@@ -396,16 +399,13 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     NgayBatDauDuKien = dto.NgayBatDauDuKien,
                     NgayKetThucDuKien = dto.NgayKetThucDuKien,
                     TrangThai = "Đã phân công",
-                    LaNguoiGhiChep = maNv == maGhiChep,
+                    // Mọi NV được phân công đều được Tiến hành quy trình
+                    LaNguoiGhiChep = true,
                     NgayPhanCong = DateTime.Now
                 };
                 await _repo.AddPhanCongAsync(phanCong);
                 await _repo.SaveChangesAsync();
-                // PC người ghi chép ưu tiên gắn HS.MaPhanCong
-                if (phanCong.LaNguoiGhiChep)
-                    maPhanCongDau = phanCong.MaPhanCong;
-                else
-                    maPhanCongDau ??= phanCong.MaPhanCong;
+                maPhanCongDau ??= phanCong.MaPhanCong;
             }
 
             // Giữ MaPhanCong (1) để tương thích code cũ; danh sách đầy đủ qua MaHoSoBaoTri
@@ -837,6 +837,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 {
                     // Xưởng xác nhận → Hoàn thành (đồng bộ HS + PC + chi tiết)
                     hoSo.TrangThai = "Đã hoàn thành";
+                    GhiNhanKetThucThucTe(hoSo);
                     hoSo.LyDoTuChoi = null;
                     if (chiTiet != null) chiTiet.TrangThai = "Đã hoàn thành";
                     foreach (var pc in dsPc.Where(p => p.TrangThai is not "Đã hủy"))
@@ -886,6 +887,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 if (xacNhan)
                 {
                     hoSo.TrangThai = "Đã hoàn thành";
+                    GhiNhanKetThucThucTe(hoSo);
                     hoSo.LyDoTuChoi = null;
                     foreach (var pc in dsPc.Where(p => p.TrangThai is not "Đã hủy"))
                     {
@@ -1041,6 +1043,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             }
 
             hoSo.TrangThai = "Đã hoàn thành";
+            GhiNhanKetThucThucTe(hoSo);
             if (chiTiet != null)
                 chiTiet.TrangThai = "Đã hoàn thành";
 
@@ -1206,6 +1209,8 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 GioKetThucDuKien = h.GioKetThucDuKien == null
                     ? null
                     : $"{(int)h.GioKetThucDuKien.Value.TotalHours:D2}:{h.GioKetThucDuKien.Value.Minutes:D2}",
+                ThoiDiemBatDauThucTe = h.ThoiDiemBatDauThucTe,
+                ThoiDiemKetThucThucTe = h.ThoiDiemKetThucThucTe,
                 h.TrangThai,
                 h.LyDoTuChoi,
                 h.NgayTao,
@@ -1313,15 +1318,13 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     NgayBatDauDuKien = dto.NgayBatDauDuKien,
                     NgayKetThucDuKien = dto.NgayKetThucDuKien,
                     TrangThai = "Đã phân công",
-                    LaNguoiGhiChep = maNv == maGhiChep,
+                    // Mọi NV được phân công đều được Tiến hành quy trình
+                    LaNguoiGhiChep = true,
                     NgayPhanCong = DateTime.Now
                 };
                 await _repo.AddPhanCongAsync(phanCong);
                 await _repo.SaveChangesAsync();
-                if (phanCong.LaNguoiGhiChep)
-                    maPhanCongDau = phanCong.MaPhanCong;
-                else
-                    maPhanCongDau ??= phanCong.MaPhanCong;
+                maPhanCongDau ??= phanCong.MaPhanCong;
             }
 
             hoSo.MaPhanCong = maPhanCongDau;
@@ -1352,13 +1355,20 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
             var dsPc = await _repo.GetPhanCongTheoHoSoSuaChuaAsync(maHoSo);
             if (!LaNguoiDuocGhiChep(dsPc, nhanVien.MaNhanVien))
-                return (false, "Chỉ người ghi chép quy trình mới được bấm Tiến hành sửa chữa.");
+                return (false, "Bạn không được phân công trên hồ sơ này.");
 
             // Đồng bộ tất cả phân công còn mở + hồ sơ → Đang thực hiện
             foreach (var pc in dsPc.Where(p => p.TrangThai is not ("Đã hủy" or "Hoàn thành")))
                 pc.TrangThai = "Đang thực hiện";
 
             hoSo.TrangThai = "Đang thực hiện";
+            // Ghi nhận thời điểm bắt đầu thực tế lần đầu
+            if (hoSo.ThoiDiemBatDauThucTe == null)
+            {
+                var now = DateTime.Now;
+                hoSo.ThoiDiemBatDauThucTe = now;
+                hoSo.GioBatDauDuKien = now.TimeOfDay;
+            }
             if (hoSo.MaThieBiNavigation != null)
                 hoSo.MaThieBiNavigation.TinhTrangHienTai = "Sửa chữa";
 
@@ -1422,6 +1432,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             }
 
             hoSo.TrangThai = "Đã hoàn thành";
+            GhiNhanKetThucThucTe(hoSo);
             // Hoàn thành sửa chữa → trở về Sản xuất
             if (hoSo.MaThieBiNavigation != null)
                 hoSo.MaThieBiNavigation.TinhTrangHienTai = "Sản xuất";
@@ -1509,6 +1520,8 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 h.ThoiGianDuKien,
                 GioBatDauDuKien = FmtGio(h.GioBatDauDuKien),
                 GioKetThucDuKien = FmtGio(h.GioKetThucDuKien),
+                ThoiDiemBatDauThucTe = h.ThoiDiemBatDauThucTe,
+                ThoiDiemKetThucThucTe = h.ThoiDiemKetThucThucTe,
                 h.TrangThai,
                 h.LyDoTuChoi,
                 h.NgayTao,
@@ -1760,15 +1773,103 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             return (true, maNhanVienGhiChep.Value, null);
         }
 
-        /// <summary>Chỉ người ghi chép (hoặc PC không có cờ — dữ liệu cũ) mới được Tiến hành / Xong.</summary>
+        /// <summary>Mọi NV còn phân công hiệu lực đều được Tiến hành / Xong (không còn chỉ người ghi chép).</summary>
         private static bool LaNguoiDuocGhiChep(IEnumerable<PhanCongCongViec> dsPc, int maNhanVien)
         {
             var conHieuLuc = dsPc.Where(p => p.TrangThai is not ("Đã hủy" or "Hoàn thành")).ToList();
             if (conHieuLuc.Count == 0) return false;
-            // Dữ liệu cũ chưa gán cờ → mọi NV được phân công vẫn làm được
-            if (!conHieuLuc.Any(p => p.LaNguoiGhiChep))
-                return conHieuLuc.Any(p => p.MaNhanVienThucHien == maNhanVien);
-            return conHieuLuc.Any(p => p.MaNhanVienThucHien == maNhanVien && p.LaNguoiGhiChep);
+            return conHieuLuc.Any(p => p.MaNhanVienThucHien == maNhanVien);
+        }
+
+        private static string FormatThoiLuongThucTe(DateTime batDau, DateTime ketThuc)
+        {
+            var span = ketThuc - batDau;
+            if (span < TimeSpan.Zero) span = TimeSpan.Zero;
+            var h = (int)span.TotalHours;
+            return $"{h} giờ {span.Minutes} phút {span.Seconds} giây";
+        }
+
+        private static void GhiNhanKetThucThucTe(HoSoBaoTri hoSo)
+        {
+            var now = DateTime.Now;
+            if (hoSo.ThoiDiemKetThucThucTe == null)
+                hoSo.ThoiDiemKetThucThucTe = now;
+            hoSo.GioKetThucDuKien = hoSo.ThoiDiemKetThucThucTe.Value.TimeOfDay;
+            if (hoSo.ThoiDiemBatDauThucTe != null)
+            {
+                hoSo.ThoiGianDuKien = FormatThoiLuongThucTe(
+                    hoSo.ThoiDiemBatDauThucTe.Value, hoSo.ThoiDiemKetThucThucTe.Value);
+                hoSo.GioBatDauDuKien = hoSo.ThoiDiemBatDauThucTe.Value.TimeOfDay;
+            }
+        }
+
+        private static void GhiNhanKetThucThucTe(HoSoSuaChua hoSo)
+        {
+            var now = DateTime.Now;
+            if (hoSo.ThoiDiemKetThucThucTe == null)
+                hoSo.ThoiDiemKetThucThucTe = now;
+            hoSo.GioKetThucDuKien = hoSo.ThoiDiemKetThucThucTe.Value.TimeOfDay;
+            if (hoSo.ThoiDiemBatDauThucTe != null)
+            {
+                hoSo.ThoiGianDuKien = FormatThoiLuongThucTe(
+                    hoSo.ThoiDiemBatDauThucTe.Value, hoSo.ThoiDiemKetThucThucTe.Value);
+                hoSo.GioBatDauDuKien = hoSo.ThoiDiemBatDauThucTe.Value.TimeOfDay;
+            }
+        }
+
+        /// <summary>NVKT bấm Tiến hành quy trình bảo trì — ghi nhận thời điểm bắt đầu lần đầu.</summary>
+        public async Task<(bool, string?)> NhanVienBatDauBaoTriAsync(int maHoSo, int maNguoiDung)
+        {
+            var nhanVien = await _nhanVienRepo.GetByMaNguoiDungAsync(maNguoiDung);
+            if (nhanVien == null) return (false, "Không xác định được nhân viên.");
+            var hoSo = await _repo.GetHoSoBaoTriByIdAsync(maHoSo);
+            if (hoSo == null) return (false, "Không tìm thấy hồ sơ.");
+            if (hoSo.TrangThai is "Đã hoàn thành" or "Đã hủy" or "Từ chối")
+                return (false, "Hồ sơ đã kết thúc, không thể tiến hành.");
+
+            var dsPc = await _repo.GetPhanCongTheoHoSoBaoTriAsync(maHoSo);
+            if (!LaNguoiDuocGhiChep(dsPc, nhanVien.MaNhanVien))
+                return (false, "Bạn không được phân công trên hồ sơ này.");
+
+            if (hoSo.ThoiDiemBatDauThucTe == null)
+            {
+                var now = DateTime.Now;
+                hoSo.ThoiDiemBatDauThucTe = now;
+                hoSo.GioBatDauDuKien = now.TimeOfDay;
+            }
+            foreach (var pc in dsPc.Where(p => p.TrangThai is "Đã phân công" or "Xác nhận"))
+                pc.TrangThai = "Đang thực hiện";
+            if (hoSo.TrangThai is "Đã duyệt")
+                hoSo.TrangThai = "Đang thực hiện";
+
+            await _repo.SaveChangesAsync();
+            return (true, null);
+        }
+
+        /// <summary>Danh sách tháng trong năm đã có hồ sơ BT (không hủy) của thiết bị.</summary>
+        public async Task<object> GetThangCoBaoTriTheoThietBiAsync(int maThietBi, int nam)
+        {
+            var list = await _repo.GetHoSoBaoTriByTrangThaiAsync(null);
+            var thang = list
+                .Where(h => h.MaThieBi == maThietBi && h.TrangThai != "Đã hủy" && h.TrangThai != "Nháp")
+                .Select(h =>
+                {
+                    var ct = h.ChiTietKeHoachBaoTri;
+                    var m = ct?.NgayDuKienBaoTri.Month;
+                    var y = ct?.NgayDuKienBaoTri.Year ?? h.NgayTao.Year;
+                    return (Thang: m, Nam: y, h.MaHoSoBaoTri, h.TrangThai);
+                })
+                .Where(x => x.Nam == nam && x.Thang != null)
+                .GroupBy(x => x.Thang!.Value)
+                .Select(g => new
+                {
+                    Thang = g.Key,
+                    SoHoSo = g.Count(),
+                    TrangThais = g.Select(x => x.TrangThai).Distinct().ToList()
+                })
+                .OrderBy(x => x.Thang)
+                .ToList();
+            return new { Nam = nam, MaThietBi = maThietBi, DanhSachThang = thang };
         }
 
     }

@@ -177,6 +177,25 @@ namespace OPC.MaintenanceAPI.Controllers
             return Result(await _service.PhanCongBaoTriAsync(id, maNguoiDung, dto));
         }
 
+        /// <summary>NVKT bấm Tiến hành quy trình bảo trì — ghi nhận thời điểm bắt đầu thực tế.</summary>
+        [HttpPut("bao-tri/{id}/tien-hanh")]
+        [Authorize(Roles = "Nhân viên kỹ thuật")]
+        public async Task<IActionResult> TienHanhBaoTri(int id)
+        {
+            var claim = User.FindFirst("MaNguoiDung")?.Value;
+            if (claim == null || !int.TryParse(claim, out var maNguoiDung))
+                return Unauthorized();
+            return Result(await _service.NhanVienBatDauBaoTriAsync(id, maNguoiDung));
+        }
+
+        /// <summary>Danh sách tháng trong năm đã có hồ sơ BT của thiết bị (gợi ý khi chọn ngày).</summary>
+        [HttpGet("thiet-bi/{maThietBi}/thang-co-bao-tri")]
+        public async Task<IActionResult> ThangCoBaoTri(int maThietBi, [FromQuery] int? nam = null)
+        {
+            var y = nam ?? DateTime.Now.Year;
+            return Ok(await _service.GetThangCoBaoTriTheoThietBiAsync(maThietBi, y));
+        }
+
         [HttpPut("bao-tri/{id}/xac-nhan")]
         public async Task<IActionResult> XacNhanBaoTri(int id, XacNhanDto dto) => Result(await _service.XacNhanHoanThanhBaoTriAsync(id, dto));
 

@@ -43,8 +43,9 @@ namespace OPC.MaintenanceAPI.DTOs.WorkOrder
         /// </summary>
         public int? MaNhanVienGhiChep { get; set; }
         public int MaNhanVienPhanCong { get; set; }
-        public DateTime NgayBatDauDuKien { get; set; }
-        public DateTime NgayKetThucDuKien { get; set; }
+        /// <summary>Không bắt buộc — giờ thực tế ghi nhận khi NVKT Tiến hành / hoàn thành quy trình.</summary>
+        public DateTime? NgayBatDauDuKien { get; set; }
+        public DateTime? NgayKetThucDuKien { get; set; }
     }
 
     public class GhiNhanKetQuaDto

@@ -437,7 +437,9 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (await _repo.ThietBiDangTrongQuyTrinhKhacAsync(hoSo.MaThieBi, "BaoTri", maHoSo))
                 return (false, "Thiết bị này đang trong quy trình bảo trì/sửa chữa khác, không thể phân công.");
 
-            if (dto.NgayKetThucDuKien < dto.NgayBatDauDuKien)
+            // Không bắt buộc ngày/giờ dự kiến khi phân công
+            if (dto.NgayBatDauDuKien.HasValue && dto.NgayKetThucDuKien.HasValue &&
+                dto.NgayKetThucDuKien < dto.NgayBatDauDuKien)
                 return (false, "Ngày kết thúc không được trước ngày bắt đầu.");
 
             int? maPhanCongDau = null;
@@ -1356,7 +1358,9 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (!okGhiChep)
                 return (false, loiGhiChep);
 
-            if (dto.NgayKetThucDuKien < dto.NgayBatDauDuKien)
+            // Không bắt buộc ngày/giờ dự kiến khi phân công
+            if (dto.NgayBatDauDuKien.HasValue && dto.NgayKetThucDuKien.HasValue &&
+                dto.NgayKetThucDuKien < dto.NgayBatDauDuKien)
                 return (false, "Ngày kết thúc không được trước ngày bắt đầu.");
 
             // Hủy mềm PC cũ — không đổi khi đang chờ Xưởng

@@ -126,7 +126,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (!string.IsNullOrWhiteSpace(dto.GioKetThucDuKien) && TimeSpan.TryParse(dto.GioKetThucDuKien, out var gkt))
                 gioKetThuc = gkt;
 
-            // Tạo ở "Chờ gửi" — Tổ trưởng bấm Gửi đến xưởng khi sẵn sàng
+            // Tạo xong gửi thẳng xưởng — trạng thái Chờ duyệt
             var hoSo = new HoSoBaoTri
             {
                 MaThieBi = dto.MaThietBi,
@@ -138,7 +138,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 GioBatDauDuKien = gioBatDau,
                 GioKetThucDuKien = gioKetThuc,
                 NgayTao = DateTime.Now,
-                TrangThai = "Chờ gửi"
+                TrangThai = "Chờ duyệt"
             };
             await _repo.AddHoSoBaoTriAsync(hoSo);
             await _repo.SaveChangesAsync(); // có MaHoSoBaoTri

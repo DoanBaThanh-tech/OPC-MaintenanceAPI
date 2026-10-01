@@ -72,8 +72,8 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (!string.IsNullOrWhiteSpace(dto.GioKetThucDuKien) && TimeSpan.TryParse(dto.GioKetThucDuKien, out var gkt))
                 gioKetThuc = gkt;
 
-            // Tạo mới luôn ở "Chờ gửi"; Tổ trưởng gửi xưởng sau (tránh gửi sớm)
-            var trangThai = "Chờ gửi";
+            // Tạo xong gửi thẳng xưởng — Chờ duyệt
+            var trangThai = "Chờ duyệt";
 
             var hoSo = new HoSoBaoTri
             {

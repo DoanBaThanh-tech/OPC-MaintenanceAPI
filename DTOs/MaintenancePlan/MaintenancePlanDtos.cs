@@ -83,4 +83,34 @@ public class ThemThietBiVaoNamDto
         public string? GioBatDauDuKien { get; set; }
         public string? GioKetThucDuKien { get; set; }
     }
+
+    /// <summary>Thiết bị đến hạn / trễ hạn bảo trì trong tháng (chưa có HS BT tháng đó).</summary>
+    public class HangChoDenHanDto
+    {
+        public int MaThietBi { get; set; }
+        public string TenThietBi { get; set; } = "";
+        public string? LoaiThietBi { get; set; }
+        public int SoThangChuKy { get; set; }
+        public DateOnly? NgayBaoTriGanNhat { get; set; }
+        public DateOnly NgayDenHan { get; set; }
+        /// <summary>Đến hạn | Trễ hạn</summary>
+        public string TrangThaiHan { get; set; } = "Đến hạn";
+    }
+
+    public class TaoHangLoatBaoTriDto
+    {
+        public int Nam { get; set; }
+        public int Thang { get; set; }
+        /// <summary>Danh sách mã thiết bị cần tạo HS BT trong tháng.</summary>
+        public List<int> DanhSachMaThietBi { get; set; } = new();
+        /// <summary>Nội dung công việc chung (áp dụng mọi HS tạo hàng loạt).</summary>
+        public string? NoiDungCongViec { get; set; }
+    }
+
+    public class TaoHangLoatBaoTriKetQuaDto
+    {
+        public int SoThanhCong { get; set; }
+        public int SoBoQua { get; set; }
+        public List<string> ChiTietLoi { get; set; } = new();
+    }
 }

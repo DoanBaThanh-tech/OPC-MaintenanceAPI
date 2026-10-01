@@ -111,6 +111,28 @@ namespace OPC.MaintenanceAPI.Controllers
             return Result(await _service.TaoHoSoBaoTriAsync(maNguoiDung, dto));
         }
 
+        /// <summary>Tổ trưởng: Chờ gửi → Chờ duyệt (gửi xưởng).</summary>
+        [Authorize(Roles = "Tổ trưởng cơ điện,Tổ trưởng kỹ thuật")]
+        [HttpPut("bao-tri/{id}/gui-den-xuong")]
+        public async Task<IActionResult> GuiDenXuong(int id)
+        {
+            var claim = User.FindFirst("MaNguoiDung")?.Value;
+            if (claim == null || !int.TryParse(claim, out var maNguoiDung))
+                return Unauthorized();
+            return Result(await _service.GuiDenXuongAsync(id, maNguoiDung));
+        }
+
+        /// <summary>Tổ trưởng sửa ngày/nội dung khi còn Chờ gửi.</summary>
+        [Authorize(Roles = "Tổ trưởng cơ điện,Tổ trưởng kỹ thuật")]
+        [HttpPut("bao-tri/{id}/cho-gui")]
+        public async Task<IActionResult> CapNhatChoGui(int id, CapNhatHoSoBaoTriDto dto)
+        {
+            var claim = User.FindFirst("MaNguoiDung")?.Value;
+            if (claim == null || !int.TryParse(claim, out var maNguoiDung))
+                return Unauthorized();
+            return Result(await _service.CapNhatHoSoChoGuiAsync(id, maNguoiDung, dto));
+        }
+
         /// <summary>Xưởng lưu chỉnh sửa hồ sơ (Chờ duyệt).</summary>
         [Authorize(Roles = "Xưởng,Tổ trưởng sản xuất")]
         [HttpPut("bao-tri/{id}/xuong-luu")]

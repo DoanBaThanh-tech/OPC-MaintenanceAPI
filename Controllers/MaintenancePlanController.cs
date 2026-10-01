@@ -76,5 +76,33 @@ namespace OPC.MaintenanceAPI.Controllers
         [HttpGet("nam-da-lap")]
         public async Task<IActionResult> GetNamDaLap() =>
             Ok((await _service.GetAllKeHoachAsync()).Select(k => k.Nam).Distinct().OrderByDescending(n => n));
+
+        /// <summary>Hàng chờ thiết bị đến hạn / trễ hạn bảo trì trong tháng (chưa có HS).</summary>
+        [HttpGet("hang-cho-den-han")]
+        public async Task<IActionResult> GetHangChoDenHan([FromQuery] int nam, [FromQuery] int thang)
+        {
+            if (nam < 2000 || thang < 1 || thang > 12)
+                return BadRequest(new { Message = "Năm/tháng không hợp lệ." });
+            return Ok(await _service.GetHangChoDenHanAsync(nam, thang));
+        }
+
+        /// <summary>Tạo hồ sơ bảo trì hàng loạt cho nhiều thiết bị trong 1 tháng.</summary>
+        [HttpPost("tao-hang-loat")]
+        public async Task<IActionResult> TaoHangLoat([FromBody] TaoHangLoatBaoTriDto dto)
+        {
+            var claim = User.FindFirst("MaNguoiDung")?.Value;
+            if (claim == null || !int.TryParse(claim, out var maNguoiDung))
+                return Unauthorized();
+
+            var (ok, loi, ketQua) = await _service.TaoHangLoatBaoTriAsync(maNguoiDung, dto);
+            if (!ok)
+                return BadRequest(new { Message = loi, loi, ketQua });
+            return Ok(new
+            {
+                Message = $"Đã tạo {ketQua?.SoThanhCong ?? 0} hồ sơ bảo trì"
+                    + ((ketQua?.SoBoQua ?? 0) > 0 ? $", bỏ qua {ketQua!.SoBoQua}." : "."),
+                ketQua
+            });
+        }
     }
 }

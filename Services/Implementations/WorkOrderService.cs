@@ -72,8 +72,8 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (!string.IsNullOrWhiteSpace(dto.GioKetThucDuKien) && TimeSpan.TryParse(dto.GioKetThucDuKien, out var gkt))
                 gioKetThuc = gkt;
 
-            // GuiDuyet = true → gửi xưởng xem lịch, trạng thái vẫn Chờ duyệt (GĐ duyệt sau)
-            var trangThai = dto.GuiDuyet ? "Chờ duyệt" : "Nháp";
+            // Tạo mới luôn ở "Chờ gửi"; Tổ trưởng gửi xưởng sau (tránh gửi sớm)
+            var trangThai = "Chờ gửi";
 
             var hoSo = new HoSoBaoTri
             {
@@ -161,6 +161,63 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             return (true, null);
         }
 
+        /// <summary>Tổ trưởng gửi hồ sơ Chờ gửi → Chờ duyệt (xưởng nhận).</summary>
+        public async Task<(bool, string?)> GuiDenXuongAsync(int id, int maNguoiDung)
+        {
+            var hoSo = await _repo.GetHoSoBaoTriByIdAsync(id);
+            if (hoSo == null) return (false, "Không tìm thấy hồ sơ.");
+            if (hoSo.TrangThai != "Chờ gửi")
+                return (false, "Chỉ gửi được hồ sơ đang ở trạng thái Chờ gửi.");
+
+            hoSo.TrangThai = "Chờ duyệt";
+            var chiTiet = await _repo.GetChiTietKeHoachByHoSoBaoTriAsync(hoSo.MaHoSoBaoTri);
+            if (chiTiet != null)
+                chiTiet.TrangThai = "Chờ duyệt";
+
+            await _repo.SaveChangesAsync();
+            return (true, null);
+        }
+
+        /// <summary>Tổ trưởng sửa ngày/nội dung khi hồ sơ còn Chờ gửi.</summary>
+        public async Task<(bool, string?)> CapNhatHoSoChoGuiAsync(int id, int maNguoiDung, CapNhatHoSoBaoTriDto dto)
+        {
+            var hoSo = await _repo.GetHoSoBaoTriByIdAsync(id);
+            if (hoSo == null) return (false, "Không tìm thấy hồ sơ.");
+            if (hoSo.TrangThai != "Chờ gửi")
+                return (false, "Chỉ chỉnh sửa được hồ sơ đang Chờ gửi.");
+
+            if (dto.NoiDungCongViec != null)
+                hoSo.NoiDungCongViec = dto.NoiDungCongViec;
+
+            if (dto.NgayDuKienBaoTri.HasValue)
+            {
+                var chiTiet = await _repo.GetChiTietKeHoachByHoSoBaoTriAsync(hoSo.MaHoSoBaoTri);
+                if (chiTiet != null)
+                {
+                    var ngayMoi = dto.NgayDuKienBaoTri.Value;
+                    var ngayGoc = chiTiet.NgayDuKienBaoTri;
+                    if (ngayMoi.Year != ngayGoc.Year)
+                        return (false, $"Chỉ được chọn ngày trong năm kế hoạch {ngayGoc.Year}.");
+
+                    if (ngayMoi.Month != ngayGoc.Month || ngayMoi.Year != ngayGoc.Year)
+                    {
+                        var trung = await _repo.TonTaiChiTietHoacHoSoThietBiThangKhacAsync(
+                            hoSo.MaThieBi, ngayMoi.Year, ngayMoi.Month,
+                            excludeMaChiTiet: chiTiet.MaChiTietKeHoach,
+                            excludeMaHoSo: hoSo.MaHoSoBaoTri);
+                        if (trung)
+                            return (false,
+                                $"Thiết bị đã có hồ sơ/kế hoạch bảo trì trong tháng {ngayMoi.Month}/{ngayMoi.Year}.");
+                    }
+
+                    chiTiet.NgayDuKienBaoTri = ngayMoi;
+                }
+            }
+
+            await _repo.SaveChangesAsync();
+            return (true, null);
+        }
+
         /// <summary>Xưởng lưu chỉnh sửa ngày/nội dung khi hồ sơ còn Chờ duyệt.</summary>
         public async Task<(bool, string?)> XuongLuuHoSoAsync(int id, int maNguoiDungXuong, CapNhatHoSoBaoTriDto dto)
         {
@@ -188,8 +245,9 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 var chiTiet = await _repo.GetChiTietKeHoachByHoSoBaoTriAsync(hoSo.MaHoSoBaoTri);
                 if (chiTiet != null)
                 {
+                    var ngayGoc = chiTiet.NgayDuKienBaoTri;
                     var ngayMoi = dto.NgayDuKienBaoTri.Value;
-                    var (okNgay, loiNgay) = _kiemTraNgayDuKienKhiSua(ngayMoi, chiTiet.NgayDuKienBaoTri, hoSo.NgayTao);
+                    var (okNgay, loiNgay) = _kiemTraNgayDuKienKhiSua(ngayMoi, ngayGoc, hoSo.NgayTao);
                     if (!okNgay) return (false, loiNgay);
 
                     chiTiet.NgayDuKienBaoTri = ngayMoi;
@@ -203,10 +261,9 @@ namespace OPC.MaintenanceAPI.Services.Implementations
         }
 
         /// <summary>
-        /// Ngày dự kiến khi sửa (Xưởng / sau GĐ từ chối):
-        /// - Cùng năm kế hoạch; tháng ≥ tháng kế hoạch gốc (T10 → T11/T12 được, T9 không).
-        /// - Phải lớn hơn ngày tạo hồ sơ (phần ngày).
-        /// - Không được ở quá khứ.
+        /// Ngày dự kiến khi Xưởng sửa:
+        /// - Chỉ trong đúng tháng/năm kế hoạch gốc (không đổi tháng).
+        /// - Phải lớn hơn ngày tạo hồ sơ; không ở quá khứ.
         /// </summary>
         private static (bool ok, string? loi) _kiemTraNgayDuKienKhiSua(
             DateOnly ngayMoi, DateOnly ngayDuKienCu, DateTime ngayTao)
@@ -220,15 +277,10 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     $"Ngày dự kiến bảo trì ({ngayMoi:dd/MM/yyyy}) phải lớn hơn ngày tạo hồ sơ ({ngayTaoOnly:dd/MM/yyyy}). " +
                     "Không được đặt trùng hoặc trước ngày tạo.");
 
-            if (ngayMoi.Year != ngayDuKienCu.Year)
+            if (ngayMoi.Year != ngayDuKienCu.Year || ngayMoi.Month != ngayDuKienCu.Month)
                 return (false,
-                    $"Chỉ được chọn ngày trong năm kế hoạch {ngayDuKienCu.Year}.");
-
-            if (ngayMoi.Month < ngayDuKienCu.Month)
-                return (false,
-                    $"Kế hoạch gốc tháng {ngayDuKienCu.Month}/{ngayDuKienCu.Year}. " +
-                    $"Chỉ được chọn từ tháng {ngayDuKienCu.Month} trở đi trong năm {ngayDuKienCu.Year} " +
-                    $"(không được chọn tháng {ngayMoi.Month}).");
+                    $"Xưởng chỉ được chọn ngày trong tháng kế hoạch {ngayDuKienCu.Month}/{ngayDuKienCu.Year}. " +
+                    "Không được đổi sang tháng khác (tháng do Tổ trưởng cơ điện quyết định khi lập kế hoạch).");
 
             return (true, null);
         }
@@ -600,17 +652,30 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 hoSo.GioKetThucDuKien <= hoSo.GioBatDauDuKien)
                 return (false, "Giờ kết thúc phải sau giờ bắt đầu.");
 
-            // Ngày dự kiến nằm trên Chi tiết kế hoạch — khóa đúng tháng kế hoạch ban đầu
+            // Ngày dự kiến nằm trên Chi tiết kế hoạch — từ tháng gốc trở đi + không trùng tháng khác
             var chiTiet = await _repo.GetChiTietKeHoachByHoSoBaoTriAsync(hoSo.MaHoSoBaoTri);
             if (dto.NgayDuKienBaoTri.HasValue && chiTiet != null)
             {
+                var ngayGoc = chiTiet.NgayDuKienBaoTri;
                 var ngayMoi = dto.NgayDuKienBaoTri.Value;
-                var (okNgay, loiNgay) = _kiemTraNgayDuKienKhiSua(ngayMoi, chiTiet.NgayDuKienBaoTri, hoSo.NgayTao);
+                var (okNgay, loiNgay) = _kiemTraNgayDuKienKhiSua(ngayMoi, ngayGoc, hoSo.NgayTao);
                 if (!okNgay) return (false, loiNgay);
 
                 var ngayLap = chiTiet.MaKeHoachNavigation?.NgayLapKeHoach;
                 if (ngayLap != null && ngayMoi <= ngayLap.Value)
                     return (false, "Ngày bảo trì dự kiến phải sau ngày lập kế hoạch.");
+
+                if (ngayMoi.Year != ngayGoc.Year || ngayMoi.Month != ngayGoc.Month)
+                {
+                    var trungThang = await _repo.TonTaiChiTietHoacHoSoThietBiThangKhacAsync(
+                        hoSo.MaThieBi, ngayMoi.Year, ngayMoi.Month,
+                        excludeMaChiTiet: chiTiet.MaChiTietKeHoach,
+                        excludeMaHoSo: hoSo.MaHoSoBaoTri);
+                    if (trungThang)
+                        return (false,
+                            $"Thiết bị đã có hồ sơ/kế hoạch bảo trì trong tháng {ngayMoi.Month}/{ngayMoi.Year}. " +
+                            "Vui lòng chọn tháng lớn hơn.");
+                }
 
                 chiTiet.NgayDuKienBaoTri = ngayMoi;
             }

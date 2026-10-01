@@ -126,7 +126,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (!string.IsNullOrWhiteSpace(dto.GioKetThucDuKien) && TimeSpan.TryParse(dto.GioKetThucDuKien, out var gkt))
                 gioKetThuc = gkt;
 
-            // Tạo hồ sơ gửi xưởng xem lịch — trạng thái Chờ duyệt (GĐ duyệt sau)
+            // Tạo ở "Chờ gửi" — Tổ trưởng bấm Gửi đến xưởng khi sẵn sàng
             var hoSo = new HoSoBaoTri
             {
                 MaThieBi = dto.MaThietBi,
@@ -138,7 +138,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 GioBatDauDuKien = gioBatDau,
                 GioKetThucDuKien = gioKetThuc,
                 NgayTao = DateTime.Now,
-                TrangThai = "Chờ duyệt"
+                TrangThai = "Chờ gửi"
             };
             await _repo.AddHoSoBaoTriAsync(hoSo);
             await _repo.SaveChangesAsync(); // có MaHoSoBaoTri
@@ -311,6 +311,112 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 SoThangChuKyDeXuat = c.SoThangChuKyDeXuat,
                 MoTa = c.MoTa
             }).ToList();
+
+        /// <summary>
+        /// Hàng chờ BT theo tháng: thiết bị đến hạn / trễ hạn theo chu kỳ,
+        /// chưa có hồ sơ bảo trì trong tháng đó. Chỉ bảo trì (không sửa chữa).
+        /// </summary>
+        public async Task<List<HangChoDenHanDto>> GetHangChoDenHanAsync(int nam, int thang)
+        {
+            if (nam < 2000 || nam > 2100 || thang < 1 || thang > 12)
+                return new List<HangChoDenHanDto>();
+
+            var ds = await _repo.GetAllThietBiKemChuKyAsync();
+            var ketQua = new List<HangChoDenHanDto>();
+            var dauThang = new DateOnly(nam, thang, 1);
+            var cuoiThang = dauThang.AddMonths(1).AddDays(-1);
+
+            foreach (var tb in ds)
+            {
+                // Đã có HS BT tháng này → không vào hàng chờ
+                if (await _repo.TonTaiHoSoBaoTriTheoThietBiThangAsync(tb.MaThietBi, nam, thang))
+                    continue;
+                if (await _repo.TonTaiKeHoachTheoThietBiThangAsync(tb.MaThietBi, nam, thang))
+                    continue;
+
+                var soThangChuKy = tb.SoThangDeXuat
+                    ?? tb.MaChuKyNavigation?.SoThangChuKyDeXuat
+                    ?? 1;
+                if (soThangChuKy < 1) soThangChuKy = 1;
+
+                // Mốc gốc: lần BT gần nhất → ngày lắp đặt
+                var moc = tb.NgayBaoTriGanNhat ?? tb.NgayLapDat;
+                var ngayDenHan = tb.NgayBaoTriTiepTheo
+                    ?? moc.AddMonths(soThangChuKy);
+
+                // Chỉ hiện nếu hạn rơi vào tháng này hoặc đã trễ (hạn trước/trong tháng)
+                if (ngayDenHan > cuoiThang)
+                    continue;
+
+                ketQua.Add(new HangChoDenHanDto
+                {
+                    MaThietBi = tb.MaThietBi,
+                    TenThietBi = tb.TenThietBi ?? $"TB#{tb.MaThietBi}",
+                    LoaiThietBi = tb.MaChuKyNavigation?.LoaiThietBi ?? tb.LoaiThietBi,
+                    SoThangChuKy = soThangChuKy,
+                    NgayBaoTriGanNhat = tb.NgayBaoTriGanNhat,
+                    NgayDenHan = ngayDenHan,
+                    TrangThaiHan = ngayDenHan < dauThang ? "Trễ hạn" : "Đến hạn"
+                });
+            }
+
+            return ketQua
+                .OrderBy(x => x.TrangThaiHan == "Trễ hạn" ? 0 : 1)
+                .ThenBy(x => x.NgayDenHan)
+                .ThenBy(x => x.TenThietBi)
+                .ToList();
+        }
+
+        public async Task<(bool ok, string? loi, TaoHangLoatBaoTriKetQuaDto? ketQua)> TaoHangLoatBaoTriAsync(
+            int maNguoiDungTao, TaoHangLoatBaoTriDto dto)
+        {
+            if (dto.Nam < 2000 || dto.Nam > 2100)
+                return (false, "Năm không hợp lệ.", null);
+            if (dto.Thang < 1 || dto.Thang > 12)
+                return (false, "Tháng không hợp lệ.", null);
+            if (dto.DanhSachMaThietBi == null || dto.DanhSachMaThietBi.Count == 0)
+                return (false, "Vui lòng chọn ít nhất 1 thiết bị.", null);
+            if (string.IsNullOrWhiteSpace(dto.NoiDungCongViec))
+                return (false, "Vui lòng nhập nội dung công việc.", null);
+
+            var homNay = DateOnly.FromDateTime(DateTime.Now);
+            var dauThang = new DateOnly(dto.Nam, dto.Thang, 1);
+            var cuoiThang = dauThang.AddMonths(1).AddDays(-1);
+            // Ngày dự kiến mặc định: ngày còn lại trong tháng, sau hôm nay
+            var ngayMacDinh = homNay.AddDays(1);
+            if (ngayMacDinh < dauThang) ngayMacDinh = dauThang;
+            if (ngayMacDinh > cuoiThang) ngayMacDinh = cuoiThang;
+            if (ngayMacDinh <= homNay)
+                return (false,
+                    $"Không còn ngày hợp lệ trong tháng {dto.Thang}/{dto.Nam} để tạo bảo trì (phải sau ngày hiện tại).",
+                    null);
+
+            var kq = new TaoHangLoatBaoTriKetQuaDto();
+            foreach (var maTb in dto.DanhSachMaThietBi.Distinct())
+            {
+                var (ok, loi) = await ThemThietBiVaoNamAsync(maNguoiDungTao, new ThemThietBiVaoNamDto
+                {
+                    Nam = dto.Nam,
+                    MaThietBi = maTb,
+                    NgayDuKienBaoTri = ngayMacDinh,
+                    NoiDungCongViec = dto.NoiDungCongViec!.Trim()
+                });
+                if (ok) kq.SoThanhCong++;
+                else
+                {
+                    kq.SoBoQua++;
+                    if (!string.IsNullOrWhiteSpace(loi))
+                        kq.ChiTietLoi.Add($"TB#{maTb}: {loi}");
+                }
+            }
+
+            if (kq.SoThanhCong == 0 && kq.SoBoQua > 0)
+                return (false,
+                    kq.ChiTietLoi.FirstOrDefault() ?? "Không tạo được hồ sơ nào.",
+                    kq);
+
+            return (true, null, kq);
+        }
 
         private static ChiTietKeHoachDto MapChiTiet(ChiTietKeHoachBaoTri c) => new()
         {

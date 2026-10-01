@@ -26,6 +26,10 @@ namespace OPC.MaintenanceAPI.Services.Interfaces
         Task<(bool, string?)> XuongLuuHoSoAsync(int id, int maNguoiDungXuong, CapNhatHoSoBaoTriDto dto);
         /// <summary>Xưởng gửi hồ sơ cho Giám đốc (Chờ xưởng → Chờ duyệt).</summary>
         Task<(bool, string?)> XuongGuiGiamDocAsync(int id, int maNguoiDungXuong, XuongGuiGiamDocDto dto);
+        /// <summary>Tổ trưởng: Chờ gửi → Chờ duyệt (gửi xưởng).</summary>
+        Task<(bool, string?)> GuiDenXuongAsync(int id, int maNguoiDung);
+        /// <summary>Tổ trưởng sửa ngày/nội dung khi còn Chờ gửi.</summary>
+        Task<(bool, string?)> CapNhatHoSoChoGuiAsync(int id, int maNguoiDung, CapNhatHoSoBaoTriDto dto);
         /// <summary>NVKT bấm Hoàn thành — đồng bộ tất cả phân công cùng hồ sơ.</summary>
         Task<(bool, string?)> NhanVienHoanThanhBaoTriAsync(int maHoSo, int maNguoiDung);
         /// <summary>NVKT bấm Tiến hành quy trình bảo trì — ghi nhận thời điểm bắt đầu thực tế.</summary>

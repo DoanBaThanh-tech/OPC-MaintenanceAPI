@@ -21,6 +21,7 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         /// <summary>Đã có hồ sơ bảo trì gắn với chi tiết kế hoạch của thiết bị trong tháng/năm.</summary>
         Task<bool> TonTaiHoSoBaoTriTheoThietBiThangAsync(int maThietBi, int nam, int thang);
         Task<ThietBi?> GetThietBiAsync(int maThietBi);
+        Task<List<ThietBi>> GetAllThietBiKemChuKyAsync();
         Task<KeHoachBaoTri?> GetKeHoachByIdAsync(int maKeHoach);
         Task<DateOnly?> GetNgayBaoTriGanNhatAsync(int maKeHoach, int maThietBi);
         Task<KeHoachBaoTri?> GetKeHoachByNamAsync(int nam);
@@ -133,6 +134,12 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         public Task<ThietBi?> GetThietBiAsync(int maThietBi) =>
             _context.ThietBis.Include(t => t.MaChuKyNavigation)
                 .FirstOrDefaultAsync(t => t.MaThietBi == maThietBi);
+
+        public Task<List<ThietBi>> GetAllThietBiKemChuKyAsync() =>
+            _context.ThietBis
+                .Include(t => t.MaChuKyNavigation)
+                .OrderBy(t => t.TenThietBi)
+                .ToListAsync();
 
         public async Task<int> SaveChangesAsync() => await _context.SaveChangesAsync();
     }

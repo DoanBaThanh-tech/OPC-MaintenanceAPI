@@ -942,6 +942,8 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                         pc.TrangThai = "Từ chối";
                         pc.LyDoTuChoi = lyDo.Trim();
                     }
+                    // Mở lại bước đã «Cập nhật thành công» trước đó → cho NV chỉnh lại
+                    await MoLaiTienDoSauTuChoiAsync(maHoSoBaoTri: hoSo.MaHoSoBaoTri, maHoSoSuaChua: null);
                 }
 
                 await _repo.SaveChangesAsync();
@@ -992,6 +994,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                         pc.TrangThai = "Từ chối";
                         pc.LyDoTuChoi = lyDo.Trim();
                     }
+                    await MoLaiTienDoSauTuChoiAsync(maHoSoBaoTri: null, maHoSoSuaChua: hoSo.MaHoSoSuaChua);
                 }
 
                 await _repo.SaveChangesAsync();
@@ -999,6 +1002,24 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             }
 
             return (false, "Cần mã hồ sơ bảo trì hoặc sửa chữa.");
+        }
+
+        /// <summary>
+        /// Xưởng từ chối → mở lại bước đã «DaCapNhat» thành «DaXong» để NV chỉnh sửa lần nữa.
+        /// </summary>
+        private async Task MoLaiTienDoSauTuChoiAsync(int? maHoSoBaoTri, int? maHoSoSuaChua)
+        {
+            IQueryable<TienDoBuocQuyTrinh> q = _db.TienDoBuocQuyTrinhs;
+            if (maHoSoBaoTri.HasValue)
+                q = q.Where(t => t.MaHoSoBaoTri == maHoSoBaoTri);
+            else if (maHoSoSuaChua.HasValue)
+                q = q.Where(t => t.MaHoSoSuaChua == maHoSoSuaChua);
+            else
+                return;
+
+            var list = await q.Where(t => t.TrangThai == "DaCapNhat").ToListAsync();
+            foreach (var t in list)
+                t.TrangThai = "DaXong";
         }
 
         /// <summary>
@@ -2024,7 +2045,8 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (nv == null) return (false, "Không xác định được nhân viên.", null);
 
             var trangThai = (dto.TrangThai ?? "DangLam").Trim();
-            if (trangThai is not ("DangLam" or "DaXong"))
+            // DangLam | DaXong (xong lần đầu) | DaCapNhat (đã lưu lại sau Xưởng từ chối)
+            if (trangThai is not ("DangLam" or "DaXong" or "DaCapNhat"))
                 trangThai = "DangLam";
 
             TienDoBuocQuyTrinh? existing = null;
@@ -2041,9 +2063,9 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
             if (existing != null)
             {
-                // Chỉ khóa khi người khác đã bấm Xong (DaXong).
-                // DangLam không khóa — NV khác vẫn làm / Xong được.
-                if (existing.MaNhanVien != nv.MaNhanVien && existing.TrangThai == "DaXong")
+                var daHoanTatBuoc = existing.TrangThai is "DaXong" or "DaCapNhat";
+                // Chỉ khóa khi người khác đã Xong / đã cập nhật sau từ chối
+                if (existing.MaNhanVien != nv.MaNhanVien && daHoanTatBuoc)
                 {
                     var ten = string.IsNullOrWhiteSpace(existing.TenNhanVien)
                         ? "nhân viên khác"
@@ -2051,12 +2073,11 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     return (false, $"Bước {dto.SoBuoc} đã được hoàn thành bởi {ten}.", null);
                 }
 
-                // Cùng người (hoặc ghi đè DangLam) — cập nhật đầy đủ kể cả sau Xưởng từ chối
+                // Cùng người (hoặc ghi đè DangLam) — cập nhật đầy đủ
                 existing.MaNhanVien = nv.MaNhanVien;
                 existing.TenNhanVien = nv.HoTen;
                 existing.MoTaBuoc = dto.MoTaBuoc ?? existing.MoTaBuoc;
                 existing.TrangThai = trangThai;
-                // Ghi đè JsonVatTu khi client gửi (điều chỉnh vật tư phải persist)
                 if (dto.JsonVatTu != null)
                     existing.JsonVatTu = dto.JsonVatTu;
                 existing.ThoiDiemCapNhat = DateTime.Now;

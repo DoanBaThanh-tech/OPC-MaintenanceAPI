@@ -194,7 +194,9 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 return (false, "Số bước không hợp lệ.", null);
             if (dto.ChiTiet.Any(c => c.SoLuong < 0))
                 return (false, "Số lượng vật tư không được âm.", null);
-            // Chỉ nhận số nguyên (SoLuong là int) — không âm đã check
+            const int soLuongToiDa = 9999;
+            if (dto.ChiTiet.Any(c => c.SoLuong > soLuongToiDa))
+                return (false, $"Số lượng mỗi vật tư tối đa {soLuongToiDa}.", null);
 
             var tong = dto.ChiTiet.Sum(c => c.SoLuong * c.DonGia);
             var hoSo = new HoSoSuDungVatTu
@@ -247,6 +249,9 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 return (false, "Số bước không hợp lệ.", null);
             if (dto.ChiTiet.Any(c => c.SoLuong < 0))
                 return (false, "Số lượng vật tư không được âm.", null);
+            const int soLuongToiDaCapNhat = 9999;
+            if (dto.ChiTiet.Any(c => c.SoLuong > soLuongToiDaCapNhat))
+                return (false, $"Số lượng mỗi vật tư tối đa {soLuongToiDaCapNhat}.", null);
 
             // Xóa chi tiết cũ, ghi lại danh sách mới
             if (hoSo.ChiTietSuDungVatTus.Count > 0)

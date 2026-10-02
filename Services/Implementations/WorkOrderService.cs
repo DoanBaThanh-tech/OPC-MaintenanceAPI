@@ -12,11 +12,16 @@ namespace OPC.MaintenanceAPI.Services.Implementations
     {
         private readonly IWorkOrderRepository _repo;
         private readonly INhanVienRepository _nhanVienRepo;
+        private readonly OPC.MaintenanceAPI.Data.OPCDbContext _db;
 
-        public WorkOrderService(IWorkOrderRepository repo, INhanVienRepository nhanVienRepo)
+        public WorkOrderService(
+            IWorkOrderRepository repo,
+            INhanVienRepository nhanVienRepo,
+            OPC.MaintenanceAPI.Data.OPCDbContext db)
         {
             _repo = repo;
             _nhanVienRepo = nhanVienRepo;
+            _db = db;
         }
 
         // ===== BẢO TRÌ =====
@@ -1939,6 +1944,115 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 .OrderBy(x => x.Thang)
                 .ToList();
             return new { Nam = nam, MaThietBi = maThietBi, DanhSachThang = thang };
+        }
+
+        // ===== TIẾN ĐỘ BƯỚC QUY TRÌNH (NVKT) =====
+
+        public async Task<List<object>> GetTienDoBuocAsync(int? maHoSoBaoTri, int? maHoSoSuaChua)
+        {
+            var q = _db.TienDoBuocQuyTrinhs.AsQueryable();
+            if (maHoSoBaoTri.HasValue)
+                q = q.Where(t => t.MaHoSoBaoTri == maHoSoBaoTri);
+            else if (maHoSoSuaChua.HasValue)
+                q = q.Where(t => t.MaHoSoSuaChua == maHoSoSuaChua);
+            else
+                return new List<object>();
+
+            return await q.OrderBy(t => t.SoBuoc)
+                .Select(t => (object)new
+                {
+                    t.MaTienDo,
+                    t.MaHoSoBaoTri,
+                    t.MaHoSoSuaChua,
+                    t.SoBuoc,
+                    t.MoTaBuoc,
+                    t.MaNhanVien,
+                    t.TenNhanVien,
+                    t.TrangThai,
+                    t.JsonVatTu,
+                    t.ThoiDiemCapNhat
+                })
+                .ToListAsync();
+        }
+
+        public async Task<(bool, string?, object?)> ClaimHoacLuuTienDoBuocAsync(int maNguoiDung, TienDoBuocDto dto)
+        {
+            if (!dto.MaHoSoBaoTri.HasValue && !dto.MaHoSoSuaChua.HasValue)
+                return (false, "Thiếu mã hồ sơ.", null);
+            if (dto.SoBuoc <= 0)
+                return (false, "Số bước không hợp lệ.", null);
+
+            var nv = await _nhanVienRepo.GetByMaNguoiDungAsync(maNguoiDung);
+            if (nv == null) return (false, "Không xác định được nhân viên.", null);
+
+            var trangThai = (dto.TrangThai ?? "DangLam").Trim();
+            if (trangThai is not ("DangLam" or "DaXong"))
+                trangThai = "DangLam";
+
+            TienDoBuocQuyTrinh? existing = null;
+            if (dto.MaHoSoBaoTri.HasValue)
+            {
+                existing = await _db.TienDoBuocQuyTrinhs
+                    .FirstOrDefaultAsync(t => t.MaHoSoBaoTri == dto.MaHoSoBaoTri && t.SoBuoc == dto.SoBuoc);
+            }
+            else
+            {
+                existing = await _db.TienDoBuocQuyTrinhs
+                    .FirstOrDefaultAsync(t => t.MaHoSoSuaChua == dto.MaHoSoSuaChua && t.SoBuoc == dto.SoBuoc);
+            }
+
+            if (existing != null)
+            {
+                // Chỉ khóa khi người khác đã bấm Xong (DaXong).
+                // DangLam không khóa — NV khác vẫn làm / Xong được.
+                if (existing.MaNhanVien != nv.MaNhanVien && existing.TrangThai == "DaXong")
+                {
+                    var ten = string.IsNullOrWhiteSpace(existing.TenNhanVien)
+                        ? "nhân viên khác"
+                        : existing.TenNhanVien;
+                    return (false, $"Bước {dto.SoBuoc} đã được hoàn thành bởi {ten}.", null);
+                }
+
+                // Cùng người hoặc ghi đè DangLam của người khác → cập nhật
+                existing.MaNhanVien = nv.MaNhanVien;
+                existing.TenNhanVien = nv.HoTen;
+                existing.MoTaBuoc = dto.MoTaBuoc ?? existing.MoTaBuoc;
+                existing.TrangThai = trangThai;
+                existing.JsonVatTu = dto.JsonVatTu ?? existing.JsonVatTu;
+                existing.ThoiDiemCapNhat = DateTime.Now;
+                await _db.SaveChangesAsync();
+                return (true, null, new
+                {
+                    existing.MaTienDo,
+                    existing.SoBuoc,
+                    existing.MaNhanVien,
+                    existing.TenNhanVien,
+                    existing.TrangThai
+                });
+            }
+
+            var row = new TienDoBuocQuyTrinh
+            {
+                MaHoSoBaoTri = dto.MaHoSoBaoTri,
+                MaHoSoSuaChua = dto.MaHoSoSuaChua,
+                SoBuoc = dto.SoBuoc,
+                MoTaBuoc = dto.MoTaBuoc ?? "",
+                MaNhanVien = nv.MaNhanVien,
+                TenNhanVien = nv.HoTen,
+                TrangThai = trangThai,
+                JsonVatTu = dto.JsonVatTu,
+                ThoiDiemCapNhat = DateTime.Now
+            };
+            _db.TienDoBuocQuyTrinhs.Add(row);
+            await _db.SaveChangesAsync();
+            return (true, null, new
+            {
+                row.MaTienDo,
+                row.SoBuoc,
+                row.MaNhanVien,
+                row.TenNhanVien,
+                row.TrangThai
+            });
         }
 
     }

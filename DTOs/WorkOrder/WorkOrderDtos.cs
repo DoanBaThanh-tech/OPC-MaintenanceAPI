@@ -123,4 +123,16 @@ namespace OPC.MaintenanceAPI.DTOs.WorkOrder
         public TimeSpan GioKetThuc { get; set; }
         public string? GhiChu { get; set; }
     }
+
+    /// <summary>Nhận/giữ bước quy trình hoặc đánh dấu đã xong (lưu tiến độ).</summary>
+    public class TienDoBuocDto
+    {
+        public int? MaHoSoBaoTri { get; set; }
+        public int? MaHoSoSuaChua { get; set; }
+        public int SoBuoc { get; set; }
+        public string? MoTaBuoc { get; set; }
+        /// <summary>DangLam | DaXong</summary>
+        public string TrangThai { get; set; } = "DangLam";
+        public string? JsonVatTu { get; set; }
+    }
 }

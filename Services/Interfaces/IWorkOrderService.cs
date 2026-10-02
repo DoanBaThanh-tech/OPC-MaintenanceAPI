@@ -62,5 +62,9 @@ namespace OPC.MaintenanceAPI.Services.Interfaces
         Task<(bool, string?)> SuaYeuCauBaoTriAsync(int maYeuCau, int maNguoiDung, SuaYeuCauBaoTriDto dto);
         /// Danh sách YC đã xác nhận — dùng khi Tổ trưởng cơ điện tạo kế hoạch/hồ sơ
         Task<List<object>> GetYeuCauDaXacNhanDeTaoHoSoAsync(int? nam, int? thang);
+
+        /// <summary>Tiến độ bước quy trình NVKT (lưu + khóa bước realtime).</summary>
+        Task<List<object>> GetTienDoBuocAsync(int? maHoSoBaoTri, int? maHoSoSuaChua);
+        Task<(bool, string?, object?)> ClaimHoacLuuTienDoBuocAsync(int maNguoiDung, TienDoBuocDto dto);
     }
 }

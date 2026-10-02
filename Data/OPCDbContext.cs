@@ -63,6 +63,8 @@ public partial class OPCDbContext : DbContext
 
     public virtual DbSet<QuyTrinhThietBi> QuyTrinhThietBis { get; set; }
 
+    public virtual DbSet<TienDoBuocQuyTrinh> TienDoBuocQuyTrinhs { get; set; }
+
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
         => optionsBuilder.UseSqlServer("Name=ConnectionStrings:DefaultConnection");
 
@@ -566,28 +568,15 @@ public partial class OPCDbContext : DbContext
 
         modelBuilder.Entity<VatTu>(entity =>
         {
-            entity.HasKey(e => e.MaVatTu)
-                .HasName("PK__VatTu__0BD27B6A874DA6D3");
+            entity.HasKey(e => e.MaVatTu).HasName("PK__VatTu__0BD27B6A874DA6D3");
 
             entity.ToTable("VatTu");
 
-            entity.HasIndex(e => new
-            {
-                e.SoLuongTonKho,
-                e.MucTonKhoToiThieu
-            }, "IX_VatTu_TonKho");
+            entity.HasIndex(e => new { e.SoLuongTonKho, e.MucTonKhoToiThieu }, "IX_VatTu_TonKho");
 
-            entity.Property(e => e.DonViTinh)
-                .HasMaxLength(30);
-
-            entity.Property(e => e.GhiChu)
-                .HasMaxLength(255);
-
-            entity.Property(e => e.TenVatTu)
-                .HasMaxLength(150);
-
-            entity.Property(e => e.DonGia)
-                .HasPrecision(18, 2);
+            entity.Property(e => e.DonViTinh).HasMaxLength(30);
+            entity.Property(e => e.GhiChu).HasMaxLength(255);
+            entity.Property(e => e.TenVatTu).HasMaxLength(150);
         });
 
 
@@ -689,6 +678,17 @@ public partial class OPCDbContext : DbContext
             entity.HasOne(d => d.MaThietBiNavigation).WithMany()
                 .HasForeignKey(d => d.MaThietBi)
                 .OnDelete(DeleteBehavior.ClientSetNull);
+        });
+
+        modelBuilder.Entity<TienDoBuocQuyTrinh>(entity =>
+        {
+            entity.HasKey(e => e.MaTienDo);
+            entity.ToTable("TienDoBuocQuyTrinh");
+            entity.Property(e => e.MoTaBuoc).HasMaxLength(500);
+            entity.Property(e => e.TenNhanVien).HasMaxLength(150);
+            entity.Property(e => e.TrangThai).HasMaxLength(30);
+            entity.HasIndex(e => new { e.MaHoSoBaoTri, e.SoBuoc });
+            entity.HasIndex(e => new { e.MaHoSoSuaChua, e.SoBuoc });
         });
 
         OnModelCreatingPartial(modelBuilder);

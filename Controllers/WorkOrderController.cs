@@ -210,6 +210,27 @@ namespace OPC.MaintenanceAPI.Controllers
             return Result(await _service.NhanVienBatDauBaoTriAsync(id, maNguoiDung));
         }
 
+        /// <summary>Danh sách tiến độ bước quy trình của hồ sơ (để NVKT đồng bộ realtime).</summary>
+        [HttpGet("tien-do-buoc")]
+        [Authorize]
+        public async Task<IActionResult> GetTienDoBuoc(
+            [FromQuery] int? maHoSoBaoTri,
+            [FromQuery] int? maHoSoSuaChua)
+            => Ok(await _service.GetTienDoBuocAsync(maHoSoBaoTri, maHoSoSuaChua));
+
+        /// <summary>Nhận bước (DangLam) hoặc lưu đã xong (DaXong). Chặn nếu người khác đang làm.</summary>
+        [HttpPost("tien-do-buoc")]
+        [Authorize(Roles = "Nhân viên kỹ thuật")]
+        public async Task<IActionResult> ClaimHoacLuuTienDoBuoc([FromBody] TienDoBuocDto dto)
+        {
+            var claim = User.FindFirst("MaNguoiDung")?.Value;
+            if (claim == null || !int.TryParse(claim, out var maNguoiDung))
+                return Unauthorized();
+            var (ok, msg, data) = await _service.ClaimHoacLuuTienDoBuocAsync(maNguoiDung, dto);
+            if (!ok) return BadRequest(new { message = msg });
+            return Ok(data);
+        }
+
         /// <summary>Danh sách tháng trong năm đã có hồ sơ BT của thiết bị (gợi ý khi chọn ngày).</summary>
         [HttpGet("thiet-bi/{maThietBi}/thang-co-bao-tri")]
         public async Task<IActionResult> ThangCoBaoTri(int maThietBi, [FromQuery] int? nam = null)

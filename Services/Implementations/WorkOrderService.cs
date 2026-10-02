@@ -925,9 +925,9 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                         if (tb != null) tb.TinhTrangHienTai = "Sản xuất";
                     }
 
-                    // Xưởng xác nhận → hồ sơ vật tư phục vụ quy trình chuyển trạng thái để TT/GĐ theo dõi
+                    // Xưởng xác nhận → gửi thẳng hồ sơ vật tư cho Giám đốc (Chờ duyệt), không qua Tổ trưởng
                     await CapNhatTrangThaiHoSoVatTuTheoCongViecAsync(
-                        maHoSoBaoTri: hoSo.MaHoSoBaoTri, maHoSoSuaChua: null, trangThai: "Xác nhận");
+                        maHoSoBaoTri: hoSo.MaHoSoBaoTri, maHoSoSuaChua: null, trangThai: "Chờ duyệt");
                 }
                 else
                 {
@@ -977,8 +977,9 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     if (tb != null && !conScMo && !conBtMo)
                         tb.TinhTrangHienTai = "Sản xuất";
 
+                    // Xưởng xác nhận SC → gửi thẳng HS vật tư cho Giám đốc
                     await CapNhatTrangThaiHoSoVatTuTheoCongViecAsync(
-                        maHoSoBaoTri: null, maHoSoSuaChua: hoSo.MaHoSoSuaChua, trangThai: "Xác nhận");
+                        maHoSoBaoTri: null, maHoSoSuaChua: hoSo.MaHoSoSuaChua, trangThai: "Chờ duyệt");
                 }
                 else
                 {
@@ -1000,7 +1001,10 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             return (false, "Cần mã hồ sơ bảo trì hoặc sửa chữa.");
         }
 
-        /// <summary>Khi Xưởng xác nhận quy trình — đánh dấu hồ sơ vật tư liên quan (TT xem vật tư đã dùng).</summary>
+        /// <summary>
+        /// Khi Xưởng xác nhận quy trình — chuyển HS vật tư sang trạng thái chỉ định
+        /// (mặc định nghiệp vụ mới: "Chờ duyệt" = đã gửi Giám đốc, không qua Tổ trưởng).
+        /// </summary>
         private async Task CapNhatTrangThaiHoSoVatTuTheoCongViecAsync(
             int? maHoSoBaoTri, int? maHoSoSuaChua, string trangThai)
         {
@@ -1013,10 +1017,15 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 return;
 
             var list = await q.ToListAsync();
+            var now = DateTime.Now;
             foreach (var h in list)
             {
                 if (h.TrangThai is "Chờ gửi" or "Chờ duyệt" or "Đã gửi GĐ")
+                {
                     h.TrangThai = trangThai;
+                    if (trangThai is "Chờ duyệt" or "Đã gửi GĐ")
+                        h.NgayGuiGiamDoc ??= now;
+                }
             }
         }
 
@@ -1055,6 +1064,8 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     NgayDuKienBaoTri = ngayDuKien,
                     NgayTaoHoSo = bt?.NgayTao ?? sc?.NgayTao,
                     LaNguoiGhiChep = p.LaNguoiGhiChep,
+                    // Có giá trị = đã từng bấm Tiến hành → nút "Tiếp tục quy trình"
+                    ThoiDiemBatDauThucTe = bt?.ThoiDiemBatDauThucTe ?? sc?.ThoiDiemBatDauThucTe,
                 });
             }
             return ketQua;

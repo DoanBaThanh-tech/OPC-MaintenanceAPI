@@ -924,6 +924,10 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                         var tb = await _repo.GetThietBiByIdAsync(hoSo.MaThieBi);
                         if (tb != null) tb.TinhTrangHienTai = "Sản xuất";
                     }
+
+                    // Xưởng xác nhận → hồ sơ vật tư phục vụ quy trình chuyển trạng thái để TT/GĐ theo dõi
+                    await CapNhatTrangThaiHoSoVatTuTheoCongViecAsync(
+                        maHoSoBaoTri: hoSo.MaHoSoBaoTri, maHoSoSuaChua: null, trangThai: "Xác nhận");
                 }
                 else
                 {
@@ -972,6 +976,9 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     var tb = await _repo.GetThietBiByIdAsync(hoSo.MaThieBi);
                     if (tb != null && !conScMo && !conBtMo)
                         tb.TinhTrangHienTai = "Sản xuất";
+
+                    await CapNhatTrangThaiHoSoVatTuTheoCongViecAsync(
+                        maHoSoBaoTri: null, maHoSoSuaChua: hoSo.MaHoSoSuaChua, trangThai: "Xác nhận");
                 }
                 else
                 {
@@ -991,6 +998,26 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             }
 
             return (false, "Cần mã hồ sơ bảo trì hoặc sửa chữa.");
+        }
+
+        /// <summary>Khi Xưởng xác nhận quy trình — đánh dấu hồ sơ vật tư liên quan (TT xem vật tư đã dùng).</summary>
+        private async Task CapNhatTrangThaiHoSoVatTuTheoCongViecAsync(
+            int? maHoSoBaoTri, int? maHoSoSuaChua, string trangThai)
+        {
+            IQueryable<HoSoSuDungVatTu> q = _db.HoSoSuDungVatTus;
+            if (maHoSoBaoTri.HasValue)
+                q = q.Where(h => h.MaHoSoBaoTri == maHoSoBaoTri);
+            else if (maHoSoSuaChua.HasValue)
+                q = q.Where(h => h.MaHoSoSuaChua == maHoSoSuaChua);
+            else
+                return;
+
+            var list = await q.ToListAsync();
+            foreach (var h in list)
+            {
+                if (h.TrangThai is "Chờ gửi" or "Chờ duyệt" or "Đã gửi GĐ")
+                    h.TrangThai = trangThai;
+            }
         }
 
         public async Task<List<object>> GetYeuCauCuaNhanVienAsync(int maNguoiDung, string? loai = null, string? trangThaiPhanCong = null)
@@ -2013,12 +2040,14 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     return (false, $"Bước {dto.SoBuoc} đã được hoàn thành bởi {ten}.", null);
                 }
 
-                // Cùng người hoặc ghi đè DangLam của người khác → cập nhật
+                // Cùng người (hoặc ghi đè DangLam) — cập nhật đầy đủ kể cả sau Xưởng từ chối
                 existing.MaNhanVien = nv.MaNhanVien;
                 existing.TenNhanVien = nv.HoTen;
                 existing.MoTaBuoc = dto.MoTaBuoc ?? existing.MoTaBuoc;
                 existing.TrangThai = trangThai;
-                existing.JsonVatTu = dto.JsonVatTu ?? existing.JsonVatTu;
+                // Ghi đè JsonVatTu khi client gửi (điều chỉnh vật tư phải persist)
+                if (dto.JsonVatTu != null)
+                    existing.JsonVatTu = dto.JsonVatTu;
                 existing.ThoiDiemCapNhat = DateTime.Now;
                 await _db.SaveChangesAsync();
                 return (true, null, new
@@ -2027,7 +2056,8 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     existing.SoBuoc,
                     existing.MaNhanVien,
                     existing.TenNhanVien,
-                    existing.TrangThai
+                    existing.TrangThai,
+                    existing.JsonVatTu
                 });
             }
 

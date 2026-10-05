@@ -338,8 +338,13 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
             var hoSo = await _repo.GetHoSoBaoTriByIdAsync(id);
             if (hoSo == null) return (false, "Không tìm thấy hồ sơ.");
-            if (hoSo.TrangThai is not ("Chờ duyệt" or "Chờ GĐ duyệt"))
+            // Chỉ duyệt khi Xưởng đã gửi (Chờ GĐ duyệt) — không duyệt hồ sơ còn ở Xưởng
+            if (hoSo.TrangThai is not "Chờ GĐ duyệt")
+            {
+                if (hoSo.TrangThai is "Chờ duyệt" or "Chờ xưởng")
+                    return (false, "Hồ sơ chưa được Xưởng gửi lên Giám đốc.");
                 return (false, "Hồ sơ đã được xử lý trước đó.");
+            }
             if (dto.QuyetDinh != "Duyệt" && dto.QuyetDinh != "Từ chối")
                 return (false, "QuyetDinh chỉ nhận 'Duyệt' hoặc 'Từ chối'.");
             if (dto.QuyetDinh == "Từ chối" && string.IsNullOrWhiteSpace(dto.LyDo))
@@ -397,87 +402,84 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             return (true, null);
         }
 
-        public async Task<(bool, string?)> PhanCongBaoTriAsync(int maHoSo, int maNguoiDungPhanCong, PhanCongDto dto)
+        public async Task<(bool, string?)> PhanCongBaoTriAsync(int maHoSo, int maNguoiDungPhanCong, PhanCongDto? dto)
         {
-            var nhanVienPhanCong = await _nhanVienRepo.GetByMaNguoiDungAsync(maNguoiDungPhanCong);
-            if (nhanVienPhanCong == null) return (false, "Không xác định được người phân công.");
-
-            var hoSo = await _repo.GetHoSoBaoTriByIdAsync(maHoSo);
-            if (hoSo == null) return (false, "Không tìm thấy hồ sơ.");
-            // Cho phép phân công lần đầu (Đã duyệt) hoặc cập nhật phân công (Đang thực hiện)
-            if (hoSo.TrangThai is not ("Đã duyệt" or "Đang thực hiện"))
-                return (false, "Chỉ phân công/cập nhật khi hồ sơ đã duyệt hoặc đang thực hiện.");
-
-            // Danh sách nhân viên được chọn (nhiều người)
-            var dsNv = new List<int>();
-            if (dto.MaNhanVienThucHiens != null && dto.MaNhanVienThucHiens.Count > 0)
-                dsNv.AddRange(dto.MaNhanVienThucHiens.Distinct());
-            else if (dto.MaNhanVienThucHien.HasValue && dto.MaNhanVienThucHien.Value > 0)
-                dsNv.Add(dto.MaNhanVienThucHien.Value);
-
-            if (dsNv.Count == 0)
-                return (false, "Vui lòng chọn ít nhất một nhân viên thực hiện.");
-
-            // Người ghi chép: 1 NV → auto; ≥2 → bắt buộc chọn đúng 1 trong danh sách
-            var (okGhiChep, maGhiChep, loiGhiChep) = ResolveNguoiGhiChep(dsNv, dto.MaNhanVienGhiChep);
-            if (!okGhiChep)
-                return (false, loiGhiChep);
-
-            // Nếu đã có phân công đang mở → hủy mềm (không cho đổi khi đang chờ Xưởng)
-            var pcDangMo = await _repo.GetPhanCongTheoHoSoBaoTriAsync(maHoSo);
-            if (pcDangMo.Any(p => p.TrangThai == "Chờ xác nhận"))
-                return (false, "Quy trình đang chờ Xưởng xác nhận — không được đổi phân công / người ghi chép.");
-
-            // Người ghi chép đã tiến hành quy trình → không đổi / không bỏ khỏi phân công
-            var (okKhoaGc, loiKhoaGc) = await KiemTraKhoaNguoiGhiChepAsync(
-                pcDangMo, maGhiChep, dsNv, maHoSoBaoTri: maHoSo, maHoSoSuaChua: null);
-            if (!okKhoaGc)
-                return (false, loiKhoaGc);
-
-            foreach (var pc in pcDangMo.Where(p => p.TrangThai is "Đã phân công" or "Xác nhận" or "Đang thực hiện"))
+            try
             {
-                pc.TrangThai = "Đã hủy";
-            }
+                if (dto == null)
+                    return (false, "Thiếu dữ liệu phân công (body rỗng).");
 
-            if (await _repo.ThietBiDangTrongQuyTrinhKhacAsync(hoSo.MaThieBi, "BaoTri", maHoSo))
-                return (false, "Thiết bị này đang trong quy trình bảo trì/sửa chữa khác, không thể phân công.");
+                var nhanVienPhanCong = await _nhanVienRepo.GetByMaNguoiDungAsync(maNguoiDungPhanCong);
+                if (nhanVienPhanCong == null)
+                    return (false, "Không xác định được người phân công (token).");
 
-            // Không bắt buộc ngày/giờ dự kiến khi phân công
-            if (dto.NgayBatDauDuKien.HasValue && dto.NgayKetThucDuKien.HasValue &&
-                dto.NgayKetThucDuKien < dto.NgayBatDauDuKien)
-                return (false, "Ngày kết thúc không được trước ngày bắt đầu.");
+                var hoSo = await _repo.GetHoSoBaoTriByIdAsync(maHoSo);
+                if (hoSo == null) return (false, "Không tìm thấy hồ sơ.");
 
-            int? maPhanCongDau = null;
-            foreach (var maNv in dsNv)
-            {
-                var phanCong = new PhanCongCongViec
+                var tt = (hoSo.TrangThai ?? "").Trim();
+                // Cho phép phân công khi đã duyệt hoặc đang thực hiện (cập nhật lại)
+                if (tt is not ("Đã duyệt" or "Đang thực hiện"))
+                    return (false,
+                        $"Chỉ phân công khi hồ sơ đã được Giám đốc duyệt. Trạng thái hiện tại: «{tt}».");
+
+                var dsNv = new List<int>();
+                if (dto.MaNhanVienThucHiens != null)
+                    dsNv.AddRange(dto.MaNhanVienThucHiens.Where(x => x > 0));
+                if (dsNv.Count == 0 && dto.MaNhanVienThucHien is > 0)
+                    dsNv.Add(dto.MaNhanVienThucHien.Value);
+                dsNv = dsNv.Distinct().ToList();
+
+                if (dsNv.Count == 0)
+                    return (false, "Vui lòng chọn ít nhất một nhân viên thực hiện.");
+
+                // Chỉ chặn khi đã gửi Xưởng (Chờ xác nhận)
+                var pcDangMo = await _repo.GetPhanCongTheoHoSoBaoTriAsync(maHoSo);
+                if (pcDangMo.Any(p => p.TrangThai == "Chờ xác nhận"))
+                    return (false, "Quy trình đang chờ Xưởng xác nhận — không được đổi phân công.");
+
+                // Hủy mềm phân công cũ còn mở
+                foreach (var pc in pcDangMo.Where(p =>
+                             p.TrangThai is "Đã phân công" or "Xác nhận" or "Đang thực hiện" or "Từ chối"))
+                    pc.TrangThai = "Đã hủy";
+
+                int? maPhanCongDau = null;
+                foreach (var maNv in dsNv)
                 {
-                    MaNhanVienThucHien = maNv,
-                    MaNhanVienPhanCong = nhanVienPhanCong.MaNhanVien,
-                    MaHoSoBaoTri = maHoSo,
-                    NgayBatDauDuKien = dto.NgayBatDauDuKien,
-                    NgayKetThucDuKien = dto.NgayKetThucDuKien,
-                    TrangThai = "Đã phân công",
-                    // Mọi NV được phân công đều được Tiến hành quy trình
-                    LaNguoiGhiChep = true,
-                    NgayPhanCong = DateTime.Now
-                };
-                await _repo.AddPhanCongAsync(phanCong);
+                    // Kiểm tra NV tồn tại
+                    var nvTonTai = await _db.NhanViens.AnyAsync(n => n.MaNhanVien == maNv);
+                    if (!nvTonTai)
+                        return (false, $"Mã nhân viên {maNv} không tồn tại trong hệ thống.");
+
+                    var phanCong = new PhanCongCongViec
+                    {
+                        MaNhanVienThucHien = maNv,
+                        MaNhanVienPhanCong = nhanVienPhanCong.MaNhanVien,
+                        MaHoSoBaoTri = maHoSo,
+                        NgayBatDauDuKien = dto.NgayBatDauDuKien,
+                        NgayKetThucDuKien = dto.NgayKetThucDuKien,
+                        TrangThai = "Đã phân công",
+                        LaNguoiGhiChep = true,
+                        NgayPhanCong = DateTime.Now
+                    };
+                    await _repo.AddPhanCongAsync(phanCong);
+                    await _repo.SaveChangesAsync();
+                    maPhanCongDau ??= phanCong.MaPhanCong;
+                }
+
+                hoSo.MaPhanCong = maPhanCongDau;
+                hoSo.TrangThai = "Đang thực hiện";
+
+                var chiTiet = await _repo.GetChiTietKeHoachByHoSoBaoTriAsync(hoSo.MaHoSoBaoTri);
+                if (chiTiet != null)
+                    chiTiet.TrangThai = "Đang thực hiện";
+
                 await _repo.SaveChangesAsync();
-                maPhanCongDau ??= phanCong.MaPhanCong;
+                return (true, null);
             }
-
-            // Giữ MaPhanCong (1) để tương thích code cũ; danh sách đầy đủ qua MaHoSoBaoTri
-            hoSo.MaPhanCong = maPhanCongDau;
-            // Phân công xong → Đang thực hiện ngay (không chờ xác nhận NV)
-            hoSo.TrangThai = "Đang thực hiện";
-
-            var chiTiet = await _repo.GetChiTietKeHoachByHoSoBaoTriAsync(hoSo.MaHoSoBaoTri);
-            if (chiTiet != null)
-                chiTiet.TrangThai = "Đang thực hiện";
-
-            await _repo.SaveChangesAsync();
-            return (true, null);
+            catch (Exception ex)
+            {
+                return (false, $"Lỗi phân công: {ex.InnerException?.Message ?? ex.Message}");
+            }
         }
 
         /// <summary>
@@ -1851,8 +1853,8 @@ namespace OPC.MaintenanceAPI.Services.Implementations
         }
 
         /// <summary>
-        /// Khóa đổi người ghi chép khi đã tiến hành quy trình
-        /// (có hồ sơ vật tư, PC Đang thực hiện của người ghi chép).
+        /// Chỉ khóa đổi phân công khi đã có bước quy trình hoàn thành (DaXong/DaCapNhat)
+        /// hoặc đang chờ Xưởng xác nhận. Không khóa vì cờ «người ghi chép» (đã bỏ nghiệp vụ đó).
         /// </summary>
         private async Task<(bool Ok, string? Loi)> KiemTraKhoaNguoiGhiChepAsync(
             List<PhanCongCongViec> pcHienTai,
@@ -1861,49 +1863,49 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             int? maHoSoBaoTri,
             int? maHoSoSuaChua)
         {
-            var pcGhiChepCu = pcHienTai
-                .Where(p => p.LaNguoiGhiChep && p.TrangThai is not "Đã hủy")
-                .OrderByDescending(p => p.NgayPhanCong)
-                .FirstOrDefault();
-            if (pcGhiChepCu == null)
-                return (true, null);
+            if (pcHienTai.Any(p => p.TrangThai == "Chờ xác nhận"))
+                return (false, "Quy trình đang chờ Xưởng xác nhận — không được đổi phân công.");
 
-            var daVaoQuyTrinh =
-                pcHienTai.Any(p => p.TrangThai == "Chờ xác nhận")
-                || pcGhiChepCu.TrangThai is "Đang thực hiện" or "Xác nhận"
-                || (maHoSoBaoTri.HasValue && await _repo.CoHoSoVatTuTheoHoSoBaoTriAsync(maHoSoBaoTri.Value))
-                || (maHoSoSuaChua.HasValue && await _repo.CoHoSoVatTuTheoHoSoSuaChuaAsync(maHoSoSuaChua.Value));
+            // Đã có bước Xong trên server → không cho bỏ NV đã làm bước
+            if (maHoSoBaoTri.HasValue || maHoSoSuaChua.HasValue)
+            {
+                IQueryable<TienDoBuocQuyTrinh> q = _db.TienDoBuocQuyTrinhs;
+                if (maHoSoBaoTri.HasValue)
+                    q = q.Where(t => t.MaHoSoBaoTri == maHoSoBaoTri);
+                else
+                    q = q.Where(t => t.MaHoSoSuaChua == maHoSoSuaChua);
 
-            if (!daVaoQuyTrinh)
-                return (true, null);
+                var daLam = await q
+                    .Where(t => t.TrangThai == "DaXong" || t.TrangThai == "DaCapNhat")
+                    .Select(t => t.MaNhanVien)
+                    .Distinct()
+                    .ToListAsync();
 
-            if (!dsNvMoi.Contains(pcGhiChepCu.MaNhanVienThucHien))
-                return (false,
-                    "Người ghi chép đã tiến hành quy trình — không được bỏ người đó khỏi phân công. Chỉ được cập nhật trước khi tiến hành quy trình.");
-
-            if (maGhiChepMoi != pcGhiChepCu.MaNhanVienThucHien)
-                return (false,
-                    "Người ghi chép đã tiến hành quy trình — không được đổi người ghi chép. Chỉ được cập nhật trước khi tiến hành quy trình.");
+                foreach (var maNv in daLam)
+                {
+                    if (!dsNvMoi.Contains(maNv))
+                        return (false,
+                            "Không được bỏ nhân viên đã hoàn thành bước quy trình khỏi phân công.");
+                }
+            }
 
             return (true, null);
         }
 
         /// <summary>
-        /// Chọn đúng 1 người ghi chép trong danh sách NV được phân công.
-        /// 1 NV → auto; ≥2 → bắt buộc MaNhanVienGhiChep thuộc danh sách.
+        /// Không bắt buộc chọn người ghi chép — mọi NV đều làm quy trình.
+        /// Nếu client gửi mã hợp lệ thì dùng; không thì lấy NV đầu danh sách.
         /// </summary>
         private static (bool Ok, int MaGhiChep, string? Loi) ResolveNguoiGhiChep(
             List<int> dsNv, int? maNhanVienGhiChep)
         {
             if (dsNv.Count == 0)
                 return (false, 0, "Vui lòng chọn ít nhất một nhân viên thực hiện.");
-            if (dsNv.Count == 1)
-                return (true, dsNv[0], null);
-            if (!maNhanVienGhiChep.HasValue || maNhanVienGhiChep.Value <= 0)
-                return (false, 0, "Vui lòng chọn đúng 1 người ghi chép quy trình (trong danh sách đã chọn).");
-            if (!dsNv.Contains(maNhanVienGhiChep.Value))
-                return (false, 0, "Người ghi chép phải nằm trong danh sách nhân viên được phân công.");
-            return (true, maNhanVienGhiChep.Value, null);
+            if (maNhanVienGhiChep.HasValue &&
+                maNhanVienGhiChep.Value > 0 &&
+                dsNv.Contains(maNhanVienGhiChep.Value))
+                return (true, maNhanVienGhiChep.Value, null);
+            return (true, dsNv[0], null);
         }
 
         /// <summary>Mọi NV còn phân công hiệu lực đều được Tiến hành / Xong (không còn chỉ người ghi chép).</summary>

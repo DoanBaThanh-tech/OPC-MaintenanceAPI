@@ -190,11 +190,13 @@ namespace OPC.MaintenanceAPI.Controllers
         }
 
         [HttpPost("bao-tri/{id}/phan-cong")]
-        public async Task<IActionResult> PhanCongBaoTri(int id, PhanCongDto dto)
+        public async Task<IActionResult> PhanCongBaoTri(int id, [FromBody] PhanCongDto? dto)
         {
             var claim = User.FindFirst("MaNguoiDung")?.Value;
             if (claim == null || !int.TryParse(claim, out var maNguoiDung))
                 return Unauthorized();
+            if (dto == null)
+                return BadRequest(new { loi = "Thiếu dữ liệu phân công." });
 
             return Result(await _service.PhanCongBaoTriAsync(id, maNguoiDung, dto));
         }

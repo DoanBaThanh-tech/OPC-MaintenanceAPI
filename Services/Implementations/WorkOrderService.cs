@@ -422,6 +422,11 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     return (false,
                         $"Chỉ phân công khi hồ sơ đã được Giám đốc duyệt. Trạng thái hiện tại: «{tt}».");
 
+                // NVKT đã tiến hành quy trình → không được đổi / cập nhật phân công
+                if (hoSo.ThoiDiemBatDauThucTe != null)
+                    return (false,
+                        "Nhân viên kỹ thuật đã tiến hành quy trình — không được cập nhật phân công.");
+
                 var dsNv = new List<int>();
                 if (dto.MaNhanVienThucHiens != null)
                     dsNv.AddRange(dto.MaNhanVienThucHiens.Where(x => x > 0));
@@ -438,6 +443,13 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 if (soBuocKeHoach <= 0)
                     return (false,
                         "Vui lòng chọn và Lưu các bước quy trình trong chi tiết hồ sơ trước khi phân công nhân viên.");
+
+                // NVKT đã có tiến độ bước thực tế → không đổi phân công
+                var coTienDoNvkt = await _db.TienDoBuocQuyTrinhs.AnyAsync(t =>
+                    t.MaHoSoBaoTri == maHoSo && t.TrangThai != "DuocChon" && t.MaNhanVien > 0);
+                if (coTienDoNvkt)
+                    return (false,
+                        "Nhân viên kỹ thuật đã bắt đầu thực hiện bước — không được cập nhật phân công.");
 
                 // Chỉ chặn khi đã gửi Xưởng (Chờ xác nhận)
                 var pcDangMo = await _repo.GetPhanCongTheoHoSoBaoTriAsync(maHoSo);
@@ -1427,6 +1439,11 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (hoSo.TrangThai is not ("Chờ phân công" or "Đã duyệt" or "Đang thực hiện"))
                 return (false, "Chỉ phân công khi hồ sơ chờ phân công / đã duyệt / đang thực hiện.");
 
+            // NVKT đã tiến hành quy trình → không được đổi / cập nhật phân công
+            if (hoSo.ThoiDiemBatDauThucTe != null)
+                return (false,
+                    "Nhân viên kỹ thuật đã tiến hành quy trình — không được cập nhật phân công.");
+
             var dsNv = new List<int>();
             if (dto.MaNhanVienThucHiens != null && dto.MaNhanVienThucHiens.Count > 0)
                 dsNv.AddRange(dto.MaNhanVienThucHiens.Distinct());
@@ -1441,6 +1458,12 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (soBuocKeHoachSc <= 0)
                 return (false,
                     "Vui lòng chọn và Lưu các bước quy trình trong chi tiết hồ sơ trước khi phân công nhân viên.");
+
+            var coTienDoNvktSc = await _db.TienDoBuocQuyTrinhs.AnyAsync(t =>
+                t.MaHoSoSuaChua == maHoSo && t.TrangThai != "DuocChon" && t.MaNhanVien > 0);
+            if (coTienDoNvktSc)
+                return (false,
+                    "Nhân viên kỹ thuật đã bắt đầu thực hiện bước — không được cập nhật phân công.");
 
             var (okGhiChep, maGhiChep, loiGhiChep) = ResolveNguoiGhiChep(dsNv, dto.MaNhanVienGhiChep);
             if (!okGhiChep)

@@ -124,14 +124,11 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             return null;
         }
 
-        // Luồng 4 — nhánh "Tạo mới"
+        // Luồng 4 — nhánh "Tạo mới" (không bắt chức vụ; họ tên có thể trống)
         public async Task<AuthResult> TaoTaiKhoanAsync(TaoTaiKhoanDto dto)
         {
             if (!MatKhauHopLe.IsMatch(dto.MatKhau))
                 return new AuthResult { ThanhCong = false, Message = "Mật khẩu phải có ít nhất 8 ký tự, gồm 1 chữ hoa và 1 ký tự đặc biệt." };
-
-            if (string.IsNullOrWhiteSpace(dto.ChucVu))
-                return new AuthResult { ThanhCong = false, Message = "Vui lòng nhập chức vụ." };
 
             var loiEmail = KiemTraEmailCongTy(dto.Email);
             if (loiEmail != null)
@@ -172,7 +169,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 MaNguoiDung = taiKhoan.MaNguoiDung,
                 HoTen = hoTen,
                 SoDienThoai = dto.SoDienThoai,
-                ChucVu = dto.ChucVu,
+                ChucVu = null,
                 NgayVaoLam = DateOnly.FromDateTime(dto.NgayVaoLam ?? DateTime.Now),
                 TrangThai = "Đang làm việc"
             };
@@ -182,51 +179,27 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             return new AuthResult { ThanhCong = true, Data = new { taiKhoan.MaNguoiDung, taiKhoan.Email, taiKhoan.TrangThai } };
         }
 
-        // Admin chỉ sửa: email @opc.com, họ tên (chữ), chức vụ — không đổi vai trò / SĐT
+        // Admin chỉ được đổi vai trò — không sửa họ tên / email / chức vụ
         public async Task<AuthResult> CapNhatTaiKhoanAsync(int id, CapNhatTaiKhoanDto dto)
         {
             var user = await _userRepo.GetByIdAsync(id);
             if (user == null) return new AuthResult { ThanhCong = false, Message = "Không tìm thấy tài khoản." };
 
-            if (string.IsNullOrWhiteSpace(dto.ChucVu))
-                return new AuthResult { ThanhCong = false, Message = "Vui lòng nhập chức vụ." };
+            var vaiTro = await _userRepo.GetVaiTroByIdAsync(dto.MaVaiTro);
+            if (vaiTro == null)
+                return new AuthResult { ThanhCong = false, Message = "Vai trò không hợp lệ." };
+            if (!VaiTroChoPhep.Contains(vaiTro.TenVaiTro) ||
+                string.Equals(vaiTro.TenVaiTro, "Admin hệ thống", StringComparison.OrdinalIgnoreCase))
+                return new AuthResult { ThanhCong = false, Message = "Chỉ được gán: Tổ trưởng cơ điện, Xưởng, Giám đốc, Nhân viên kỹ thuật." };
 
-            if (!string.IsNullOrWhiteSpace(dto.Email))
-            {
-                var loiEmail = KiemTraEmailCongTy(dto.Email);
-                if (loiEmail != null)
-                    return new AuthResult { ThanhCong = false, Message = loiEmail };
+            var loiGioiHan = await KiemTraGioiHanVaiTroAsync(dto.MaVaiTro, loaiTruMaNguoiDung: id);
+            if (loiGioiHan != null)
+                return new AuthResult { ThanhCong = false, Message = loiGioiHan };
 
-                var emailMoi = dto.Email.Trim().ToLowerInvariant();
-                if (!string.Equals(user.Email, emailMoi, StringComparison.OrdinalIgnoreCase)
-                    && await _userRepo.EmailExistsAsync(emailMoi))
-                    return new AuthResult { ThanhCong = false, Message = "Email đã tồn tại." };
-
-                user.Email = emailMoi;
-            }
-
-            if (dto.HoTen != null)
-            {
-                var loiHoTen = KiemTraHoTen(dto.HoTen, batBuoc: false);
-                if (loiHoTen != null)
-                    return new AuthResult { ThanhCong = false, Message = loiHoTen };
-            }
-
+            user.MaVaiTro = dto.MaVaiTro;
             _userRepo.Update(user);
-
-            var nhanVien = await _nhanVienRepo.GetByMaNguoiDungAsync(id);
-            if (nhanVien != null)
-            {
-                if (dto.HoTen != null)
-                    nhanVien.HoTen = string.IsNullOrWhiteSpace(dto.HoTen)
-                        ? "Chưa cập nhật"
-                        : dto.HoTen.Trim();
-                nhanVien.ChucVu = dto.ChucVu.Trim();
-                _nhanVienRepo.Update(nhanVien);
-            }
-
             await _userRepo.SaveChangesAsync();
-            return new AuthResult { ThanhCong = true, Message = "Đã cập nhật tài khoản." };
+            return new AuthResult { ThanhCong = true, Message = "Đã cập nhật vai trò." };
         }
 
         public async Task<AuthResult> KichHoatAsync(int id)

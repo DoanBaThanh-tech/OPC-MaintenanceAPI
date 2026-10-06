@@ -19,12 +19,13 @@ namespace OPC.MaintenanceAPI.DTOs.Auth
         public DateTime? NgayVaoLam { get; set; }
     }
 
-    // ===== Sửa tài khoản (Admin) =====
+    // ===== Sửa tài khoản (Admin) — chỉ email công ty, họ tên, chức vụ =====
     public class CapNhatTaiKhoanDto
     {
-        public int MaVaiTro { get; set; }
-        public string HoTen { get; set; } = null!;
-        public string? SoDienThoai { get; set; }
+        /// <summary>Email công ty (@opc.com). Null = giữ nguyên.</summary>
+        public string? Email { get; set; }
+        /// <summary>Họ tên chữ cái (có thể để trống). Null = giữ nguyên.</summary>
+        public string? HoTen { get; set; }
         public string ChucVu { get; set; } = null!;
     }
 

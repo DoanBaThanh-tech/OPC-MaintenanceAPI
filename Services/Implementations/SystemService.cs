@@ -12,16 +12,26 @@ namespace OPC.MaintenanceAPI.Services.Implementations
         public SystemService(ISystemRepository repo) => _repo = repo;
  
         // ---------- VAI TRÒ ----------
+        private static readonly HashSet<string> VaiTroHienThi = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "Tổ trưởng cơ điện", "Xưởng", "Giám đốc", "Nhân viên kỹ thuật"
+        };
+
         public async Task<List<object>> GetAllVaiTroAsync()
         {
             var data = await _repo.GetAllVaiTroWithUserCountAsync();
-            return data.Select(x => (object)new
-            {
-                x.VaiTro.MaVaiTro,
-                x.VaiTro.TenVaiTro,
-                x.VaiTro.CapDoQuyen,
-                SoNguoiDung = x.SoNguoiDung
-            }).ToList();
+            return data
+                .Where(x => VaiTroHienThi.Contains(x.VaiTro.TenVaiTro ?? ""))
+                .GroupBy(x => x.VaiTro.TenVaiTro, StringComparer.OrdinalIgnoreCase)
+                .Select(g => g.OrderByDescending(x => x.SoNguoiDung).First())
+                .OrderBy(x => x.VaiTro.TenVaiTro)
+                .Select(x => (object)new
+                {
+                    x.VaiTro.MaVaiTro,
+                    x.VaiTro.TenVaiTro,
+                    x.VaiTro.CapDoQuyen,
+                    SoNguoiDung = x.SoNguoiDung
+                }).ToList();
         }
 
         public async Task<List<object>> GetDanhSachNhanVienAsync(string? vaiTro = null)

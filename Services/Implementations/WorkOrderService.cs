@@ -2060,6 +2060,9 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 var tt = (hs.TrangThai ?? "").Trim();
                 if (tt is not ("Đã duyệt" or "Đang thực hiện" or "Chờ phân công"))
                     return (false, $"Chỉ chọn bước khi hồ sơ đã được duyệt. Trạng thái: «{tt}».");
+                if (hs.ThoiDiemBatDauThucTe != null)
+                    return (false,
+                        "Nhân viên kỹ thuật đã tiến hành quy trình — không thể chỉnh sửa bước quy trình.");
             }
             else
             {
@@ -2068,7 +2071,21 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 var tt = (hs.TrangThai ?? "").Trim();
                 if (tt is not ("Đã duyệt" or "Đang thực hiện" or "Chờ phân công"))
                     return (false, $"Chỉ chọn bước khi hồ sơ đã được duyệt. Trạng thái: «{tt}».");
+                if (hs.ThoiDiemBatDauThucTe != null)
+                    return (false,
+                        "Nhân viên kỹ thuật đã tiến hành quy trình — không thể chỉnh sửa bước quy trình.");
             }
+
+            // NVKT đã nhận / xong bước → Tổ trưởng không được đổi kế hoạch bước
+            var coTienDoNvkt = await _db.TienDoBuocQuyTrinhs.AnyAsync(t =>
+                (dto.MaHoSoBaoTri.HasValue
+                    ? t.MaHoSoBaoTri == dto.MaHoSoBaoTri
+                    : t.MaHoSoSuaChua == dto.MaHoSoSuaChua)
+                && t.TrangThai != "DuocChon"
+                && t.MaNhanVien > 0);
+            if (coTienDoNvkt)
+                return (false,
+                    "Nhân viên kỹ thuật đã bắt đầu thực hiện bước — không thể chỉnh sửa bước quy trình.");
 
             // Xóa các bước DuocChon cũ (không đụng DaXong / DangLam / DaCapNhat)
             IQueryable<TienDoBuocQuyTrinh> qCu = _db.TienDoBuocQuyTrinhs

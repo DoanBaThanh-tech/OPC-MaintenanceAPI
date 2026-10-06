@@ -92,6 +92,38 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             };
         }
 
+        private static readonly HashSet<string> VaiTroChoPhep = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "Tổ trưởng cơ điện", "Xưởng", "Giám đốc", "Nhân viên kỹ thuật", "Admin hệ thống"
+        };
+
+        private static readonly Regex HoTenHopLe =
+            new(@"^[\p{L}\s]+$", RegexOptions.CultureInvariant);
+
+        private static string? KiemTraEmailCongTy(string? email)
+        {
+            if (string.IsNullOrWhiteSpace(email))
+                return "Vui lòng nhập email công ty.";
+            var e = email.Trim();
+            if (!e.EndsWith("@opc.com", StringComparison.OrdinalIgnoreCase))
+                return "Email công ty phải có đuôi @opc.com.";
+            if (!e.Contains('@') || e.StartsWith("@"))
+                return "Email không hợp lệ.";
+            return null;
+        }
+
+        private static string? KiemTraHoTen(string? hoTen, bool batBuoc)
+        {
+            var t = (hoTen ?? "").Trim();
+            if (t.Length == 0)
+                return batBuoc ? "Họ tên không được để trống." : null;
+            if (t.Contains('@') || t.Contains("opc.com", StringComparison.OrdinalIgnoreCase))
+                return "Họ tên không được điền email công ty.";
+            if (!HoTenHopLe.IsMatch(t))
+                return "Họ tên chỉ gồm chữ cái và khoảng trắng (không số, không ký tự đặc biệt).";
+            return null;
+        }
+
         // Luồng 4 — nhánh "Tạo mới"
         public async Task<AuthResult> TaoTaiKhoanAsync(TaoTaiKhoanDto dto)
         {
@@ -101,8 +133,24 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (string.IsNullOrWhiteSpace(dto.ChucVu))
                 return new AuthResult { ThanhCong = false, Message = "Vui lòng nhập chức vụ." };
 
-            if (await _userRepo.EmailExistsAsync(dto.Email))
+            var loiEmail = KiemTraEmailCongTy(dto.Email);
+            if (loiEmail != null)
+                return new AuthResult { ThanhCong = false, Message = loiEmail };
+
+            // Họ tên được để trống khi chưa biết — user tự cập nhật sau
+            var loiHoTen = KiemTraHoTen(dto.HoTen, batBuoc: false);
+            if (loiHoTen != null)
+                return new AuthResult { ThanhCong = false, Message = loiHoTen };
+
+            if (await _userRepo.EmailExistsAsync(dto.Email.Trim()))
                 return new AuthResult { ThanhCong = false, Message = "Email đã tồn tại." };
+
+            var vaiTro = await _userRepo.GetVaiTroByIdAsync(dto.MaVaiTro);
+            if (vaiTro == null)
+                return new AuthResult { ThanhCong = false, Message = "Vai trò không hợp lệ." };
+            if (!VaiTroChoPhep.Contains(vaiTro.TenVaiTro) ||
+                string.Equals(vaiTro.TenVaiTro, "Admin hệ thống", StringComparison.OrdinalIgnoreCase))
+                return new AuthResult { ThanhCong = false, Message = "Chỉ được gán: Tổ trưởng cơ điện, Xưởng, Giám đốc, Nhân viên kỹ thuật." };
 
             var loiGioiHan = await KiemTraGioiHanVaiTroAsync(dto.MaVaiTro);
             if (loiGioiHan != null)
@@ -110,7 +158,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
             var taiKhoan = new QuanLyNguoiDung
             {
-                Email = dto.Email,
+                Email = dto.Email.Trim().ToLowerInvariant(),
                 MatKhau = BCrypt.Net.BCrypt.HashPassword(dto.MatKhau),
                 MaVaiTro = dto.MaVaiTro,
                 TrangThai = "Chưa kích hoạt"
@@ -118,10 +166,11 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             await _userRepo.AddAsync(taiKhoan);
             await _userRepo.SaveChangesAsync();
 
+            var hoTen = string.IsNullOrWhiteSpace(dto.HoTen) ? "Chưa cập nhật" : dto.HoTen.Trim();
             var nhanVien = new NhanVien
             {
                 MaNguoiDung = taiKhoan.MaNguoiDung,
-                HoTen = dto.HoTen,
+                HoTen = hoTen,
                 SoDienThoai = dto.SoDienThoai,
                 ChucVu = dto.ChucVu,
                 NgayVaoLam = DateOnly.FromDateTime(dto.NgayVaoLam ?? DateTime.Now),
@@ -133,32 +182,46 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             return new AuthResult { ThanhCong = true, Data = new { taiKhoan.MaNguoiDung, taiKhoan.Email, taiKhoan.TrangThai } };
         }
 
-        // Luồng 4 — nhánh "Sửa": áp dụng đúng ràng buộc giới hạn vai trò như lúc Tạo mới,
-        // loại trừ chính tài khoản đang sửa để không tự đếm nhầm chính nó
+        // Admin chỉ sửa: email @opc.com, họ tên (chữ), chức vụ — không đổi vai trò / SĐT
         public async Task<AuthResult> CapNhatTaiKhoanAsync(int id, CapNhatTaiKhoanDto dto)
         {
             var user = await _userRepo.GetByIdAsync(id);
             if (user == null) return new AuthResult { ThanhCong = false, Message = "Không tìm thấy tài khoản." };
 
-            if (string.IsNullOrWhiteSpace(dto.HoTen))
-                return new AuthResult { ThanhCong = false, Message = "Họ tên không được để trống." };
-
             if (string.IsNullOrWhiteSpace(dto.ChucVu))
                 return new AuthResult { ThanhCong = false, Message = "Vui lòng nhập chức vụ." };
 
-            var loiGioiHan = await KiemTraGioiHanVaiTroAsync(dto.MaVaiTro, loaiTruMaNguoiDung: id);
-            if (loiGioiHan != null)
-                return new AuthResult { ThanhCong = false, Message = loiGioiHan };
+            if (!string.IsNullOrWhiteSpace(dto.Email))
+            {
+                var loiEmail = KiemTraEmailCongTy(dto.Email);
+                if (loiEmail != null)
+                    return new AuthResult { ThanhCong = false, Message = loiEmail };
 
-            user.MaVaiTro = dto.MaVaiTro;
+                var emailMoi = dto.Email.Trim().ToLowerInvariant();
+                if (!string.Equals(user.Email, emailMoi, StringComparison.OrdinalIgnoreCase)
+                    && await _userRepo.EmailExistsAsync(emailMoi))
+                    return new AuthResult { ThanhCong = false, Message = "Email đã tồn tại." };
+
+                user.Email = emailMoi;
+            }
+
+            if (dto.HoTen != null)
+            {
+                var loiHoTen = KiemTraHoTen(dto.HoTen, batBuoc: false);
+                if (loiHoTen != null)
+                    return new AuthResult { ThanhCong = false, Message = loiHoTen };
+            }
+
             _userRepo.Update(user);
 
             var nhanVien = await _nhanVienRepo.GetByMaNguoiDungAsync(id);
             if (nhanVien != null)
             {
-                nhanVien.HoTen = dto.HoTen;
-                nhanVien.SoDienThoai = dto.SoDienThoai;
-                nhanVien.ChucVu = dto.ChucVu;
+                if (dto.HoTen != null)
+                    nhanVien.HoTen = string.IsNullOrWhiteSpace(dto.HoTen)
+                        ? "Chưa cập nhật"
+                        : dto.HoTen.Trim();
+                nhanVien.ChucVu = dto.ChucVu.Trim();
                 _nhanVienRepo.Update(nhanVien);
             }
 

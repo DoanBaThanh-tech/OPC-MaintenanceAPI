@@ -66,5 +66,8 @@ namespace OPC.MaintenanceAPI.Services.Interfaces
         /// <summary>Tiến độ bước quy trình NVKT (lưu + khóa bước realtime).</summary>
         Task<List<object>> GetTienDoBuocAsync(int? maHoSoBaoTri, int? maHoSoSuaChua);
         Task<(bool, string?, object?)> ClaimHoacLuuTienDoBuocAsync(int maNguoiDung, TienDoBuocDto dto);
+
+        /// <summary>Thống kê theo tháng cho Giám đốc: số BT/SC + vật tư & chi phí.</summary>
+        Task<object> GetThongKeGiamDocAsync(int nam);
     }
 }

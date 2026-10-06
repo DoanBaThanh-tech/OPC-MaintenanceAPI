@@ -392,6 +392,15 @@ namespace OPC.MaintenanceAPI.Controllers
             return Result(await _service.GhiNhanKetQuaAsync(maPhanCong, dto));
         }
 
+        /// <summary>Thống kê Giám đốc: BT/SC theo tháng + vật tư & chi phí.</summary>
+        [HttpGet("thong-ke-giam-doc")]
+        [Authorize(Roles = "Giám đốc,Phó giám đốc")]
+        public async Task<IActionResult> ThongKeGiamDoc([FromQuery] int? nam = null)
+        {
+            var y = nam ?? DateTime.Now.Year;
+            return Ok(await _service.GetThongKeGiamDocAsync(y));
+        }
+
         private IActionResult Result((bool ok, string? loi) r) => r.ok ? Ok(new { thongBao = r.loi }) : BadRequest(new { loi = r.loi });
     }
 }

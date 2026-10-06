@@ -1313,7 +1313,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
             var dsPc = await _repo.GetPhanCongTheoHoSoSuaChuaAsync(h.MaHoSoSuaChua);
             var dangPc = dsPc
-                .Where(p => p.TrangThai is "Đã phân công" or "Chờ xác nhận" or "Xác nhận" or "Đang thực hiện" or "Hoàn thành")
+                .Where(p => p.TrangThai is "Đã phân công" or "Chờ xác nhận" or "Xác nhận" or "Đang thực hiện" or "Hoàn thành" or "Từ chối")
                 .Select(p => new
                 {
                     MaNhanVien = p.MaNhanVienThucHien,
@@ -1323,9 +1323,16 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 })
                 .ToList();
 
-            var pcChinh = h.MaPhanCong != null
-                ? dsPc.FirstOrDefault(p => p.MaPhanCong == h.MaPhanCong)
-                : dsPc.OrderByDescending(p => p.MaPhanCong).FirstOrDefault();
+            // Ưu tiên PC đang chờ Xưởng xác nhận quy trình (để hiện nút Xác nhận / Từ chối)
+            var pcChoXn = dsPc.FirstOrDefault(p => p.TrangThai == "Chờ xác nhận");
+            var pcChinh = pcChoXn
+                ?? (h.MaPhanCong != null
+                    ? dsPc.FirstOrDefault(p => p.MaPhanCong == h.MaPhanCong)
+                    : null)
+                ?? dsPc.OrderByDescending(p => p.MaPhanCong).FirstOrDefault();
+
+            var choXuongXn = (h.TrangThai is "Đang thực hiện" or "Chờ xác nhận")
+                && dsPc.Any(p => p.TrangThai == "Chờ xác nhận");
 
             return new
             {
@@ -1351,6 +1358,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 h.MaPhanCong,
                 TrangThaiPhanCong = pcChinh?.TrangThai,
                 LyDoTuChoiPhanCong = pcChinh?.LyDoTuChoi,
+                ChoXuongXacNhanQuyTrinh = choXuongXn,
                 DanhSachNhanVienPhanCong = dangPc,
                 MaNhanVienThucHiens = dangPc.Select(x => x.MaNhanVien).ToList(),
                 TenNhanVienThucHiens = string.Join(", ", dangPc.Select(x => x.TenNhanVien).Where(t => !string.IsNullOrEmpty(t))),
@@ -1662,12 +1670,16 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 h.NgayTao,
                 h.NgayDuyet,
                 h.MaPhanCong,
-                // Thông tin phân công (để hiện Từ chối + lý do trên chi tiết hồ sơ)
-                TrangThaiPhanCong = pc?.TrangThai,
-                LyDoTuChoiPhanCong = pc?.LyDoTuChoi,
+                // Ưu tiên PC Chờ xác nhận — Xưởng thấy nút Xác nhận / Từ chối
+                TrangThaiPhanCong = dsPc.FirstOrDefault(p => p.TrangThai == "Chờ xác nhận")?.TrangThai
+                    ?? pc?.TrangThai,
+                LyDoTuChoiPhanCong = dsPc.FirstOrDefault(p => p.TrangThai == "Chờ xác nhận")?.LyDoTuChoi
+                    ?? pc?.LyDoTuChoi,
                 MaNhanVienThucHien = pc?.MaNhanVienThucHien,
                 TenNhanVienThucHien = pc?.MaNhanVienThucHienNavigation?.HoTen,
                 NgayPhanCong = pc?.NgayPhanCong,
+                ChoXuongXacNhanQuyTrinh = (h.TrangThai is "Đang thực hiện" or "Chờ xác nhận")
+                    && dsPc.Any(p => p.TrangThai == "Chờ xác nhận"),
                 // Nhiều NV đang phân công
                 DanhSachNhanVienPhanCong = dsNvDangPc,
                 MaNhanVienThucHiens = dsNvDangPc.Select(x => x.MaNhanVien).ToList(),
@@ -2117,6 +2129,79 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 row.TenNhanVien,
                 row.TrangThai
             });
+        }
+
+        /// <summary>
+        /// Thống kê Giám đốc theo năm: số hồ sơ BT/SC theo tháng + số lượng & tiền vật tư.
+        /// </summary>
+        public async Task<object> GetThongKeGiamDocAsync(int nam)
+        {
+            if (nam < 2000 || nam > 2100) nam = DateTime.Now.Year;
+
+            // Bảo trì: theo tháng hoàn thành thực tế, không thì ngày dự kiến, không thì ngày tạo
+            var btAll = await _db.HoSoBaoTris
+                .Where(h => h.TrangThai != "Nháp" && h.TrangThai != "Đã hủy")
+                .Select(h => new
+                {
+                    h.MaHoSoBaoTri,
+                    h.TrangThai,
+                    Thang = (h.ThoiDiemKetThucThucTe ?? h.ThoiDiemBatDauThucTe ?? h.NgayDuyet ?? h.NgayTao).Month,
+                    Nam = (h.ThoiDiemKetThucThucTe ?? h.ThoiDiemBatDauThucTe ?? h.NgayDuyet ?? h.NgayTao).Year
+                })
+                .Where(x => x.Nam == nam)
+                .ToListAsync();
+
+            var scAll = await _db.HoSoSuaChuas
+                .Where(h => h.TrangThai != "Nháp" && h.TrangThai != "Đã hủy")
+                .Select(h => new
+                {
+                    h.MaHoSoSuaChua,
+                    h.TrangThai,
+                    Thang = (h.ThoiDiemKetThucThucTe ?? h.ThoiDiemBatDauThucTe ?? h.NgayDuyet ?? h.NgayTao).Month,
+                    Nam = (h.ThoiDiemKetThucThucTe ?? h.ThoiDiemBatDauThucTe ?? h.NgayDuyet ?? h.NgayTao).Year
+                })
+                .Where(x => x.Nam == nam)
+                .ToListAsync();
+
+            // Vật tư: theo ngày thực hiện (NgayThucHien không nullable)
+            var vtAll = await _db.HoSoSuDungVatTus
+                .Include(h => h.ChiTietSuDungVatTus)
+                .Where(h => h.NgayThucHien.Year == nam)
+                .ToListAsync();
+
+            var theoThang = new List<object>();
+            for (var m = 1; m <= 12; m++)
+            {
+                var btThang = btAll.Where(x => x.Thang == m).ToList();
+                var scThang = scAll.Where(x => x.Thang == m).ToList();
+                var vtThang = vtAll.Where(h => h.NgayThucHien.Month == m).ToList();
+
+                var soLuongVt = vtThang.SelectMany(h => h.ChiTietSuDungVatTus).Sum(c => c.SoLuong);
+                var tongTien = vtThang.Sum(h => h.TongTien);
+
+                theoThang.Add(new
+                {
+                    Thang = m,
+                    SoBaoTri = btThang.Count,
+                    SoBaoTriHoanThanh = btThang.Count(x => x.TrangThai == "Đã hoàn thành"),
+                    SoSuaChua = scThang.Count,
+                    SoSuaChuaHoanThanh = scThang.Count(x => x.TrangThai == "Đã hoàn thành"),
+                    SoLuongVatTu = soLuongVt,
+                    TongTienVatTu = tongTien
+                });
+            }
+
+            return new
+            {
+                Nam = nam,
+                TongBaoTri = btAll.Count,
+                TongBaoTriHoanThanh = btAll.Count(x => x.TrangThai == "Đã hoàn thành"),
+                TongSuaChua = scAll.Count,
+                TongSuaChuaHoanThanh = scAll.Count(x => x.TrangThai == "Đã hoàn thành"),
+                TongSoLuongVatTu = vtAll.SelectMany(h => h.ChiTietSuDungVatTus).Sum(c => c.SoLuong),
+                TongTienVatTu = vtAll.Sum(h => h.TongTien),
+                TheoThang = theoThang
+            };
         }
 
     }

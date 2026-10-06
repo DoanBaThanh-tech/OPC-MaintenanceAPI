@@ -336,8 +336,9 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 return new AuthResult { ThanhCong = false, Message = loiHoTen };
 
             var sdt = (dto.SoDienThoai ?? "").Trim();
-            if (sdt.Length > 0 && !System.Text.RegularExpressions.Regex.IsMatch(sdt, @"^[0-9+\-\s]{8,15}$"))
-                return new AuthResult { ThanhCong = false, Message = "Số điện thoại không hợp lệ (8–15 số)." };
+            // Chỉ chữ số, tối đa 10 số — không chữ / ký tự đặc biệt / thập phân / số âm
+            if (sdt.Length > 0 && !System.Text.RegularExpressions.Regex.IsMatch(sdt, @"^\d{1,10}$"))
+                return new AuthResult { ThanhCong = false, Message = "Số điện thoại chỉ gồm số, tối đa 10 chữ số." };
 
             var nv = await _nhanVienRepo.GetByMaNguoiDungAsync(maNguoiDung);
             if (nv == null)
@@ -347,7 +348,6 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     MaNguoiDung = maNguoiDung,
                     HoTen = dto.HoTen.Trim(),
                     SoDienThoai = string.IsNullOrWhiteSpace(sdt) ? null : sdt,
-                    ChucVu = string.IsNullOrWhiteSpace(dto.ChucVu) ? null : dto.ChucVu.Trim(),
                     NgayVaoLam = dto.NgayVaoLam,
                     TrangThai = "Đang làm việc"
                 };
@@ -357,7 +357,6 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             {
                 nv.HoTen = dto.HoTen.Trim();
                 nv.SoDienThoai = string.IsNullOrWhiteSpace(sdt) ? null : sdt;
-                nv.ChucVu = string.IsNullOrWhiteSpace(dto.ChucVu) ? null : dto.ChucVu.Trim();
                 if (dto.NgayVaoLam.HasValue)
                     nv.NgayVaoLam = dto.NgayVaoLam;
                 _nhanVienRepo.Update(nv);
@@ -376,7 +375,6 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     TenVaiTro = vaiTro?.TenVaiTro,
                     HoTen = nv.HoTen,
                     SoDienThoai = nv.SoDienThoai,
-                    ChucVu = nv.ChucVu,
                     NgayVaoLam = nv.NgayVaoLam
                 }
             };

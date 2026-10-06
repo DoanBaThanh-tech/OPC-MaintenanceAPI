@@ -25,12 +25,11 @@ namespace OPC.MaintenanceAPI.DTOs.Auth
         public int MaVaiTro { get; set; }
     }
 
-    // ===== Nhân viên tự cập nhật hồ sơ (không đổi email / vai trò) =====
+    // ===== Nhân viên tự cập nhật hồ sơ (không đổi email / vai trò / chức vụ) =====
     public class NhanVienUpdateDto
     {
         public string HoTen { get; set; } = null!;
         public string? SoDienThoai { get; set; }
-        public string? ChucVu { get; set; }
         public DateOnly? NgayVaoLam { get; set; }
     }
 

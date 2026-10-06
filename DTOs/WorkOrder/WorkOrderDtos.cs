@@ -131,8 +131,22 @@ namespace OPC.MaintenanceAPI.DTOs.WorkOrder
         public int? MaHoSoSuaChua { get; set; }
         public int SoBuoc { get; set; }
         public string? MoTaBuoc { get; set; }
-        /// <summary>DangLam | DaXong</summary>
+        /// <summary>DangLam | DaXong | DaCapNhat | DuocChon</summary>
         public string TrangThai { get; set; } = "DangLam";
         public string? JsonVatTu { get; set; }
+    }
+
+    /// <summary>Tổ trưởng chọn bước quy trình trước phân công (không chọn VT).</summary>
+    public class KeHoachBuocDto
+    {
+        public int? MaHoSoBaoTri { get; set; }
+        public int? MaHoSoSuaChua { get; set; }
+        public List<KeHoachBuocItemDto> DanhSachBuoc { get; set; } = new();
+    }
+
+    public class KeHoachBuocItemDto
+    {
+        public int SoBuoc { get; set; }
+        public string? MoTaBuoc { get; set; }
     }
 }

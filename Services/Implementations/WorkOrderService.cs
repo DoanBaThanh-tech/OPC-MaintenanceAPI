@@ -432,6 +432,13 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 if (dsNv.Count == 0)
                     return (false, "Vui lòng chọn ít nhất một nhân viên thực hiện.");
 
+                // Bắt buộc Tổ trưởng đã chọn ≥1 bước quy trình trước khi phân công
+                var soBuocKeHoach = await _db.TienDoBuocQuyTrinhs
+                    .CountAsync(t => t.MaHoSoBaoTri == maHoSo && t.TrangThai == "DuocChon");
+                if (soBuocKeHoach <= 0)
+                    return (false,
+                        "Vui lòng chọn và Lưu các bước quy trình trong chi tiết hồ sơ trước khi phân công nhân viên.");
+
                 // Chỉ chặn khi đã gửi Xưởng (Chờ xác nhận)
                 var pcDangMo = await _repo.GetPhanCongTheoHoSoBaoTriAsync(maHoSo);
                 if (pcDangMo.Any(p => p.TrangThai == "Chờ xác nhận"))
@@ -1428,6 +1435,13 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (dsNv.Count == 0)
                 return (false, "Vui lòng chọn ít nhất một nhân viên thực hiện.");
 
+            // Bắt buộc đã chọn ≥1 bước quy trình trước khi phân công SC
+            var soBuocKeHoachSc = await _db.TienDoBuocQuyTrinhs
+                .CountAsync(t => t.MaHoSoSuaChua == maHoSo && t.TrangThai == "DuocChon");
+            if (soBuocKeHoachSc <= 0)
+                return (false,
+                    "Vui lòng chọn và Lưu các bước quy trình trong chi tiết hồ sơ trước khi phân công nhân viên.");
+
             var (okGhiChep, maGhiChep, loiGhiChep) = ResolveNguoiGhiChep(dsNv, dto.MaNhanVienGhiChep);
             if (!okGhiChep)
                 return (false, loiGhiChep);
@@ -2019,6 +2033,95 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             return new { Nam = nam, MaThietBi = maThietBi, DanhSachThang = thang };
         }
 
+        // ===== KẾ HOẠCH BƯỚC (TỔ TRƯỞNG CHỌN TRƯỚC PHÂN CÔNG) =====
+
+        public async Task<(bool, string?)> LuuKeHoachBuocAsync(int maNguoiDung, KeHoachBuocDto dto)
+        {
+            if (dto == null)
+                return (false, "Thiếu dữ liệu.");
+            if (!dto.MaHoSoBaoTri.HasValue && !dto.MaHoSoSuaChua.HasValue)
+                return (false, "Thiếu mã hồ sơ.");
+
+            var ds = (dto.DanhSachBuoc ?? new List<KeHoachBuocItemDto>())
+                .Where(b => b.SoBuoc > 0)
+                .GroupBy(b => b.SoBuoc)
+                .Select(g => g.First())
+                .OrderBy(b => b.SoBuoc)
+                .ToList();
+
+            if (ds.Count == 0)
+                return (false, "Vui lòng tích chọn ít nhất một bước quy trình trước khi Lưu.");
+
+            // Chỉ cho lưu khi hồ sơ ở trạng thái phù hợp (đã duyệt / chờ PC / đang TH)
+            if (dto.MaHoSoBaoTri.HasValue)
+            {
+                var hs = await _repo.GetHoSoBaoTriByIdAsync(dto.MaHoSoBaoTri.Value);
+                if (hs == null) return (false, "Không tìm thấy hồ sơ bảo trì.");
+                var tt = (hs.TrangThai ?? "").Trim();
+                if (tt is not ("Đã duyệt" or "Đang thực hiện" or "Chờ phân công"))
+                    return (false, $"Chỉ chọn bước khi hồ sơ đã được duyệt. Trạng thái: «{tt}».");
+            }
+            else
+            {
+                var hs = await _repo.GetHoSoSuaChuaByIdAsync(dto.MaHoSoSuaChua!.Value);
+                if (hs == null) return (false, "Không tìm thấy hồ sơ sửa chữa.");
+                var tt = (hs.TrangThai ?? "").Trim();
+                if (tt is not ("Đã duyệt" or "Đang thực hiện" or "Chờ phân công"))
+                    return (false, $"Chỉ chọn bước khi hồ sơ đã được duyệt. Trạng thái: «{tt}».");
+            }
+
+            // Xóa các bước DuocChon cũ (không đụng DaXong / DangLam / DaCapNhat)
+            IQueryable<TienDoBuocQuyTrinh> qCu = _db.TienDoBuocQuyTrinhs
+                .Where(t => t.TrangThai == "DuocChon");
+            if (dto.MaHoSoBaoTri.HasValue)
+                qCu = qCu.Where(t => t.MaHoSoBaoTri == dto.MaHoSoBaoTri);
+            else
+                qCu = qCu.Where(t => t.MaHoSoSuaChua == dto.MaHoSoSuaChua);
+
+            var cu = await qCu.ToListAsync();
+            if (cu.Count > 0)
+                _db.TienDoBuocQuyTrinhs.RemoveRange(cu);
+
+            // Không ghi đè bước NVKT đã làm
+            HashSet<int> buocDaCoThat;
+            if (dto.MaHoSoBaoTri.HasValue)
+            {
+                buocDaCoThat = (await _db.TienDoBuocQuyTrinhs
+                        .Where(t => t.MaHoSoBaoTri == dto.MaHoSoBaoTri && t.TrangThai != "DuocChon")
+                        .Select(t => t.SoBuoc)
+                        .ToListAsync())
+                    .ToHashSet();
+            }
+            else
+            {
+                buocDaCoThat = (await _db.TienDoBuocQuyTrinhs
+                        .Where(t => t.MaHoSoSuaChua == dto.MaHoSoSuaChua && t.TrangThai != "DuocChon")
+                        .Select(t => t.SoBuoc)
+                        .ToListAsync())
+                    .ToHashSet();
+            }
+
+            foreach (var b in ds)
+            {
+                if (buocDaCoThat.Contains(b.SoBuoc)) continue; // giữ nguyên tiến độ NVKT
+                _db.TienDoBuocQuyTrinhs.Add(new TienDoBuocQuyTrinh
+                {
+                    MaHoSoBaoTri = dto.MaHoSoBaoTri,
+                    MaHoSoSuaChua = dto.MaHoSoSuaChua,
+                    SoBuoc = b.SoBuoc,
+                    MoTaBuoc = b.MoTaBuoc ?? "",
+                    MaNhanVien = 0, // Tổ trưởng không phải người thực hiện
+                    TenNhanVien = null,
+                    TrangThai = "DuocChon",
+                    JsonVatTu = null,
+                    ThoiDiemCapNhat = DateTime.Now
+                });
+            }
+
+            await _db.SaveChangesAsync();
+            return (true, null);
+        }
+
         // ===== TIẾN ĐỘ BƯỚC QUY TRÌNH (NVKT) =====
 
         public async Task<List<object>> GetTienDoBuocAsync(int? maHoSoBaoTri, int? maHoSoSuaChua)
@@ -2077,9 +2180,12 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
             if (existing != null)
             {
+                // Bước Tổ trưởng chọn sẵn (DuocChon) — NVKT nhận làm bình thường, chưa hiện tên TT
+                var laKeHoachToTruong = existing.TrangThai == "DuocChon" || existing.MaNhanVien <= 0;
+
                 var daHoanTatBuoc = existing.TrangThai is "DaXong" or "DaCapNhat";
                 // Chỉ khóa khi người khác đã Xong / đã cập nhật sau từ chối
-                if (existing.MaNhanVien != nv.MaNhanVien && daHoanTatBuoc)
+                if (!laKeHoachToTruong && existing.MaNhanVien != nv.MaNhanVien && daHoanTatBuoc)
                 {
                     var ten = string.IsNullOrWhiteSpace(existing.TenNhanVien)
                         ? "nhân viên khác"
@@ -2087,7 +2193,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     return (false, $"Bước {dto.SoBuoc} đã được hoàn thành bởi {ten}.", null);
                 }
 
-                // Cùng người (hoặc ghi đè DangLam) — cập nhật đầy đủ
+                // Cùng người / DuocChon / ghi đè DangLam — cập nhật đầy đủ
                 existing.MaNhanVien = nv.MaNhanVien;
                 existing.TenNhanVien = nv.HoTen;
                 existing.MoTaBuoc = dto.MoTaBuoc ?? existing.MoTaBuoc;

@@ -67,6 +67,9 @@ namespace OPC.MaintenanceAPI.Services.Interfaces
         Task<List<object>> GetTienDoBuocAsync(int? maHoSoBaoTri, int? maHoSoSuaChua);
         Task<(bool, string?, object?)> ClaimHoacLuuTienDoBuocAsync(int maNguoiDung, TienDoBuocDto dto);
 
+        /// <summary>Tổ trưởng lưu bước đã chọn trước phân công (DuocChon).</summary>
+        Task<(bool, string?)> LuuKeHoachBuocAsync(int maNguoiDung, KeHoachBuocDto dto);
+
         /// <summary>Thống kê theo tháng cho Giám đốc: số BT/SC + vật tư & chi phí.</summary>
         Task<object> GetThongKeGiamDocAsync(int nam);
     }

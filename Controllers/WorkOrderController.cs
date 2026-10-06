@@ -233,6 +233,17 @@ namespace OPC.MaintenanceAPI.Controllers
             return Ok(data);
         }
 
+        /// <summary>Tổ trưởng chọn bước quy trình trước khi phân công (không chọn vật tư).</summary>
+        [HttpPost("ke-hoach-buoc")]
+        [Authorize(Roles = "Tổ trưởng cơ điện")]
+        public async Task<IActionResult> LuuKeHoachBuoc([FromBody] KeHoachBuocDto dto)
+        {
+            var claim = User.FindFirst("MaNguoiDung")?.Value;
+            if (claim == null || !int.TryParse(claim, out var maNguoiDung))
+                return Unauthorized();
+            return Result(await _service.LuuKeHoachBuocAsync(maNguoiDung, dto));
+        }
+
         /// <summary>Danh sách tháng trong năm đã có hồ sơ BT của thiết bị (gợi ý khi chọn ngày).</summary>
         [HttpGet("thiet-bi/{maThietBi}/thang-co-bao-tri")]
         public async Task<IActionResult> ThangCoBaoTri(int maThietBi, [FromQuery] int? nam = null)

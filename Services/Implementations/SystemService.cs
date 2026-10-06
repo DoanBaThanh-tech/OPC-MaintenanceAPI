@@ -130,7 +130,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
         }
 
         /// <summary>Mô tả ngắn: người dùng gọi API gì / chỉnh sửa gì.</summary>
-        private static string MoTaHanhDongApi(string method, string path)
+        private static string MoTaHanhDongApi(string? method, string? path)
         {
             var m = (method ?? "").ToUpperInvariant();
             var p = (path ?? "").ToLowerInvariant();
@@ -140,7 +140,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 "POST" => "Tạo / gửi",
                 "PUT" or "PATCH" => "Cập nhật",
                 "DELETE" => "Xóa",
-                _ => m
+                _ => string.IsNullOrEmpty(m) ? "Gọi API" : m
             };
 
             string doiTuong;
@@ -153,7 +153,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             else if (p.Contains("thiet-bi") || p.Contains("equipment")) doiTuong = "thiết bị";
             else if (p.Contains("auth") || p.Contains("tai-khoan") || p.Contains("nguoidung")) doiTuong = "tài khoản";
             else if (p.Contains("nhatky") || p.Contains("system")) doiTuong = "hệ thống";
-            else doiTuong = path;
+            else doiTuong = string.IsNullOrEmpty(path) ? "API khác" : path;
 
             return $"{hanhDong} · {doiTuong}";
         }

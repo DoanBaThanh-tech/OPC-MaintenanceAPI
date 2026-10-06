@@ -110,7 +110,52 @@ namespace OPC.MaintenanceAPI.Services.Implementations
         }
  
         // ---------- NHẬT KÝ ----------
-        public async Task<List<NhatKyHeThong>> TimNhatKyAsync(NhatKyFilterDto filter) =>
-            await _repo.GetNhatKyAsync(filter.TuKhoa, filter.PhuongThucHTTP, filter.TuNgay, filter.DenNgay);
+        public async Task<List<object>> TimNhatKyAsync(NhatKyFilterDto filter)
+        {
+            var list = await _repo.GetNhatKyAsync(
+                filter.TuKhoa, filter.PhuongThucHTTP, filter.TuNgay, filter.DenNgay);
+
+            // Giới hạn 300 bản ghi gần nhất để tải nhanh trên mobile
+            return list.Take(300).Select(n => (object)new
+            {
+                n.MaNhatKy,
+                n.MaNhanVien,
+                TenNhanVien = n.MaNhanVienNavigation?.HoTen ?? $"NV#{n.MaNhanVien}",
+                n.TenApi,
+                n.PhuongThucHttp,
+                n.ThoiGianTruyCap,
+                n.DiaChiIp,
+                MoTa = MoTaHanhDongApi(n.PhuongThucHttp, n.TenApi)
+            }).ToList();
+        }
+
+        /// <summary>Mô tả ngắn: người dùng gọi API gì / chỉnh sửa gì.</summary>
+        private static string MoTaHanhDongApi(string method, string path)
+        {
+            var m = (method ?? "").ToUpperInvariant();
+            var p = (path ?? "").ToLowerInvariant();
+            var hanhDong = m switch
+            {
+                "GET" => "Xem",
+                "POST" => "Tạo / gửi",
+                "PUT" or "PATCH" => "Cập nhật",
+                "DELETE" => "Xóa",
+                _ => m
+            };
+
+            string doiTuong;
+            if (p.Contains("bao-tri")) doiTuong = "hồ sơ bảo trì";
+            else if (p.Contains("sua-chua")) doiTuong = "hồ sơ sửa chữa";
+            else if (p.Contains("vat-tu") || p.Contains("inventory")) doiTuong = "vật tư";
+            else if (p.Contains("phan-cong")) doiTuong = "phân công";
+            else if (p.Contains("tien-do") || p.Contains("quy-trinh")) doiTuong = "quy trình / bước";
+            else if (p.Contains("ke-hoach") || p.Contains("maintenanceplan")) doiTuong = "kế hoạch bảo trì";
+            else if (p.Contains("thiet-bi") || p.Contains("equipment")) doiTuong = "thiết bị";
+            else if (p.Contains("auth") || p.Contains("tai-khoan") || p.Contains("nguoidung")) doiTuong = "tài khoản";
+            else if (p.Contains("nhatky") || p.Contains("system")) doiTuong = "hệ thống";
+            else doiTuong = path;
+
+            return $"{hanhDong} · {doiTuong}";
+        }
     }
 }

@@ -16,7 +16,7 @@ namespace OPC.MaintenanceAPI.Services.Interfaces
         Task<List<ChucNangQuyenDto>> GetMaTranPhanQuyenAsync(int maVaiTro);
         Task LuuPhanQuyenAsync(int maVaiTro, CapNhatPhanQuyenDto dto);
 
-        // Nhật ký hệ thống
-        Task<List<NhatKyHeThong>> TimNhatKyAsync(NhatKyFilterDto filter);
+        // Nhật ký hệ thống — trả về object đã làm giàu (tên NV, mô tả hành động)
+        Task<List<object>> TimNhatKyAsync(NhatKyFilterDto filter);
     }
 }

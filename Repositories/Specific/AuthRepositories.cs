@@ -13,6 +13,7 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         Task<int> DemTaiKhoanTheoVaiTroAsync(int maVaiTro, int? loaiTruMaNguoiDung = null);
         Task<VaiTro?> GetVaiTroByIdAsync(int maVaiTro);
         Task<bool> CoQuyenAsync(int maNguoiDung, string tenChucNang, string loaiQuyen);
+        Task<List<QuanLyNguoiDung>> GetAllWithDetailsAsync();
     }
 
     public class QuanLyNguoiDungRepository : BaseRepository<QuanLyNguoiDung>, IQuanLyNguoiDungRepository
@@ -45,6 +46,14 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
 
         public Task<QuanLyNguoiDung?> GetByEmailAsync(string email) =>
             _dbSet.Include(u => u.MaVaiTroNavigation).FirstOrDefaultAsync(u => u.Email == email);
+
+        public async Task<List<QuanLyNguoiDung>> GetAllWithDetailsAsync() =>
+            await _dbSet
+                .Include(u => u.MaVaiTroNavigation)
+                .Include(u => u.NhanVien)
+                .OrderByDescending(u => u.NgayTao)
+                .AsNoTracking()
+                .ToListAsync();
 
         public Task<bool> EmailExistsAsync(string email) =>
             _dbSet.AnyAsync(u => u.Email == email);

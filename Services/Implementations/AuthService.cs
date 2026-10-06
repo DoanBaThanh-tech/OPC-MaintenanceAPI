@@ -32,12 +32,19 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
         public async Task<List<object>> GetAllAsync()
         {
-            var list = await _userRepo.GetAllAsync();
+            var list = await _userRepo.GetAllWithDetailsAsync();
             return list.Select(u => (object)new
             {
-                u.MaNguoiDung, u.Email, u.MaVaiTro,
+                u.MaNguoiDung,
+                u.Email,
+                u.MaVaiTro,
                 TenVaiTro = u.MaVaiTroNavigation?.TenVaiTro,
-                u.TrangThai, u.LanDangNhapCuoi, u.NgayTao
+                HoTen = u.NhanVien?.HoTen ?? u.Email,
+                SoDienThoai = u.NhanVien?.SoDienThoai,
+                ChucVu = u.NhanVien?.ChucVu,
+                u.TrangThai,
+                u.LanDangNhapCuoi,
+                u.NgayTao
             }).ToList();
         }
 

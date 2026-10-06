@@ -298,6 +298,90 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             return new AuthResult { ThanhCong = true, Message = "Đổi mật khẩu thành công." };
         }
 
+        public async Task<AuthResult> GetHoSoCaNhanAsync(int maNguoiDung)
+        {
+            var u = await _userRepo.GetByIdAsync(maNguoiDung);
+            if (u == null)
+                return new AuthResult { ThanhCong = false, Message = "Không tìm thấy tài khoản." };
+
+            var nv = await _nhanVienRepo.GetByMaNguoiDungAsync(maNguoiDung);
+            var vaiTro = await _userRepo.GetVaiTroByIdAsync(u.MaVaiTro);
+            return new AuthResult
+            {
+                ThanhCong = true,
+                Data = new
+                {
+                    u.MaNguoiDung,
+                    u.Email,
+                    TenVaiTro = vaiTro?.TenVaiTro,
+                    u.MaVaiTro,
+                    HoTen = nv?.HoTen ?? u.Email,
+                    SoDienThoai = nv?.SoDienThoai,
+                    ChucVu = nv?.ChucVu,
+                    NgayVaoLam = nv?.NgayVaoLam,
+                    TrangThaiNv = nv?.TrangThai,
+                    TrangThaiTk = u.TrangThai
+                }
+            };
+        }
+
+        public async Task<AuthResult> CapNhatHoSoCaNhanAsync(int maNguoiDung, NhanVienUpdateDto dto)
+        {
+            var u = await _userRepo.GetByIdAsync(maNguoiDung);
+            if (u == null)
+                return new AuthResult { ThanhCong = false, Message = "Không tìm thấy tài khoản." };
+
+            var loiHoTen = KiemTraHoTen(dto.HoTen, batBuoc: true);
+            if (loiHoTen != null)
+                return new AuthResult { ThanhCong = false, Message = loiHoTen };
+
+            var sdt = (dto.SoDienThoai ?? "").Trim();
+            if (sdt.Length > 0 && !System.Text.RegularExpressions.Regex.IsMatch(sdt, @"^[0-9+\-\s]{8,15}$"))
+                return new AuthResult { ThanhCong = false, Message = "Số điện thoại không hợp lệ (8–15 số)." };
+
+            var nv = await _nhanVienRepo.GetByMaNguoiDungAsync(maNguoiDung);
+            if (nv == null)
+            {
+                nv = new NhanVien
+                {
+                    MaNguoiDung = maNguoiDung,
+                    HoTen = dto.HoTen.Trim(),
+                    SoDienThoai = string.IsNullOrWhiteSpace(sdt) ? null : sdt,
+                    ChucVu = string.IsNullOrWhiteSpace(dto.ChucVu) ? null : dto.ChucVu.Trim(),
+                    NgayVaoLam = dto.NgayVaoLam,
+                    TrangThai = "Đang làm việc"
+                };
+                await _nhanVienRepo.AddAsync(nv);
+            }
+            else
+            {
+                nv.HoTen = dto.HoTen.Trim();
+                nv.SoDienThoai = string.IsNullOrWhiteSpace(sdt) ? null : sdt;
+                nv.ChucVu = string.IsNullOrWhiteSpace(dto.ChucVu) ? null : dto.ChucVu.Trim();
+                if (dto.NgayVaoLam.HasValue)
+                    nv.NgayVaoLam = dto.NgayVaoLam;
+                _nhanVienRepo.Update(nv);
+            }
+
+            await _nhanVienRepo.SaveChangesAsync();
+            var vaiTro = await _userRepo.GetVaiTroByIdAsync(u.MaVaiTro);
+            return new AuthResult
+            {
+                ThanhCong = true,
+                Message = "Đã cập nhật thông tin cá nhân.",
+                Data = new
+                {
+                    u.MaNguoiDung,
+                    u.Email,
+                    TenVaiTro = vaiTro?.TenVaiTro,
+                    HoTen = nv.HoTen,
+                    SoDienThoai = nv.SoDienThoai,
+                    ChucVu = nv.ChucVu,
+                    NgayVaoLam = nv.NgayVaoLam
+                }
+            };
+        }
+
         // Điều kiện: MaVaiTro là Giám đốc hoặc Phó giám đốc thì chỉ được tối đa 1 tài khoản
         // (không tính tài khoản đã "Đã khóa" — xem DemTaiKhoanTheoVaiTroAsync)
         private async Task<string?> KiemTraGioiHanVaiTroAsync(int maVaiTro, int? loaiTruMaNguoiDung = null)

@@ -1,4 +1,5 @@
 using OPC.MaintenanceAPI.Core.Entities;
+using OPC.MaintenanceAPI.Data;
 using OPC.MaintenanceAPI.DTOs.MaintenancePlan;
 using OPC.MaintenanceAPI.Repositories.Specific;
 using OPC.MaintenanceAPI.Services.Interfaces;
@@ -8,11 +9,13 @@ namespace OPC.MaintenanceAPI.Services.Implementations
     {
         private readonly IMaintenancePlanRepository _repo;
         private readonly INhanVienRepository _nhanVienRepo;
+        private readonly OPCDbContext _db;
 
-        public MaintenancePlanService(IMaintenancePlanRepository repo, INhanVienRepository nhanVienRepo)
+        public MaintenancePlanService(IMaintenancePlanRepository repo, INhanVienRepository nhanVienRepo, OPCDbContext db)
         {
             _repo = repo;
             _nhanVienRepo = nhanVienRepo;
+            _db = db;
         }
 
         public async Task<(bool, string?)> TaoNamMoiAsync(int maNguoiDungTao, TaoNamMoiDto dto)
@@ -166,6 +169,28 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 thietBi.TinhTrangHienTai = "Bảo trì";
             }
             await _repo.SaveChangesAsync();
+
+            // Lưu bước quy trình đã chọn (DuocChon)
+            if (dto.DanhSachBuoc != null && dto.DanhSachBuoc.Count > 0)
+            {
+                foreach (var b in dto.DanhSachBuoc
+                             .Where(x => x.SoBuoc > 0)
+                             .GroupBy(x => x.SoBuoc)
+                             .Select(g => g.First())
+                             .OrderBy(x => x.SoBuoc))
+                {
+                    _db.TienDoBuocQuyTrinhs.Add(new TienDoBuocQuyTrinh
+                    {
+                        MaHoSoBaoTri = hoSo.MaHoSoBaoTri,
+                        SoBuoc = b.SoBuoc,
+                        MoTaBuoc = string.IsNullOrWhiteSpace(b.MoTaBuoc) ? $"Bước {b.SoBuoc}" : b.MoTaBuoc.Trim(),
+                        TrangThai = "DuocChon",
+                        MaNhanVien = 0,
+                        ThoiDiemCapNhat = DateTime.Now
+                    });
+                }
+                await _db.SaveChangesAsync();
+            }
 
             return (true, null);
         }
@@ -399,7 +424,8 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     Nam = dto.Nam,
                     MaThietBi = maTb,
                     NgayDuKienBaoTri = ngayMacDinh,
-                    NoiDungCongViec = dto.NoiDungCongViec!.Trim()
+                    NoiDungCongViec = dto.NoiDungCongViec!.Trim(),
+                    DanhSachBuoc = dto.DanhSachBuoc
                 });
                 if (ok) kq.SoThanhCong++;
                 else

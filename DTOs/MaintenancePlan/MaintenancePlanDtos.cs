@@ -82,6 +82,14 @@ public class ThemThietBiVaoNamDto
         /// <summary>HH:mm:ss — tùy chọn, lưu kèm mô tả nếu cần.</summary>
         public string? GioBatDauDuKien { get; set; }
         public string? GioKetThucDuKien { get; set; }
+        /// <summary>Bước quy trình Tổ trưởng chọn khi tạo (DuocChon).</summary>
+        public List<BuocQuyTrinhChonDto>? DanhSachBuoc { get; set; }
+    }
+
+    public class BuocQuyTrinhChonDto
+    {
+        public int SoBuoc { get; set; }
+        public string? MoTaBuoc { get; set; }
     }
 
     /// <summary>Thiết bị đến hạn / trễ hạn bảo trì trong tháng (chưa có HS BT tháng đó).</summary>
@@ -105,6 +113,8 @@ public class ThemThietBiVaoNamDto
         public List<int> DanhSachMaThietBi { get; set; } = new();
         /// <summary>Nội dung công việc chung (áp dụng mọi HS tạo hàng loạt).</summary>
         public string? NoiDungCongViec { get; set; }
+        /// <summary>Bước quy trình áp dụng cho mọi HS tạo hàng loạt.</summary>
+        public List<BuocQuyTrinhChonDto>? DanhSachBuoc { get; set; }
     }
 
     public class TaoHangLoatBaoTriKetQuaDto

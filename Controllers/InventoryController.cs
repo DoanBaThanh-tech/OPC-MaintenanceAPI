@@ -112,7 +112,7 @@ namespace OPC.MaintenanceAPI.Controllers
             return ok ? Ok(new { message = "Đã xác nhận hồ sơ vật tư." }) : BadRequest(new { loi });
         }
 
-        /// <summary>Quy trình bảo trì/sửa chữa theo từng thiết bị (tối đa 4 bước).</summary>
+        /// <summary>Quy trình bảo trì/sửa chữa theo từng thiết bị (10 bước).</summary>
         [HttpGet("quy-trinh")]
         public async Task<IActionResult> QuyTrinhThietBi([FromQuery] int maThietBi, [FromQuery] string loaiCongViec)
         {
@@ -121,6 +121,11 @@ namespace OPC.MaintenanceAPI.Controllers
             var data = await _service.GetQuyTrinhThietBiAsync(maThietBi, loaiCongViec);
             return Ok(data);
         }
+
+        /// <summary>Danh sách quy trình (mọi thiết bị) — combo khi tạo hồ sơ.</summary>
+        [HttpGet("quy-trinh/danh-sach")]
+        public async Task<IActionResult> DanhSachQuyTrinh([FromQuery] string? loaiCongViec)
+            => Ok(await _service.GetDanhSachQuyTrinhAsync(loaiCongViec));
 
         private IActionResult Result((bool ok, string? loi) r) => r.ok ? Ok(new { canhBao = r.loi }) : BadRequest(new { loi = r.loi });
     }

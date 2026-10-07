@@ -27,6 +27,8 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         Task RemoveChiTietSuDungRangeAsync(IEnumerable<ChiTietSuDungVatTu> chiTiets);
         Task<List<HoSoVatTuResponseDto>> GetDanhSachHoSoSuDungVatTuAsync(string? trangThai);
         Task<List<BuocQuyTrinhDto>> GetQuyTrinhThietBiAsync(int maThietBi, string loaiCongViec);
+        /// <summary>Danh sách quy trình (TB × loại) cho combo khi tạo hồ sơ.</summary>
+        Task<List<object>> GetDanhSachQuyTrinhAsync(string? loaiCongViec);
     }
 
     public class InventoryRepository : IInventoryRepository
@@ -172,5 +174,35 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
                 .ToListAsync();
         }
 
+        public async Task<List<object>> GetDanhSachQuyTrinhAsync(string? loaiCongViec)
+        {
+            var q = _context.QuyTrinhThietBis
+                .Include(x => x.MaThietBiNavigation)
+                .AsQueryable();
+            if (!string.IsNullOrWhiteSpace(loaiCongViec))
+                q = q.Where(x => x.LoaiCongViec == loaiCongViec.Trim());
+
+            var groups = await q
+                .GroupBy(x => new { x.MaThietBi, x.LoaiCongViec })
+                .Select(g => new
+                {
+                    g.Key.MaThietBi,
+                    g.Key.LoaiCongViec,
+                    SoBuoc = g.Count(),
+                    TenThietBi = g.Select(x => x.MaThietBiNavigation!.TenThietBi).FirstOrDefault()
+                })
+                .OrderBy(x => x.TenThietBi)
+                .ThenBy(x => x.LoaiCongViec)
+                .ToListAsync();
+
+            return groups.Select(x => (object)new
+            {
+                x.MaThietBi,
+                TenThietBi = x.TenThietBi ?? $"TB #{x.MaThietBi}",
+                x.LoaiCongViec,
+                x.SoBuoc,
+                Nhan = $"{x.TenThietBi ?? $"TB #{x.MaThietBi}"} — {x.LoaiCongViec} ({x.SoBuoc} bước)"
+            }).ToList();
+        }
     }
 }

@@ -12,6 +12,8 @@ namespace OPC.MaintenanceAPI.DTOs.WorkOrder
         public int? MaYeuCauBaoTri { get; set; }
         public string? GioBatDauDuKien { get; set; }
         public string? GioKetThucDuKien { get; set; }
+        /// <summary>Bước quy trình Tổ trưởng tích khi tạo (DuocChon).</summary>
+        public List<KeHoachBuocItemDto>? DanhSachBuoc { get; set; }
     }
 
     public class TaoHoSoSuaChuaDto
@@ -28,6 +30,8 @@ namespace OPC.MaintenanceAPI.DTOs.WorkOrder
         public string? ThoiGianDuKien { get; set; }
         public string? GioBatDauDuKien { get; set; }
         public string? GioKetThucDuKien { get; set; }
+        /// <summary>Bước quy trình Tổ trưởng tích khi tạo (DuocChon).</summary>
+        public List<KeHoachBuocItemDto>? DanhSachBuoc { get; set; }
     }
 
     /// <summary>Phân công nhiều nhân viên cho một hồ sơ bảo trì / sửa chữa.</summary>

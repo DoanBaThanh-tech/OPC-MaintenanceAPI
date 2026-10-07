@@ -129,7 +129,37 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     await _repo.SaveChangesAsync();
                 }
             }
+
+            await LuuBuocDuocChonKhiTaoAsync(hoSo.MaHoSoBaoTri, null, dto.DanhSachBuoc);
             return (true, null);
+        }
+
+        private async Task LuuBuocDuocChonKhiTaoAsync(
+            int? maHoSoBaoTri,
+            int? maHoSoSuaChua,
+            List<KeHoachBuocItemDto>? danhSach)
+        {
+            if (danhSach == null || danhSach.Count == 0) return;
+            foreach (var b in danhSach
+                         .Where(x => x.SoBuoc > 0)
+                         .GroupBy(x => x.SoBuoc)
+                         .Select(g => g.First())
+                         .OrderBy(x => x.SoBuoc))
+            {
+                _db.TienDoBuocQuyTrinhs.Add(new TienDoBuocQuyTrinh
+                {
+                    MaHoSoBaoTri = maHoSoBaoTri,
+                    MaHoSoSuaChua = maHoSoSuaChua,
+                    SoBuoc = b.SoBuoc,
+                    MoTaBuoc = string.IsNullOrWhiteSpace(b.MoTaBuoc)
+                        ? $"Bước {b.SoBuoc}"
+                        : b.MoTaBuoc.Trim(),
+                    TrangThai = "DuocChon",
+                    MaNhanVien = 0,
+                    ThoiDiemCapNhat = DateTime.Now
+                });
+            }
+            await _db.SaveChangesAsync();
         }
 
         /// <summary>
@@ -1288,6 +1318,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 tb.NgayBaoTriTiepTheo = ngaySc;
 
             await _repo.SaveChangesAsync();
+            await LuuBuocDuocChonKhiTaoAsync(null, hoSo.MaHoSoSuaChua, dto.DanhSachBuoc);
             return (true, null);
         }
 

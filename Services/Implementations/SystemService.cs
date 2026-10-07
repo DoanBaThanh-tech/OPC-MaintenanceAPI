@@ -154,18 +154,73 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             };
 
             string doiTuong;
-            if (p.Contains("bao-tri")) doiTuong = "hồ sơ bảo trì";
-            else if (p.Contains("sua-chua")) doiTuong = "hồ sơ sửa chữa";
-            else if (p.Contains("vat-tu") || p.Contains("inventory")) doiTuong = "vật tư";
-            else if (p.Contains("phan-cong")) doiTuong = "phân công";
-            else if (p.Contains("tien-do") || p.Contains("quy-trinh")) doiTuong = "quy trình / bước";
-            else if (p.Contains("ke-hoach") || p.Contains("maintenanceplan")) doiTuong = "kế hoạch bảo trì";
-            else if (p.Contains("thiet-bi") || p.Contains("equipment")) doiTuong = "thiết bị";
-            else if (p.Contains("auth") || p.Contains("tai-khoan") || p.Contains("nguoidung")) doiTuong = "tài khoản";
-            else if (p.Contains("nhatky") || p.Contains("system")) doiTuong = "hệ thống";
-            else doiTuong = string.IsNullOrEmpty(path) ? "API khác" : path;
+            string fields;
+            if (p.Contains("bao-tri"))
+            {
+                doiTuong = "hồ sơ bảo trì";
+                fields = m == "GET"
+                    ? "Đọc: mã HS, thiết bị, nội dung, trạng thái, ngày, phân công…"
+                    : "Ghi: nội dung CV, ngày dự kiến, trạng thái, bước quy trình…";
+            }
+            else if (p.Contains("sua-chua"))
+            {
+                doiTuong = "hồ sơ sửa chữa";
+                fields = m == "GET"
+                    ? "Đọc: mã HS, thiết bị, mô tả hư hỏng, trạng thái…"
+                    : "Ghi: mô tả hư hỏng, phương án, trạng thái, bước quy trình…";
+            }
+            else if (p.Contains("vat-tu") || p.Contains("inventory"))
+            {
+                doiTuong = "vật tư / hồ sơ vật tư";
+                fields = m == "GET"
+                    ? "Đọc: mã VT, tên, tồn kho, đơn giá, chi tiết HS…"
+                    : "Ghi: số lượng, đơn giá, chi tiết sử dụng…";
+            }
+            else if (p.Contains("phan-cong"))
+            {
+                doiTuong = "phân công";
+                fields = "Ghi: danh sách NV thực hiện, trạng thái PC…";
+            }
+            else if (p.Contains("tien-do") || p.Contains("quy-trinh") || p.Contains("ke-hoach-buoc"))
+            {
+                doiTuong = "quy trình / bước";
+                fields = m == "GET"
+                    ? "Đọc: số bước, mô tả, trạng thái, NV, JSON vật tư…"
+                    : "Ghi: trạng thái bước, vật tư bước, người thực hiện…";
+            }
+            else if (p.Contains("ke-hoach") || p.Contains("maintenanceplan"))
+            {
+                doiTuong = "kế hoạch bảo trì";
+                fields = m == "GET"
+                    ? "Đọc: năm, tháng, thiết bị, ngày dự kiến…"
+                    : "Ghi: ngày dự kiến, trạng thái chi tiết KH…";
+            }
+            else if (p.Contains("thiet-bi") || p.Contains("equipment"))
+            {
+                doiTuong = "thiết bị";
+                fields = m == "GET"
+                    ? "Đọc: tên, danh mục, tình trạng, chu kỳ…"
+                    : "Ghi: tình trạng, ngày bảo trì…";
+            }
+            else if (p.Contains("/toi") || p.Contains("auth"))
+            {
+                doiTuong = "tài khoản / hồ sơ cá nhân";
+                fields = m == "GET"
+                    ? "Đọc: email, họ tên, vai trò, SĐT…"
+                    : "Ghi: họ tên, SĐT, ngày vào làm / vai trò (admin)…";
+            }
+            else if (p.Contains("nhatky") || p.Contains("system"))
+            {
+                doiTuong = "hệ thống";
+                fields = "Đọc nhật ký / cấu hình";
+            }
+            else
+            {
+                doiTuong = string.IsNullOrEmpty(path) ? "API khác" : path!;
+                fields = m == "GET" ? "Đọc dữ liệu" : "Ghi / cập nhật dữ liệu";
+            }
 
-            return $"{hanhDong} · {doiTuong}";
+            return $"{hanhDong} · {doiTuong} — {fields}";
         }
     }
 }

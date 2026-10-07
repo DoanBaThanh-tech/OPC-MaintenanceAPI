@@ -328,5 +328,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
         public async Task<List<BuocQuyTrinhDto>> GetQuyTrinhThietBiAsync(int maThietBi, string loaiCongViec)
             => await _repo.GetQuyTrinhThietBiAsync(maThietBi, loaiCongViec);
 
+        public Task<List<object>> GetDanhSachQuyTrinhAsync(string? loaiCongViec)
+            => _repo.GetDanhSachQuyTrinhAsync(loaiCongViec);
     }
 }

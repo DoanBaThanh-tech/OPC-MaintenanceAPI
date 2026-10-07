@@ -303,8 +303,9 @@ namespace OPC.MaintenanceAPI.Services.Implementations
         private static (bool ok, string? loi) _kiemTraNgayDuKienKhiSua(
             DateOnly ngayMoi, DateOnly ngayDuKienCu, DateTime ngayTao)
         {
-            if (ngayMoi < DateOnly.FromDateTime(DateTime.Today))
-                return (false, "Ngày bảo trì dự kiến không được ở quá khứ.");
+            // Phải lớn hơn ngày hiện tại (không chọn hôm nay hoặc quá khứ)
+            if (ngayMoi <= DateOnly.FromDateTime(DateTime.Today))
+                return (false, "Ngày dự kiến bảo trì phải lớn hơn ngày hiện tại.");
 
             var ngayTaoOnly = DateOnly.FromDateTime(ngayTao);
             if (ngayMoi <= ngayTaoOnly)
@@ -764,21 +765,32 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             var list = await _repo.GetLichSuPhanCongChiTietAsync();
             // Tổ trưởng không thấy phân công đã hủy
             list = list.Where(p => p.TrangThai != "Đã hủy").ToList();
-            return list.Select(p => (object)new
+            return list.Select(p =>
             {
-                p.MaPhanCong,
-                TenNhanVienPhanCong = p.MaNhanVienPhanCongNavigation?.HoTen,
-                TenNhanVienThucHien = p.MaNhanVienThucHienNavigation?.HoTen,
-                p.TrangThai,
-                p.LyDoTuChoi,
-                p.NgayPhanCong,
-                GioBatDau = p.NgayBatDauDuKien,
-                GioKetThuc = p.NgayKetThucDuKien,
-                MaHoSoBaoTri = p.HoSoBaoTri?.MaHoSoBaoTri,
-                MaHoSoSuaChua = p.HoSoSuaChua?.MaHoSoSuaChua,
-                TenThietBi = p.HoSoBaoTri?.MaThieBiNavigation?.TenThietBi
-                             ?? p.HoSoSuaChua?.MaThieBiNavigation?.TenThietBi,
-                Loai = p.HoSoBaoTri != null ? "Bảo trì" : (p.HoSoSuaChua != null ? "Sửa chữa" : null),
+                // Ưu tiên MaHoSo*Navigation (mỗi NV một dòng) — HoSoBaoTri inverse chỉ gắn PC đầu
+                var hsBt = p.MaHoSoBaoTriNavigation ?? p.HoSoBaoTri;
+                var hsSc = p.MaHoSoSuaChuaNavigation ?? p.HoSoSuaChua;
+                // Giờ bắt đầu = NVKT bấm Tiến hành; giờ kết thúc = Xưởng xác nhận
+                var gioBd = hsBt?.ThoiDiemBatDauThucTe ?? hsSc?.ThoiDiemBatDauThucTe;
+                var gioKt = hsBt?.ThoiDiemKetThucThucTe ?? hsSc?.ThoiDiemKetThucThucTe;
+                return (object)new
+                {
+                    p.MaPhanCong,
+                    TenNhanVienPhanCong = p.MaNhanVienPhanCongNavigation?.HoTen,
+                    TenNhanVienThucHien = p.MaNhanVienThucHienNavigation?.HoTen,
+                    p.TrangThai,
+                    p.LyDoTuChoi,
+                    p.NgayPhanCong,
+                    GioBatDau = gioBd,
+                    GioKetThuc = gioKt,
+                    MaHoSoBaoTri = hsBt?.MaHoSoBaoTri ?? p.MaHoSoBaoTri,
+                    MaHoSoSuaChua = hsSc?.MaHoSoSuaChua ?? p.MaHoSoSuaChua,
+                    TenThietBi = hsBt?.MaThieBiNavigation?.TenThietBi
+                                 ?? hsSc?.MaThieBiNavigation?.TenThietBi,
+                    Loai = hsBt != null || p.MaHoSoBaoTri != null
+                        ? "Bảo trì"
+                        : (hsSc != null || p.MaHoSoSuaChua != null ? "Sửa chữa" : null),
+                };
             }).ToList();
         }
 
@@ -1690,10 +1702,12 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (pc != null && pc.MaNhanVienThucHienNavigation == null && h.MaPhanCong.HasValue)
                 pc = await _repo.GetPhanCongByIdAsync(h.MaPhanCong.Value) ?? pc;
 
-            // Danh sách NV: đang làm (cập nhật phân công) hoặc đã hoàn thành (hiển thị người thực hiện)
+            // Tất cả NV phân công (trừ đã hủy) — luôn hiển thị đủ người
             var dsPc = await _repo.GetPhanCongTheoHoSoBaoTriAsync(h.MaHoSoBaoTri);
             var dsNvDangPc = dsPc
-                .Where(p => p.TrangThai is "Đã phân công" or "Chờ xác nhận" or "Xác nhận" or "Đang thực hiện")
+                .Where(p => p.TrangThai != "Đã hủy")
+                .GroupBy(p => p.MaNhanVienThucHien)
+                .Select(g => g.OrderByDescending(x => x.MaPhanCong).First())
                 .Select(p => new
                 {
                     MaNhanVien = p.MaNhanVienThucHien,
@@ -1703,23 +1717,33 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 })
                 .ToList();
 
-            // NV đã hoàn thành bảo trì thiết bị này (chỉ khi hồ sơ Đã hoàn thành)
-            var dsNvHoanThanh = h.TrangThai == "Đã hoàn thành"
-                ? dsPc
-                    .Where(p => p.TrangThai == "Hoàn thành")
-                    .Select(p => new
-                    {
-                        MaNhanVien = p.MaNhanVienThucHien,
-                        TenNhanVien = p.MaNhanVienThucHienNavigation?.HoTen,
-                        p.TrangThai,
-                        p.MaPhanCong
-                    })
-                    .ToList()
-                : null;
+            var dsNvHoanThanh = dsPc
+                .Where(p => p.TrangThai == "Hoàn thành")
+                .Select(p => new
+                {
+                    MaNhanVien = p.MaNhanVienThucHien,
+                    TenNhanVien = p.MaNhanVienThucHienNavigation?.HoTen,
+                    p.TrangThai,
+                    p.MaPhanCong
+                })
+                .ToList();
 
-            var tenNvHoanThanh = dsNvHoanThanh == null
+            var tenNvHoanThanh = dsNvHoanThanh.Count == 0
                 ? null
                 : string.Join(", ", dsNvHoanThanh.Select(x => x.TenNhanVien).Where(t => !string.IsNullOrEmpty(t)));
+
+            // Quy trình đã chọn lúc tạo / Tổ trưởng tích (DuocChon + tiến độ NVKT)
+            var dsBuoc = await _db.TienDoBuocQuyTrinhs
+                .Where(t => t.MaHoSoBaoTri == h.MaHoSoBaoTri)
+                .OrderBy(t => t.SoBuoc)
+                .Select(t => new
+                {
+                    t.SoBuoc,
+                    t.MoTaBuoc,
+                    t.TrangThai,
+                    t.TenNhanVien
+                })
+                .ToListAsync();
 
             return new
             {
@@ -1752,10 +1776,12 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 DanhSachNhanVienPhanCong = dsNvDangPc,
                 MaNhanVienThucHiens = dsNvDangPc.Select(x => x.MaNhanVien).ToList(),
                 TenNhanVienThucHiens = string.Join(", ", dsNvDangPc.Select(x => x.TenNhanVien).Where(t => !string.IsNullOrEmpty(t))),
-                // NV đã hoàn thành (chỉ khi hồ sơ Đã hoàn thành)
+                // NV đã hoàn thành
                 DanhSachNhanVienHoanThanh = dsNvHoanThanh,
-                MaNhanVienHoanThanhs = dsNvHoanThanh?.Select(x => x.MaNhanVien).ToList(),
+                MaNhanVienHoanThanhs = dsNvHoanThanh.Select(x => x.MaNhanVien).ToList(),
                 TenNhanVienHoanThanhs = tenNvHoanThanh,
+                // Bước quy trình đã chọn
+                DanhSachBuocQuyTrinh = dsBuoc,
                 NgayDuKienBaoTri = ngayDuKien,
                 RowVersion = Convert.ToBase64String(h.RowVersion),
                 Nam = namTuKeHoach ?? h.NgayTao.Year,

@@ -126,7 +126,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 filter.TuKhoa, filter.PhuongThucHTTP, filter.TuNgay, filter.DenNgay);
 
             // Giới hạn 300 bản ghi gần nhất để tải nhanh trên mobile
-            return list.Take(300).Select(n => (object)new
+            return list.Take(400).Select(n => (object)new
             {
                 n.MaNhatKy,
                 n.MaNhanVien,
@@ -135,9 +135,24 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 n.PhuongThucHttp,
                 n.ThoiGianTruyCap,
                 n.DiaChiIp,
-                MoTa = MoTaHanhDongApi(n.PhuongThucHttp, n.TenApi)
+                n.StatusCode,
+                n.QueryString,
+                LoaiHanhDong = n.LoaiHanhDong ?? MapLoai(n.PhuongThucHttp),
+                ChiTiet = n.ChiTiet,
+                MoTa = !string.IsNullOrWhiteSpace(n.ChiTiet)
+                    ? n.ChiTiet!
+                    : MoTaHanhDongApi(n.PhuongThucHttp, n.TenApi)
             }).ToList();
         }
+
+        private static string MapLoai(string? method) => (method ?? "").ToUpperInvariant() switch
+        {
+            "GET" => "Read",
+            "POST" => "Create",
+            "PUT" or "PATCH" => "Update",
+            "DELETE" => "Delete",
+            _ => method ?? "Other"
+        };
 
         /// <summary>Mô tả ngắn: người dùng gọi API gì / chỉnh sửa gì.</summary>
         private static string MoTaHanhDongApi(string? method, string? path)

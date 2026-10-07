@@ -261,6 +261,8 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
                 .Include(p => p.MaNhanVienThucHienNavigation)
                 .Include(p => p.HoSoBaoTri)!.ThenInclude(h => h!.MaThieBiNavigation)
                 .Include(p => p.HoSoSuaChua)!.ThenInclude(h => h!.MaThieBiNavigation)
+                .Include(p => p.MaHoSoBaoTriNavigation)!.ThenInclude(h => h!.MaThieBiNavigation)
+                .Include(p => p.MaHoSoSuaChuaNavigation)!.ThenInclude(h => h!.MaThieBiNavigation)
                 .OrderByDescending(p => p.NgayPhanCong)
                 .AsNoTracking()
                 .ToListAsync();

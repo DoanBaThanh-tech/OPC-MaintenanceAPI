@@ -132,7 +132,9 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
  
             if (!string.IsNullOrWhiteSpace(tuKhoa))
                 query = query.Where(n => n.TenApi.Contains(tuKhoa) ||
-                                          n.MaNhanVienNavigation.HoTen.Contains(tuKhoa));
+                                          n.MaNhanVienNavigation.HoTen.Contains(tuKhoa) ||
+                                          (n.ChiTiet != null && n.ChiTiet.Contains(tuKhoa)) ||
+                                          (n.LoaiHanhDong != null && n.LoaiHanhDong.Contains(tuKhoa)));
  
             if (!string.IsNullOrWhiteSpace(phuongThucHTTP))
                 query = query.Where(n => n.PhuongThucHttp == phuongThucHTTP);

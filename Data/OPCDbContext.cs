@@ -444,6 +444,9 @@ public partial class OPCDbContext : DbContext
             entity.Property(e => e.ThoiGianTruyCap)
                 .HasDefaultValueSql("(getdate())")
                 .HasColumnType("datetime");
+            entity.Property(e => e.QueryString).HasMaxLength(500);
+            entity.Property(e => e.LoaiHanhDong).HasMaxLength(20);
+            entity.Property(e => e.ChiTiet).HasMaxLength(2000);
 
             entity.HasOne(d => d.MaNhanVienNavigation).WithMany(p => p.NhatKyHeThongs)
                 .HasForeignKey(d => d.MaNhanVien)

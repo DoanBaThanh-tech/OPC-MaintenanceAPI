@@ -149,6 +149,19 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             var choXuongXn = (h.TrangThai is "Đang thực hiện" or "Chờ xác nhận")
                 && dsPc.Any(p => p.TrangThai == "Chờ xác nhận");
 
+            // Quy trình đã chọn lúc tạo (kèm mô tả đã sửa)
+            var dsBuoc = await _db.TienDoBuocQuyTrinhs
+                .Where(x => x.MaHoSoSuaChua == h.MaHoSoSuaChua)
+                .OrderBy(x => x.SoBuoc)
+                .Select(x => new
+                {
+                    x.SoBuoc,
+                    x.MoTaBuoc,
+                    x.TrangThai,
+                    x.TenNhanVien
+                })
+                .ToListAsync();
+
             return new
             {
                 h.MaHoSoSuaChua,
@@ -177,6 +190,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 DanhSachNhanVienPhanCong = dangPc,
                 MaNhanVienThucHiens = dangPc.Select(x => x.MaNhanVien).ToList(),
                 TenNhanVienThucHiens = string.Join(", ", dangPc.Select(x => x.TenNhanVien).Where(t => !string.IsNullOrEmpty(t))),
+                DanhSachBuocQuyTrinh = dsBuoc,
                 RowVersion = Convert.ToBase64String(h.RowVersion)
             };
         }
@@ -249,11 +263,12 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 return (false, "Vui lòng chọn ít nhất một nhân viên thực hiện.");
 
             // Bắt buộc đã chọn ≥1 bước quy trình trước khi phân công SC
+            // Đã chọn lúc tạo hồ sơ SC hoặc đã có tiến độ bước
             var soBuocKeHoachSc = await _db.TienDoBuocQuyTrinhs
-                .CountAsync(t => t.MaHoSoSuaChua == maHoSo && t.TrangThai == "DuocChon");
+                .CountAsync(t => t.MaHoSoSuaChua == maHoSo);
             if (soBuocKeHoachSc <= 0)
                 return (false,
-                    "Vui lòng chọn và Lưu các bước quy trình trong chi tiết hồ sơ trước khi phân công nhân viên.");
+                    "Hồ sơ chưa có bước quy trình. Vui lòng tạo lại hồ sơ và chọn quy trình, hoặc Lưu bước trên chi tiết hồ sơ trước khi phân công.");
 
             var coTienDoNvktSc = await _db.TienDoBuocQuyTrinhs.AnyAsync(t =>
                 t.MaHoSoSuaChua == maHoSo && t.TrangThai != "DuocChon" && t.MaNhanVien > 0);

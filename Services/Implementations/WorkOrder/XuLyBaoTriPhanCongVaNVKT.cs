@@ -50,11 +50,12 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     return (false, "Vui lòng chọn ít nhất một nhân viên thực hiện.");
 
                 // Bắt buộc Tổ trưởng đã chọn ≥1 bước quy trình trước khi phân công
+                // Đã chọn lúc tạo hồ sơ (DuocChon) hoặc đã có tiến độ bước
                 var soBuocKeHoach = await _db.TienDoBuocQuyTrinhs
-                    .CountAsync(t => t.MaHoSoBaoTri == maHoSo && t.TrangThai == "DuocChon");
+                    .CountAsync(t => t.MaHoSoBaoTri == maHoSo);
                 if (soBuocKeHoach <= 0)
                     return (false,
-                        "Vui lòng chọn và Lưu các bước quy trình trong chi tiết hồ sơ trước khi phân công nhân viên.");
+                        "Hồ sơ chưa có bước quy trình. Vui lòng tạo lại hồ sơ và chọn quy trình, hoặc Lưu bước trên chi tiết hồ sơ trước khi phân công.");
 
                 // NVKT đã có tiến độ bước thực tế → không đổi phân công
                 var coTienDoNvkt = await _db.TienDoBuocQuyTrinhs.AnyAsync(t =>

@@ -65,6 +65,7 @@ namespace OPC.MaintenanceAPI.DTOs.Inventory
         public string TenThietBi { get; set; } = "";
         public string LoaiCongViec { get; set; } = "";
         public DateTime NgayThucHien { get; set; }
+        /// <summary>Đủ họ tên NVKT tổ trưởng đã phân công (cách nhau bằng dấu phẩy); fallback người lập HS VT.</summary>
         public string? TenNhanVien { get; set; }
         public decimal TongTien { get; set; }
         public string TrangThai { get; set; } = "";

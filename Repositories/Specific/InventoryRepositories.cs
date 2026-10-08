@@ -118,7 +118,9 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
                 .Include(x => x.ChiTietSuDungVatTus)
                 .Include(x => x.MaNhanVienTHNavigation)
                 .FirstOrDefaultAsync(x => x.MaHoSoVatTu == id);
-            return h == null ? null : Map(h);
+            if (h == null) return null;
+            var tenNvkt = await LayTenNvktPhanCongAsync(h.MaHoSoBaoTri, h.MaHoSoSuaChua);
+            return Map(h, tenNvkt);
         }
 
         public async Task<List<HoSoVatTuResponseDto>> GetDanhSachHoSoSuDungVatTuAsync(string? trangThai)
@@ -130,10 +132,50 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
             if (!string.IsNullOrWhiteSpace(trangThai))
                 q = q.Where(x => x.TrangThai == trangThai);
             var list = await q.OrderByDescending(x => x.NgayThucHien).ToListAsync();
-            return list.Select(Map).ToList();
+
+            // Gộp tên tất cả NVKT tổ trưởng đã phân công (theo từng hồ sơ BT/SC)
+            var result = new List<HoSoVatTuResponseDto>(list.Count);
+            foreach (var h in list)
+            {
+                var tenNvkt = await LayTenNvktPhanCongAsync(h.MaHoSoBaoTri, h.MaHoSoSuaChua);
+                result.Add(Map(h, tenNvkt));
+            }
+            return result;
         }
 
-        private static HoSoVatTuResponseDto Map(HoSoSuDungVatTu h) => new()
+        /// <summary>
+        /// Lấy đủ họ tên NVKT mà tổ trưởng đã chọn lúc phân công (loại trừ Đã hủy).
+        /// Fallback: người tạo hồ sơ vật tư nếu chưa có phân công.
+        /// </summary>
+        private async Task<string?> LayTenNvktPhanCongAsync(int? maHoSoBaoTri, int? maHoSoSuaChua)
+        {
+            if ((!maHoSoBaoTri.HasValue || maHoSoBaoTri.Value <= 0) &&
+                (!maHoSoSuaChua.HasValue || maHoSoSuaChua.Value <= 0))
+                return null;
+
+            var q = _context.PhanCongCongViecs
+                .AsNoTracking()
+                .Include(p => p.MaNhanVienThucHienNavigation)
+                .Where(p => p.TrangThai == null || p.TrangThai != "Đã hủy");
+
+            if (maHoSoBaoTri.HasValue && maHoSoBaoTri.Value > 0)
+                q = q.Where(p => p.MaHoSoBaoTri == maHoSoBaoTri.Value);
+            else
+                q = q.Where(p => p.MaHoSoSuaChua == maHoSoSuaChua!.Value);
+
+            var tens = await q
+                .OrderBy(p => p.NgayPhanCong)
+                .ThenBy(p => p.MaPhanCong)
+                .Select(p => p.MaNhanVienThucHienNavigation.HoTen)
+                .Where(t => t != null && t != "")
+                .Distinct()
+                .ToListAsync();
+
+            if (tens.Count == 0) return null;
+            return string.Join(", ", tens);
+        }
+
+        private static HoSoVatTuResponseDto Map(HoSoSuDungVatTu h, string? tenNvktDayDu) => new()
         {
             MaHoSoVatTu = h.MaHoSoVatTu,
             MaHoSoBaoTri = h.MaHoSoBaoTri,
@@ -142,7 +184,10 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
             TenThietBi = h.TenThietBi,
             LoaiCongViec = h.LoaiCongViec,
             NgayThucHien = h.NgayThucHien,
-            TenNhanVien = h.MaNhanVienTHNavigation?.HoTen,
+            // Ưu tiên đủ NVKT tổ trưởng đã chọn; fallback người lập HS VT
+            TenNhanVien = !string.IsNullOrWhiteSpace(tenNvktDayDu)
+                ? tenNvktDayDu
+                : h.MaNhanVienTHNavigation?.HoTen,
             TongTien = h.TongTien,
             TrangThai = h.TrangThai,
             NgayGuiGiamDoc = h.NgayGuiGiamDoc,

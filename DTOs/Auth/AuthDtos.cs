@@ -38,7 +38,10 @@ namespace OPC.MaintenanceAPI.DTOs.Auth
     // ===== Quên mật khẩu =====
     public class QuenMatKhauRequestDto
     {
+        /// <summary>Email đăng nhập công ty (vd. user@opc.com).</summary>
         public string Email { get; set; } = null!;
+        /// <summary>Gmail/Outlook cá nhân nhận OTP (bắt buộc nếu email đăng nhập là ảo).</summary>
+        public string? EmailNhanOtp { get; set; }
     }
 
     public class XacNhanOtpDto

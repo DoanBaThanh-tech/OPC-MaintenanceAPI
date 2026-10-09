@@ -12,7 +12,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
     {
         private const string VaiTroGiamDoc = "Giám đốc";
         private const string VaiTroPhoGiamDoc = "Phó giám đốc";
-        private const int SoPhutChoOtp = 10;
+        private const int SoPhutChoOtp = 1; // chờ gửi lại OTP (phút)
 
         private readonly IQuanLyNguoiDungRepository _userRepo;
         private readonly INhanVienRepository _nhanVienRepo;
@@ -22,7 +22,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
         private readonly IEmailSender _emailSender;
 
         private static readonly Regex MatKhauHopLe =
-            new(@"^(?=.*[A-Z])(?=.*[!@#$%^&*(),.?"":{}|<>_\-]).{8,}$");
+            new(@"^(?=.*[0-9])(?=.*[!@#$%^&*(),.?"":{}|<>_\-]).{8,}$"); // ≥8, có số + ký tự đặc biệt
 
         public AuthService(IQuanLyNguoiDungRepository userRepo, INhanVienRepository nhanVienRepo,
                             IXacThucQuenMatKhauRepository otpRepo, IConfiguration config,
@@ -150,7 +150,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
         public async Task<AuthResult> TaoTaiKhoanAsync(TaoTaiKhoanDto dto)
         {
             if (!MatKhauHopLe.IsMatch(dto.MatKhau))
-                return new AuthResult { ThanhCong = false, Message = "Mật khẩu phải có ít nhất 8 ký tự, gồm 1 chữ hoa và 1 ký tự đặc biệt." };
+                return new AuthResult { ThanhCong = false, Message = "Mật khẩu phải có ít nhất 8 ký tự, gồm 1 chữ số và 1 ký tự đặc biệt." };
 
             var loiEmail = KiemTraEmailCongTy(dto.Email);
             if (loiEmail != null)
@@ -253,25 +253,35 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             var user = await _userRepo.GetByEmailAsync(dto.Email);
             if (user == null) return new AuthResult { ThanhCong = false, Message = "Không tìm thấy tài khoản." };
 
-            // Ưu tiên email liên hệ thật trên hồ sơ NV; không thì dùng email đăng nhập
+            // Email nhận OTP: ưu tiên Gmail người dùng nhập lúc quên MK; sau đó email NV; không dùng @opc.com ảo
             var nhanVien = await _nhanVienRepo.GetByMaNguoiDungAsync(user.MaNguoiDung);
-            var emailNhan = ChonEmailNhanOtp(user.Email, nhanVien?.Email);
+            string? emailNhan = null;
+            if (!string.IsNullOrWhiteSpace(dto.EmailNhanOtp) && LaEmailCoTheNhanThu(dto.EmailNhanOtp))
+                emailNhan = dto.EmailNhanOtp.Trim();
+            else
+                emailNhan = ChonEmailNhanOtp(user.Email, nhanVien?.Email);
+
             if (emailNhan == null)
             {
                 return new AuthResult
                 {
                     ThanhCong = false,
-                    Message = "Tài khoản chưa có email thật để nhận OTP (Gmail/Outlook…). "
-                              + "Vào hồ sơ cá nhân hoặc nhờ Admin cập nhật email liên hệ (không dùng @opc.com ảo), rồi thử lại."
+                    Message = "Vui lòng nhập Gmail/Outlook cá nhân để nhận OTP "
+                              + "(email đăng nhập @opc.com là tài khoản ảo, không nhận thư được)."
                 };
             }
 
-            // Chống spam OTP — cách lần gần nhất chưa đủ 10 phút thì chặn
+            // Chống spam — cách lần gửi gần nhất chưa đủ 1 phút thì chặn
             var otpGanNhat = await _otpRepo.GetMoiNhatAsync(user.MaNguoiDung);
-            if (otpGanNhat != null && (DateTime.Now - otpGanNhat.NgayTao).TotalMinutes < SoPhutChoOtp)
+            if (otpGanNhat != null && (DateTime.Now - otpGanNhat.NgayTao).TotalSeconds < SoPhutChoOtp * 60)
             {
-                var conLai = SoPhutChoOtp - (int)(DateTime.Now - otpGanNhat.NgayTao).TotalMinutes;
-                return new AuthResult { ThanhCong = false, Message = $"Vui lòng chờ thêm {conLai} phút trước khi yêu cầu mã mới." };
+                var conGiay = SoPhutChoOtp * 60 - (int)(DateTime.Now - otpGanNhat.NgayTao).TotalSeconds;
+                if (conGiay < 1) conGiay = 1;
+                return new AuthResult
+                {
+                    ThanhCong = false,
+                    Message = $"Vui lòng chờ thêm {conGiay} giây trước khi gửi lại mã OTP."
+                };
             }
 
             var otp = Random.Shared.Next(100000, 999999).ToString();
@@ -279,7 +289,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             {
                 MaNguoiDung = user.MaNguoiDung,
                 MaOTP = otp,
-                ThoiGianHetHan = DateTime.Now.AddMinutes(5),
+                ThoiGianHetHan = DateTime.Now.AddMinutes(2), // OTP hiệu lực 2 phút
                 TrangThaiXacThuc = "Chưa dùng",
                 NgayTao = DateTime.Now
             });
@@ -319,8 +329,13 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             return new AuthResult
             {
                 ThanhCong = true,
-                Message = $"Đã gửi mã OTP tới {emailAn}. Vui lòng kiểm tra hộp thư (và mục Spam).",
-                Data = new { EmailNhanAn = emailAn }
+                Message = $"Đã gửi mã OTP tới {emailAn}. Mã có hiệu lực 2 phút. Vui lòng kiểm tra hộp thư (và Spam).",
+                Data = new
+                {
+                    EmailNhanAn = emailAn,
+                    HetHanSauGiay = 120,
+                    GuiLaiSauGiay = 60
+                }
             };
         }
 
@@ -384,7 +399,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
         public async Task<AuthResult> DatLaiMatKhauAsync(DatLaiMatKhauDto dto)
         {
             if (!MatKhauHopLe.IsMatch(dto.MatKhauMoi))
-                return new AuthResult { ThanhCong = false, Message = "Mật khẩu phải có ít nhất 8 ký tự, gồm 1 chữ hoa và 1 ký tự đặc biệt." };
+                return new AuthResult { ThanhCong = false, Message = "Mật khẩu phải có ít nhất 8 ký tự, gồm 1 chữ số và 1 ký tự đặc biệt." };
 
             var user = await _userRepo.GetByEmailAsync(dto.Email);
             if (user == null) return new AuthResult { ThanhCong = false, Message = "Không tìm thấy tài khoản." };

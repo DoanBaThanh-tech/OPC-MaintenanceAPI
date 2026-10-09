@@ -58,4 +58,11 @@ namespace OPC.MaintenanceAPI.DTOs.Auth
         public string Email { get; set; } = null!;
         public string MatKhauMoi { get; set; } = null!;
     }
+
+    /// <summary>Đổi mật khẩu khi đã đăng nhập.</summary>
+    public class DoiMatKhauDto
+    {
+        public string MatKhauCu { get; set; } = null!;
+        public string MatKhauMoi { get; set; } = null!;
+    }
 }

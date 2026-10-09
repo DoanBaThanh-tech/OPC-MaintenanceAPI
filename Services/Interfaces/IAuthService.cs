@@ -25,5 +25,7 @@ namespace OPC.MaintenanceAPI.Services.Interfaces
         Task<AuthResult> GetHoSoCaNhanAsync(int maNguoiDung);
         /// <summary>Tự cập nhật họ tên / SĐT / chức vụ / ngày vào làm — không đổi email, vai trò.</summary>
         Task<AuthResult> CapNhatHoSoCaNhanAsync(int maNguoiDung, NhanVienUpdateDto dto);
+        /// <summary>Đổi mật khẩu khi đã đăng nhập (cần mật khẩu cũ).</summary>
+        Task<AuthResult> DoiMatKhauAsync(int maNguoiDung, DoiMatKhauDto dto);
     }
 }

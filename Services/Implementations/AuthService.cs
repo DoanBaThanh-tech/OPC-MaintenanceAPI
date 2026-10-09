@@ -432,6 +432,28 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             return new AuthResult { ThanhCong = true, Message = "Đổi mật khẩu thành công." };
         }
 
+
+        public async Task<AuthResult> DoiMatKhauAsync(int maNguoiDung, DoiMatKhauDto dto)
+        {
+            var user = await _userRepo.GetByIdAsync(maNguoiDung);
+            if (user == null)
+                return new AuthResult { ThanhCong = false, Message = "Không tìm thấy tài khoản." };
+
+            if (string.IsNullOrEmpty(dto.MatKhauCu) || !BCrypt.Net.BCrypt.Verify(dto.MatKhauCu, user.MatKhau))
+                return new AuthResult { ThanhCong = false, Message = "Mật khẩu hiện tại không đúng." };
+
+            if (!MatKhauHopLe.IsMatch(dto.MatKhauMoi ?? ""))
+                return new AuthResult { ThanhCong = false, Message = "Mật khẩu mới phải có ít nhất 8 ký tự, gồm 1 chữ số và 1 ký tự đặc biệt." };
+
+            if (dto.MatKhauCu == dto.MatKhauMoi)
+                return new AuthResult { ThanhCong = false, Message = "Mật khẩu mới phải khác mật khẩu hiện tại." };
+
+            user.MatKhau = BCrypt.Net.BCrypt.HashPassword(dto.MatKhauMoi);
+            _userRepo.Update(user);
+            await _userRepo.SaveChangesAsync();
+            return new AuthResult { ThanhCong = true, Message = "Đổi mật khẩu thành công." };
+        }
+
         public async Task<AuthResult> GetHoSoCaNhanAsync(int maNguoiDung)
         {
             var u = await _userRepo.GetByIdAsync(maNguoiDung);

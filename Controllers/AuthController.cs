@@ -117,5 +117,17 @@ namespace OPC.MaintenanceAPI.Controllers
             var r = await _service.CapNhatHoSoCaNhanAsync(maNguoiDung, dto);
             return r.ThanhCong ? Ok(new { r.Message, r.Data }) : BadRequest(new { r.Message });
         }
+
+        /// <summary>Đổi mật khẩu khi đã đăng nhập (cần mật khẩu cũ).</summary>
+        [Authorize]
+        [HttpPost("toi/doi-mat-khau")]
+        public async Task<IActionResult> DoiMatKhau([FromBody] DoiMatKhauDto dto)
+        {
+            var claim = User.FindFirst("MaNguoiDung")?.Value;
+            if (claim == null || !int.TryParse(claim, out var maNguoiDung))
+                return Unauthorized();
+            var r = await _service.DoiMatKhauAsync(maNguoiDung, dto);
+            return r.ThanhCong ? Ok(new { r.Message }) : BadRequest(new { r.Message });
+        }
     }
 }

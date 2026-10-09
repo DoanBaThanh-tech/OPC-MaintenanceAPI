@@ -65,6 +65,8 @@ public partial class OPCDbContext : DbContext
 
     public virtual DbSet<TienDoBuocQuyTrinh> TienDoBuocQuyTrinhs { get; set; }
 
+    public virtual DbSet<ThongBao> ThongBaos { get; set; }
+
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
         => optionsBuilder.UseSqlServer("Name=ConnectionStrings:DefaultConnection");
 
@@ -692,6 +694,15 @@ public partial class OPCDbContext : DbContext
             entity.Property(e => e.TrangThai).HasMaxLength(30);
             entity.HasIndex(e => new { e.MaHoSoBaoTri, e.SoBuoc });
             entity.HasIndex(e => new { e.MaHoSoSuaChua, e.SoBuoc });
+        });
+
+        modelBuilder.Entity<ThongBao>(entity =>
+        {
+            entity.ToTable("ThongBao");
+            entity.HasKey(e => e.MaThongBao);
+            entity.Property(e => e.TieuDe).HasMaxLength(200);
+            entity.Property(e => e.NoiDung).HasMaxLength(1000);
+            entity.Property(e => e.Loai).HasMaxLength(50);
         });
 
         OnModelCreatingPartial(modelBuilder);

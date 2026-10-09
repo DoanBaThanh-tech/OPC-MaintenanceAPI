@@ -245,5 +245,37 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 hoSo.GioBatDauDuKien = hoSo.ThoiDiemBatDauThucTe.Value.TimeOfDay;
             }
         }
+
+        /// <summary>Tạo thông báo chỉ cho đúng các NV được phân công.</summary>
+        protected async Task TaoThongBaoPhanCongNoiBoAsync(
+            IEnumerable<int> maNhanVienNhans,
+            string loai,
+            string tenThietBi,
+            int? maHoSoBaoTri,
+            int? maHoSoSuaChua)
+        {
+            var isBt = loai == "PhanCongBT";
+            var viec = isBt ? "bảo trì" : "sửa chữa";
+            var tieuDe = isBt ? "Phân công bảo trì mới" : "Phân công sửa chữa mới";
+            var noiDung =
+                $"Bạn được phân công {viec} thiết bị «{tenThietBi}». Nhấn Tiến hành để mở công việc.";
+
+            foreach (var maNv in maNhanVienNhans.Distinct())
+            {
+                _db.ThongBaos.Add(new Core.Entities.ThongBao
+                {
+                    MaNhanVienNhan = maNv,
+                    TieuDe = tieuDe,
+                    NoiDung = noiDung,
+                    Loai = loai,
+                    MaHoSoBaoTri = maHoSoBaoTri,
+                    MaHoSoSuaChua = maHoSoSuaChua,
+                    DaDoc = false,
+                    NgayTao = DateTime.Now
+                });
+            }
+            await _db.SaveChangesAsync();
+        }
+
     }
 }

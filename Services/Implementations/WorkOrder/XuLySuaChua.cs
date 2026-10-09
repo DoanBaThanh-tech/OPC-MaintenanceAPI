@@ -327,6 +327,14 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 hoSo.MaThieBiNavigation.TinhTrangHienTai = "Sửa chữa";
 
             await _repo.SaveChangesAsync();
+
+            var tenTbSc = hoSo.MaThieBiNavigation?.TenThietBi
+                         ?? await _db.ThietBis.Where(x => x.MaThietBi == hoSo.MaThieBi)
+                             .Select(x => x.TenThietBi).FirstOrDefaultAsync()
+                         ?? $"#{hoSo.MaThieBi}";
+            await TaoThongBaoPhanCongNoiBoAsync(
+                dsNv, "PhanCongSC", tenTbSc, null, maHoSo);
+
             return (true, null);
         }
 

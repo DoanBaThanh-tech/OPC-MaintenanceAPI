@@ -106,6 +106,15 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     chiTiet.TrangThai = "Đang thực hiện";
 
                 await _repo.SaveChangesAsync();
+
+                // Thông báo realtime chỉ tới NV được phân công
+                var tenTb = hoSo.MaThieBiNavigation?.TenThietBi
+                            ?? await _db.ThietBis.Where(x => x.MaThietBi == hoSo.MaThieBi)
+                                .Select(x => x.TenThietBi).FirstOrDefaultAsync()
+                            ?? $"#{hoSo.MaThieBi}";
+                await TaoThongBaoPhanCongNoiBoAsync(
+                    dsNv, "PhanCongBT", tenTb, maHoSo, null);
+
                 return (true, null);
             }
             catch (Exception ex)

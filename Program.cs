@@ -44,6 +44,7 @@ builder.Services.AddScoped<IMaintenancePlanService, MaintenancePlanService>();
 // WorkOrder: HoSoBaoTri, HoSoSuaChua, PhanCongCongViec, KetQuaThucHien, LichSuPheDuyet
 builder.Services.AddScoped<IWorkOrderRepository, WorkOrderRepository>();
 builder.Services.AddScoped<IWorkOrderService, WorkOrderService>();
+builder.Services.AddScoped<IThongBaoService, ThongBaoService>();
 
 // Inventory: VatTu, HoSoYeuCauVatTu, ChiTietYeuCauVatTu, NhapXuatVatTu
 builder.Services.AddScoped<IInventoryRepository, InventoryRepository>();

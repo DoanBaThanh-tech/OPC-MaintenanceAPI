@@ -125,117 +125,145 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             var list = await _repo.GetNhatKyAsync(
                 filter.TuKhoa, filter.PhuongThucHTTP, filter.TuNgay, filter.DenNgay);
 
-            // Giới hạn 300 bản ghi gần nhất để tải nhanh trên mobile
-            return list.Take(400).Select(n => (object)new
-            {
-                n.MaNhatKy,
-                n.MaNhanVien,
-                TenNhanVien = n.MaNhanVienNavigation?.HoTen ?? $"NV#{n.MaNhanVien}",
-                n.TenApi,
-                n.PhuongThucHttp,
-                n.ThoiGianTruyCap,
-                n.DiaChiIp,
-                n.StatusCode,
-                n.QueryString,
-                LoaiHanhDong = n.LoaiHanhDong ?? MapLoai(n.PhuongThucHttp),
-                ChiTiet = n.ChiTiet,
-                MoTa = !string.IsNullOrWhiteSpace(n.ChiTiet)
-                    ? n.ChiTiet!
-                    : MoTaHanhDongApi(n.PhuongThucHttp, n.TenApi)
-            }).ToList();
+            // Bỏ DELETE; giới hạn bản ghi gần nhất để tải nhanh trên mobile
+            return list
+                .Where(n =>
+                {
+                    var m = (n.PhuongThucHttp ?? "").ToUpperInvariant();
+                    return m is "GET" or "POST" or "PUT" or "PATCH";
+                })
+                .Take(400)
+                .Select(n =>
+                {
+                    var method = ChuanHoaMethod(n.PhuongThucHttp);
+                    var tenChucNang = MapTenChucNang(n.TenApi);
+                    return (object)new
+                    {
+                        n.MaNhatKy,
+                        n.MaNhanVien,
+                        TenNhanVien = n.MaNhanVienNavigation?.HoTen ?? $"NV#{n.MaNhanVien}",
+                        n.TenApi,
+                        PhuongThucHttp = method,
+                        n.ThoiGianTruyCap,
+                        n.DiaChiIp,
+                        n.StatusCode,
+                        n.QueryString,
+                        // Chỉ dùng GET / POST / PUT — không CRUD
+                        LoaiHanhDong = method,
+                        TenChucNang = tenChucNang,
+                        ChiTiet = n.ChiTiet,
+                        MoTa = !string.IsNullOrWhiteSpace(n.ChiTiet)
+                            ? n.ChiTiet!
+                            : MoTaHanhDongApi(method, n.TenApi, tenChucNang)
+                    };
+                }).ToList();
         }
 
-        private static string MapLoai(string? method) => (method ?? "").ToUpperInvariant() switch
-        {
-            "GET" => "Read",
-            "POST" => "Create",
-            "PUT" or "PATCH" => "Update",
-            "DELETE" => "Delete",
-            _ => method ?? "Other"
-        };
-
-        /// <summary>Mô tả ngắn: người dùng gọi API gì / chỉnh sửa gì.</summary>
-        private static string MoTaHanhDongApi(string? method, string? path)
+        private static string ChuanHoaMethod(string? method)
         {
             var m = (method ?? "").ToUpperInvariant();
+            return m switch
+            {
+                "PATCH" => "PUT",
+                "GET" or "POST" or "PUT" => m,
+                _ => m
+            };
+        }
+
+        /// <summary>Ánh xạ path API → tên chức năng nghiệp vụ (tiện admin tìm lỗi).</summary>
+        private static string MapTenChucNang(string? path)
+        {
+            var p = (path ?? "").ToLowerInvariant();
+            if (p.Contains("phan-cong")) return "Phân công nhân viên";
+            if (p.Contains("tien-do") || p.Contains("quy-trinh") || p.Contains("ke-hoach-buoc"))
+                return "Quy trình / bước thực hiện";
+            if (p.Contains("bao-tri") && p.Contains("xac-nhan")) return "Xác nhận kết quả bảo trì";
+            if (p.Contains("sua-chua") && p.Contains("xac-nhan")) return "Xác nhận kết quả sửa chữa";
+            if (p.Contains("bao-tri")) return "Hồ sơ bảo trì";
+            if (p.Contains("sua-chua")) return "Hồ sơ sửa chữa";
+            if (p.Contains("ho-so-vat-tu") || (p.Contains("vat-tu") && p.Contains("ho-so")))
+                return "Hồ sơ vật tư";
+            if (p.Contains("vat-tu") || p.Contains("inventory")) return "Vật tư / tồn kho";
+            if (p.Contains("ke-hoach") || p.Contains("maintenanceplan")) return "Kế hoạch bảo trì";
+            if (p.Contains("thiet-bi") || p.Contains("equipment")) return "Thiết bị";
+            if (p.Contains("phe-duyet") || p.Contains("duyet") || p.Contains("approval"))
+                return "Phê duyệt";
+            if (p.Contains("nguoi-dung") || p.Contains("quanlynguoidung") || p.Contains("user"))
+                return "Quản lý người dùng";
+            if (p.Contains("thong-ke") || p.Contains("dashboard")) return "Thống kê";
+            if (p.Contains("/toi") || p.Contains("auth") || p.Contains("dang-nhap") || p.Contains("profile"))
+                return "Tài khoản / hồ sơ cá nhân";
+            if (p.Contains("nhatky") || p.Contains("system")) return "Hệ thống / nhật ký";
+            if (p.Contains("workorder") || p.Contains("work-order")) return "Công việc / hồ sơ";
+            return "API khác";
+        }
+
+        /// <summary>Mô tả ngắn: chức năng + method + người dùng làm gì.</summary>
+        private static string MoTaHanhDongApi(string? method, string? path, string tenChucNang)
+        {
+            var m = ChuanHoaMethod(method);
             var p = (path ?? "").ToLowerInvariant();
             var hanhDong = m switch
             {
-                "GET" => "Xem",
-                "POST" => "Tạo / gửi",
-                "PUT" or "PATCH" => "Cập nhật",
-                "DELETE" => "Xóa",
-                _ => string.IsNullOrEmpty(m) ? "Gọi API" : m
+                "GET" => "Xem / lấy dữ liệu",
+                "POST" => "Tạo mới / gửi xử lý",
+                "PUT" => "Cập nhật / chỉnh sửa",
+                _ => "Gọi API"
             };
 
-            string doiTuong;
             string fields;
             if (p.Contains("bao-tri"))
             {
-                doiTuong = "hồ sơ bảo trì";
                 fields = m == "GET"
-                    ? "Đọc: mã HS, thiết bị, nội dung, trạng thái, ngày, phân công…"
-                    : "Ghi: nội dung CV, ngày dự kiến, trạng thái, bước quy trình…";
+                    ? "mã HS, thiết bị, nội dung, trạng thái, ngày, phân công…"
+                    : "nội dung CV, ngày dự kiến, trạng thái, bước quy trình…";
             }
             else if (p.Contains("sua-chua"))
             {
-                doiTuong = "hồ sơ sửa chữa";
                 fields = m == "GET"
-                    ? "Đọc: mã HS, thiết bị, mô tả hư hỏng, trạng thái…"
-                    : "Ghi: mô tả hư hỏng, phương án, trạng thái, bước quy trình…";
+                    ? "mã HS, thiết bị, mô tả hư hỏng, trạng thái…"
+                    : "mô tả hư hỏng, phương án, trạng thái, bước quy trình…";
             }
             else if (p.Contains("vat-tu") || p.Contains("inventory"))
             {
-                doiTuong = "vật tư / hồ sơ vật tư";
                 fields = m == "GET"
-                    ? "Đọc: mã VT, tên, tồn kho, đơn giá, chi tiết HS…"
-                    : "Ghi: số lượng, đơn giá, chi tiết sử dụng…";
+                    ? "mã VT, tên, tồn kho, đơn giá, chi tiết HS…"
+                    : "số lượng, đơn giá, chi tiết sử dụng…";
             }
             else if (p.Contains("phan-cong"))
             {
-                doiTuong = "phân công";
-                fields = "Ghi: danh sách NV thực hiện, trạng thái PC…";
+                fields = "danh sách NV thực hiện, trạng thái phân công…";
             }
             else if (p.Contains("tien-do") || p.Contains("quy-trinh") || p.Contains("ke-hoach-buoc"))
             {
-                doiTuong = "quy trình / bước";
                 fields = m == "GET"
-                    ? "Đọc: số bước, mô tả, trạng thái, NV, JSON vật tư…"
-                    : "Ghi: trạng thái bước, vật tư bước, người thực hiện…";
+                    ? "số bước, mô tả, trạng thái, NV, vật tư…"
+                    : "trạng thái bước, vật tư bước, người thực hiện…";
             }
             else if (p.Contains("ke-hoach") || p.Contains("maintenanceplan"))
             {
-                doiTuong = "kế hoạch bảo trì";
                 fields = m == "GET"
-                    ? "Đọc: năm, tháng, thiết bị, ngày dự kiến…"
-                    : "Ghi: ngày dự kiến, trạng thái chi tiết KH…";
+                    ? "năm, tháng, thiết bị, ngày dự kiến…"
+                    : "ngày dự kiến, trạng thái chi tiết KH…";
             }
             else if (p.Contains("thiet-bi") || p.Contains("equipment"))
             {
-                doiTuong = "thiết bị";
                 fields = m == "GET"
-                    ? "Đọc: tên, danh mục, tình trạng, chu kỳ…"
-                    : "Ghi: tình trạng, ngày bảo trì…";
+                    ? "tên, danh mục, tình trạng, chu kỳ…"
+                    : "tình trạng, ngày bảo trì…";
             }
             else if (p.Contains("/toi") || p.Contains("auth"))
             {
-                doiTuong = "tài khoản / hồ sơ cá nhân";
                 fields = m == "GET"
-                    ? "Đọc: email, họ tên, vai trò, SĐT…"
-                    : "Ghi: họ tên, SĐT, ngày vào làm / vai trò (admin)…";
-            }
-            else if (p.Contains("nhatky") || p.Contains("system"))
-            {
-                doiTuong = "hệ thống";
-                fields = "Đọc nhật ký / cấu hình";
+                    ? "email, họ tên, vai trò, SĐT…"
+                    : "họ tên, SĐT, vai trò…";
             }
             else
             {
-                doiTuong = string.IsNullOrEmpty(path) ? "API khác" : path!;
-                fields = m == "GET" ? "Đọc dữ liệu" : "Ghi / cập nhật dữ liệu";
+                fields = m == "GET" ? "đọc dữ liệu" : "ghi / cập nhật dữ liệu";
             }
 
-            return $"{hanhDong} · {doiTuong} — {fields}";
+            return $"{tenChucNang} · {hanhDong} — {fields}";
         }
     }
 }

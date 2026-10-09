@@ -24,7 +24,11 @@ namespace OPC.MaintenanceAPI.Middleware
         public async Task InvokeAsync(HttpContext context, OPCDbContext dbContext)
         {
             var path = context.Request.Path.Value ?? "";
-            var skip = BoQuaDuongDan.Any(p => path.StartsWith(p, StringComparison.OrdinalIgnoreCase));
+            var methodEarly = (context.Request.Method ?? "GET").ToUpperInvariant();
+            // Chỉ log GET / POST / PUT (PATCH coi như PUT). Bỏ DELETE.
+            var skip = BoQuaDuongDan.Any(p => path.StartsWith(p, StringComparison.OrdinalIgnoreCase))
+                       || methodEarly == "DELETE"
+                       || methodEarly is not ("GET" or "POST" or "PUT" or "PATCH");
 
             // Buffer body để đọc field (POST/PUT/PATCH) trước khi pipeline chạy
             string? bodyPreview = null;
@@ -66,12 +70,11 @@ namespace OPC.MaintenanceAPI.Middleware
                 if (nhanVien == null) return;
 
                 var method = (context.Request.Method ?? "GET").ToUpperInvariant();
+                // Lưu đúng method HTTP — không dùng CRUD
                 var loai = method switch
                 {
-                    "GET" => "Read",
-                    "POST" => "Create",
-                    "PUT" or "PATCH" => "Update",
-                    "DELETE" => "Delete",
+                    "PATCH" => "PUT",
+                    "GET" or "POST" or "PUT" => method,
                     _ => method
                 };
 

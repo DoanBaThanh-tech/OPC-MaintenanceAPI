@@ -459,48 +459,50 @@ namespace OPC.MaintenanceAPI.Services.Implementations
         {
             var phanCong = await _repo.GetPhanCongByIdAsync(maPhanCong);
             if (phanCong == null) return (false, "Không tìm thấy công việc.");
-            if (phanCong.TrangThai != "Xác nhận" && phanCong.TrangThai != "Đang thực hiện")
-                return (false, "Chỉ ghi nhận kết quả cho phân công đã được xác nhận.");
 
-            if (await _repo.DaCoKetQuaAsync(maPhanCong))
-                return (false, "Phân công này đã có kết quả thực hiện.");
+            // Cho phép gửi kết quả khi NVKT đã được phân công / đang làm / gửi lại sau từ chối
+            var ttPc = phanCong.TrangThai ?? "";
+            var ttHopLe = ttPc is "Đã phân công" or "Xác nhận" or "Đang thực hiện"
+                or "Từ chối" or "Chờ xác nhận";
+            if (!ttHopLe)
+                return (false,
+                    $"Không ghi nhận kết quả khi phân công ở trạng thái «{ttPc}». Chỉ áp dụng khi đã phân công / đang thực hiện / gửi lại sau từ chối.");
 
             var hoSoBt = await _repo.GetHoSoBaoTriByMaPhanCongAsync(maPhanCong);
             var hoSoSc = hoSoBt == null ? await _repo.GetHoSoSuaChuaByMaPhanCongAsync(maPhanCong) : null;
 
-            DateOnly? ngayDuKien = null;
-            if (hoSoBt != null)
-                ngayDuKien = await _repo.GetNgayDuKienBaoTriTheoHoSoBaoTriAsync(hoSoBt.MaHoSoBaoTri);
-
             var ngayGhi = dto.NgayGhiNhan ?? DateTime.Now;
-            if (ngayDuKien.HasValue)
-            {
-                // Không được chọn ngày/tháng trước ngày dự kiến bảo trì trong hồ sơ
-                var ngayDk = ngayDuKien.Value.ToDateTime(TimeOnly.MinValue);
-                var ngayGhiDate = ngayGhi.Date;
-                if (ngayGhiDate < ngayDk.Date)
-                    return (false,
-                        $"Ngày ghi nhận không được trước ngày dự kiến bảo trì ({ngayDuKien.Value:dd/MM/yyyy}).");
-                // Phải nằm đúng tháng/năm dự kiến bảo trì theo hồ sơ
-                if (ngayGhi.Year != ngayDuKien.Value.Year || ngayGhi.Month != ngayDuKien.Value.Month)
-                    return (false,
-                        $"Ngày ghi nhận phải nằm trong tháng {ngayDuKien.Value.Month}/{ngayDuKien.Value.Year} (tháng dự kiến bảo trì theo hồ sơ).");
-            }
+            // Bỏ ràng buộc cũ: ngày ghi nhận phải đúng tháng dự kiến BT (gây 400 khi NVKT hoàn thành quy trình).
 
             var maNvGhiNhan = dto.MaNhanVienGhiNhan;
             if (maNvGhiNhan <= 0)
                 maNvGhiNhan = phanCong.MaNhanVienThucHien;
 
-            await _repo.AddKetQuaAsync(new KetQuaThucHien
+            // Đã có kết quả (gửi lại sau từ chối) → cập nhật, không báo lỗi trùng
+            var ketQuaCu = await _repo.GetKetQuaByMaPhanCongAsync(maPhanCong);
+            if (ketQuaCu != null)
             {
-                MaPhanCong = maPhanCong,
-                MaNhanVienGhiNhan = maNvGhiNhan,
-                SoLieuGhiNhan = dto.SoLieuGhiNhan,
-                HinhAnh = dto.HinhAnh,
-                GhiChu = dto.GhiChu,
-                NgayGhiNhan = ngayGhi,
-                XacNhanHoanThanh = true
-            });
+                ketQuaCu.MaNhanVienGhiNhan = maNvGhiNhan > 0 ? maNvGhiNhan : ketQuaCu.MaNhanVienGhiNhan;
+                ketQuaCu.SoLieuGhiNhan = dto.SoLieuGhiNhan ?? ketQuaCu.SoLieuGhiNhan;
+                ketQuaCu.HinhAnh = dto.HinhAnh ?? ketQuaCu.HinhAnh;
+                ketQuaCu.GhiChu = dto.GhiChu ?? ketQuaCu.GhiChu;
+                ketQuaCu.NgayGhiNhan = ngayGhi;
+                ketQuaCu.XacNhanHoanThanh = true;
+            }
+            else
+            {
+                await _repo.AddKetQuaAsync(new KetQuaThucHien
+                {
+                    MaPhanCong = maPhanCong,
+                    MaNhanVienGhiNhan = maNvGhiNhan,
+                    SoLieuGhiNhan = dto.SoLieuGhiNhan,
+                    HinhAnh = dto.HinhAnh,
+                    GhiChu = dto.GhiChu,
+                    NgayGhiNhan = ngayGhi,
+                    XacNhanHoanThanh = true
+                });
+            }
+
             // NVKT gửi kết quả → PC chờ Xưởng; HS BT/SC GIỮ "Đang thực hiện"
             phanCong.TrangThai = "Chờ xác nhận";
             phanCong.LyDoTuChoi = null;

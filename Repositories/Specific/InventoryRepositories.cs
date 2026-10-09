@@ -27,6 +27,7 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         Task RemoveChiTietSuDungRangeAsync(IEnumerable<ChiTietSuDungVatTu> chiTiets);
         Task<List<HoSoVatTuResponseDto>> GetDanhSachHoSoSuDungVatTuAsync(string? trangThai);
         Task<List<BuocQuyTrinhDto>> GetQuyTrinhThietBiAsync(int maThietBi, string loaiCongViec);
+        Task CapNhatMoTaBuocQuyTrinhAsync(int maThietBi, string loaiCongViec, List<BuocQuyTrinhDto> buoc);
         /// <summary>Danh sách quy trình (TB × loại) cho combo khi tạo hồ sơ.</summary>
         Task<List<object>> GetDanhSachQuyTrinhAsync(string? loaiCongViec);
     }
@@ -217,6 +218,24 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
                     MoTaBuoc = q.MoTaBuoc
                 })
                 .ToListAsync();
+        }
+
+        public async Task CapNhatMoTaBuocQuyTrinhAsync(
+            int maThietBi, string loaiCongViec, List<BuocQuyTrinhDto> buoc)
+        {
+            var rows = await _context.QuyTrinhThietBis
+                .Where(q => q.MaThietBi == maThietBi && q.LoaiCongViec == loaiCongViec)
+                .ToListAsync();
+            foreach (var item in buoc)
+            {
+                var row = rows.FirstOrDefault(r => r.SoBuoc == item.SoBuoc);
+                if (row == null) continue;
+                var moTa = (item.MoTaBuoc ?? "").Trim();
+                if (moTa.Length > 500) moTa = moTa[..500];
+                if (string.IsNullOrEmpty(moTa)) moTa = $"Bước {item.SoBuoc}";
+                row.MoTaBuoc = moTa;
+            }
+            await _context.SaveChangesAsync();
         }
 
         public async Task<List<object>> GetDanhSachQuyTrinhAsync(string? loaiCongViec)

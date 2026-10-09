@@ -91,4 +91,12 @@ namespace OPC.MaintenanceAPI.DTOs.Inventory
         public int SoBuoc { get; set; }
         public string MoTaBuoc { get; set; } = "";
     }
+
+    /// <summary>Cập nhật nội dung các bước quy trình mẫu của thiết bị (BT/SC).</summary>
+    public class CapNhatQuyTrinhThietBiDto
+    {
+        public int MaThietBi { get; set; }
+        public string LoaiCongViec { get; set; } = ""; // Bảo trì | Sửa chữa
+        public List<BuocQuyTrinhDto> DanhSachBuoc { get; set; } = new();
+    }
 }

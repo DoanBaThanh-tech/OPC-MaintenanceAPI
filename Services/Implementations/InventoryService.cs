@@ -330,5 +330,16 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
         public Task<List<object>> GetDanhSachQuyTrinhAsync(string? loaiCongViec)
             => _repo.GetDanhSachQuyTrinhAsync(loaiCongViec);
+
+        public async Task<(bool ok, string? loi)> CapNhatQuyTrinhThietBiAsync(CapNhatQuyTrinhThietBiDto dto)
+        {
+            if (dto.MaThietBi <= 0) return (false, "maThietBi không hợp lệ.");
+            var loai = (dto.LoaiCongViec ?? "").Trim();
+            if (string.IsNullOrEmpty(loai)) return (false, "loaiCongViec bắt buộc.");
+            if (dto.DanhSachBuoc == null || dto.DanhSachBuoc.Count == 0)
+                return (false, "Danh sách bước trống.");
+            await _repo.CapNhatMoTaBuocQuyTrinhAsync(dto.MaThietBi, loai, dto.DanhSachBuoc);
+            return (true, null);
+        }
     }
 }

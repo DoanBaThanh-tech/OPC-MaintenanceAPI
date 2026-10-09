@@ -122,6 +122,14 @@ namespace OPC.MaintenanceAPI.Controllers
             return Ok(data);
         }
 
+        /// <summary>Cập nhật nội dung từng bước quy trình mẫu của thiết bị (không tạo hồ sơ).</summary>
+        [HttpPut("quy-trinh")]
+        public async Task<IActionResult> CapNhatQuyTrinhThietBi([FromBody] CapNhatQuyTrinhThietBiDto dto)
+        {
+            var (ok, loi) = await _service.CapNhatQuyTrinhThietBiAsync(dto);
+            return ok ? Ok(new { message = "Đã lưu nội dung quy trình." }) : BadRequest(new { loi });
+        }
+
         /// <summary>Danh sách quy trình (mọi thiết bị) — combo khi tạo hồ sơ.</summary>
         [HttpGet("quy-trinh/danh-sach")]
         public async Task<IActionResult> DanhSachQuyTrinh([FromQuery] string? loaiCongViec)

@@ -22,5 +22,6 @@ namespace OPC.MaintenanceAPI.Services.Interfaces
         Task<(bool, string?)> XacNhanHoSoVatTuAsync(int id, int maNguoiDung);
         Task<List<BuocQuyTrinhDto>> GetQuyTrinhThietBiAsync(int maThietBi, string loaiCongViec);
         Task<List<object>> GetDanhSachQuyTrinhAsync(string? loaiCongViec);
+        Task<(bool ok, string? loi)> CapNhatQuyTrinhThietBiAsync(CapNhatQuyTrinhThietBiDto dto);
     }
 }

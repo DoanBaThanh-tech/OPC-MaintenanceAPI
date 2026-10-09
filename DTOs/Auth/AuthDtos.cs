@@ -40,7 +40,10 @@ namespace OPC.MaintenanceAPI.DTOs.Auth
     {
         /// <summary>Email đăng nhập công ty (vd. user@opc.com).</summary>
         public string Email { get; set; } = null!;
-        /// <summary>Gmail/Outlook cá nhân nhận OTP (bắt buộc nếu email đăng nhập là ảo).</summary>
+        /// <summary>
+        /// (Tuỳ chọn) Email cá nhân — nếu gửi phải khớp email đã đăng ký trên hồ sơ NV.
+        /// OTP luôn chỉ gửi tới email trên hồ sơ, không nhận địa chỉ lạ từ client.
+        /// </summary>
         public string? EmailNhanOtp { get; set; }
     }
 

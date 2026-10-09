@@ -253,23 +253,37 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             var user = await _userRepo.GetByEmailAsync(dto.Email);
             if (user == null) return new AuthResult { ThanhCong = false, Message = "Không tìm thấy tài khoản." };
 
-            // Email nhận OTP: ưu tiên Gmail người dùng nhập lúc quên MK; sau đó email NV; không dùng @opc.com ảo
+            // BẢO MẬT: OTP CHỈ gửi tới email cá nhân đã gắn trên hồ sơ NV.
+            // Không bao giờ tin EmailNhanOtp từ client làm địa chỉ gửi (tránh chiếm tài khoản).
             var nhanVien = await _nhanVienRepo.GetByMaNguoiDungAsync(user.MaNguoiDung);
-            string? emailNhan = null;
-            if (!string.IsNullOrWhiteSpace(dto.EmailNhanOtp) && LaEmailCoTheNhanThu(dto.EmailNhanOtp))
-                emailNhan = dto.EmailNhanOtp.Trim();
-            else
-                emailNhan = ChonEmailNhanOtp(user.Email, nhanVien?.Email);
-
-            if (emailNhan == null)
+            var emailTrenHoSo = nhanVien?.Email?.Trim();
+            if (!LaEmailCoTheNhanThu(emailTrenHoSo))
             {
                 return new AuthResult
                 {
                     ThanhCong = false,
-                    Message = "Vui lòng nhập Gmail/Outlook cá nhân để nhận OTP "
-                              + "(email đăng nhập @opc.com là tài khoản ảo, không nhận thư được)."
+                    Message = "Tài khoản chưa đăng ký email cá nhân nhận OTP trên hồ sơ. "
+                              + "Đăng nhập (nếu còn) vào Hồ sơ cá nhân để cập nhật Gmail/Outlook, "
+                              + "hoặc liên hệ Admin cập nhật email liên hệ — mỗi người một email riêng."
                 };
             }
+
+            // Nếu client gửi kèm email cá nhân: phải khớp 100% với hồ sơ (xác nhận thêm)
+            if (!string.IsNullOrWhiteSpace(dto.EmailNhanOtp))
+            {
+                var nhap = dto.EmailNhanOtp.Trim();
+                if (!string.Equals(nhap, emailTrenHoSo, StringComparison.OrdinalIgnoreCase))
+                {
+                    return new AuthResult
+                    {
+                        ThanhCong = false,
+                        Message = "Email cá nhân không khớp với email đã đăng ký trên hồ sơ tài khoản này. "
+                                  + "OTP chỉ gửi tới email đã gắn với đúng người dùng."
+                    };
+                }
+            }
+
+            var emailNhan = emailTrenHoSo!;
 
             // Chống spam — cách lần gửi gần nhất chưa đủ 1 phút thì chặn
             var otpGanNhat = await _otpRepo.GetMoiNhatAsync(user.MaNguoiDung);

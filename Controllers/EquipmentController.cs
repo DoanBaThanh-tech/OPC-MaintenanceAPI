@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using OPC.MaintenanceAPI.DTOs.Equipment;
 using OPC.MaintenanceAPI.Services.Interfaces;
@@ -6,6 +7,7 @@ namespace OPC.MaintenanceAPI.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [Authorize]
     public class EquipmentController : ControllerBase
     {
         private readonly IEquipmentService _service;

@@ -11,6 +11,7 @@ namespace OPC.MaintenanceAPI.Controllers
     /// (lỗi được ném bằng NotFoundException/BusinessRuleException, ExceptionHandlingMiddleware xử lý)
     [ApiController]
     [Route("api/system")]
+    [Authorize]
     public class SystemController : ControllerBase
     {
         private readonly ISystemService _service;

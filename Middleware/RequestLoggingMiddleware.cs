@@ -32,9 +32,8 @@ namespace OPC.MaintenanceAPI.Middleware
 
             // Buffer body để đọc field (POST/PUT/PATCH) trước khi pipeline chạy
             string? bodyPreview = null;
-            var isWrite = HttpMethods.IsPost(context.Request.Method)
-                          || HttpMethods.IsPut(context.Request.Method)
-                          || HttpMethods.IsPatch(context.Request.Method);
+            // Method có thể null theo nullable analysis — dùng bản đã chuẩn hóa
+            var isWrite = methodEarly is "POST" or "PUT" or "PATCH";
             if (!skip && isWrite)
             {
                 context.Request.EnableBuffering();
@@ -45,8 +44,9 @@ namespace OPC.MaintenanceAPI.Middleware
                         bufferSize: 1024, leaveOpen: true);
                     var raw = await reader.ReadToEndAsync();
                     context.Request.Body.Position = 0;
-                    if (raw.Length > 0 && raw.Length <= 8192)
-                        bodyPreview = TomTatBody(raw);
+                    // Cho phép body lớn hơn để ghi đủ field + giá trị (tối đa ~16KB)
+                    if (raw.Length > 0 && raw.Length <= 16384)
+                        bodyPreview = TomTatBodyGiaTri(raw);
                 }
                 catch
                 {
@@ -107,72 +107,164 @@ namespace OPC.MaintenanceAPI.Middleware
             }
         }
 
-        private static string? TomTatBody(string? raw)
+        /// <summary>Tóm tắt body JSON kèm giá trị field (ẩn mật khẩu/token).</summary>
+        private static string? TomTatBodyGiaTri(string? raw)
         {
             if (string.IsNullOrWhiteSpace(raw)) return null;
             try
             {
                 using var doc = JsonDocument.Parse(raw);
-                var keys = new List<string>();
-                CollectKeys(doc.RootElement, keys, "");
-                // Ẩn field nhạy cảm
-                keys = keys
-                    .Where(k => !k.Contains("password", StringComparison.OrdinalIgnoreCase)
-                                && !k.Contains("matKhau", StringComparison.OrdinalIgnoreCase)
-                                && !k.Contains("token", StringComparison.OrdinalIgnoreCase))
-                    .Take(24)
+                var lines = new List<string>();
+                CollectFieldValues(doc.RootElement, lines, "", 0);
+                lines = lines
+                    .Where(l => !l.Contains("password", StringComparison.OrdinalIgnoreCase)
+                                && !l.Contains("matKhau", StringComparison.OrdinalIgnoreCase)
+                                && !l.Contains("token", StringComparison.OrdinalIgnoreCase)
+                                && !l.Contains("matkhau", StringComparison.OrdinalIgnoreCase))
+                    .Take(40)
                     .ToList();
-                if (keys.Count == 0) return null;
-                var s = "Fields: " + string.Join(", ", keys);
-                return s.Length > 900 ? s[..900] : s;
+                if (lines.Count == 0) return null;
+                var s = string.Join("\n", lines);
+                return s.Length > 2800 ? s[..2800] + "…" : s;
             }
             catch
             {
                 var s = raw.Trim();
-                if (s.Length > 200) s = s[..200] + "…";
-                return "Body: " + s;
+                if (s.Length > 400) s = s[..400] + "…";
+                return s;
             }
         }
 
-        private static void CollectKeys(JsonElement el, List<string> keys, string prefix)
+        private static void CollectFieldValues(JsonElement el, List<string> lines, string prefix, int depth)
         {
+            if (depth > 5 || lines.Count >= 40) return;
             switch (el.ValueKind)
             {
                 case JsonValueKind.Object:
                     foreach (var prop in el.EnumerateObject())
                     {
                         var name = string.IsNullOrEmpty(prefix) ? prop.Name : prefix + "." + prop.Name;
-                        if (prop.Value.ValueKind is JsonValueKind.Object or JsonValueKind.Array)
-                            CollectKeys(prop.Value, keys, name);
+                        if (prop.Value.ValueKind is JsonValueKind.Object)
+                            CollectFieldValues(prop.Value, lines, name, depth + 1);
+                        else if (prop.Value.ValueKind is JsonValueKind.Array)
+                            CollectFieldValues(prop.Value, lines, name, depth + 1);
                         else
-                            keys.Add(name);
+                            lines.Add($"{name} = {FormatJsonValue(prop.Value)}");
                     }
                     break;
                 case JsonValueKind.Array:
                     var i = 0;
+                    var count = el.GetArrayLength();
                     foreach (var item in el.EnumerateArray())
                     {
-                        if (i >= 3) { keys.Add(prefix + "[]…"); break; }
-                        CollectKeys(item, keys, prefix + $"[{i}]");
+                        if (i >= 5)
+                        {
+                            lines.Add($"{prefix} … (+{count - 5} phần tử)");
+                            break;
+                        }
+                        if (item.ValueKind is JsonValueKind.Object or JsonValueKind.Array)
+                            CollectFieldValues(item, lines, $"{prefix}[{i}]", depth + 1);
+                        else
+                            lines.Add($"{prefix}[{i}] = {FormatJsonValue(item)}");
                         i++;
                     }
+                    break;
+                default:
+                    if (!string.IsNullOrEmpty(prefix))
+                        lines.Add($"{prefix} = {FormatJsonValue(el)}");
                     break;
             }
         }
 
+        private static string FormatJsonValue(JsonElement el)
+        {
+            return el.ValueKind switch
+            {
+                JsonValueKind.String =>
+                    Truncate(el.GetString() ?? "", 120),
+                JsonValueKind.Number => el.GetRawText(),
+                JsonValueKind.True => "true",
+                JsonValueKind.False => "false",
+                JsonValueKind.Null => "null",
+                _ => Truncate(el.GetRawText(), 120)
+            };
+        }
+
+        private static string Truncate(string s, int max)
+            => s.Length <= max ? s : s[..max] + "…";
+
+        private static string? TomTatQuery(string? query)
+        {
+            if (string.IsNullOrWhiteSpace(query)) return null;
+            var q = query.StartsWith("?") ? query[1..] : query;
+            var parts = q.Split('&', StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 0) return null;
+            var lines = new List<string>();
+            foreach (var p in parts.Take(20))
+            {
+                var idx = p.IndexOf('=');
+                if (idx <= 0)
+                {
+                    lines.Add(Uri.UnescapeDataString(p));
+                    continue;
+                }
+                var k = Uri.UnescapeDataString(p[..idx]);
+                var v = Uri.UnescapeDataString(p[(idx + 1)..]);
+                if (k.Contains("password", StringComparison.OrdinalIgnoreCase)
+                    || k.Contains("token", StringComparison.OrdinalIgnoreCase)
+                    || k.Contains("matKhau", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                lines.Add($"{k} = {Truncate(v, 120)}");
+            }
+            return lines.Count == 0 ? null : string.Join("\n", lines);
+        }
+
         private static string TaoChiTiet(string method, string path, string? query, string? bodyFields, int status)
         {
-            var parts = new List<string>
+            var m = method.ToUpperInvariant();
+            if (m == "PATCH") m = "PUT";
+            var hanhDong = m switch
             {
-                $"HTTP {method} → {status}",
-                $"API: {path}"
+                "GET" => "GET — Người dùng lấy / xem dữ liệu",
+                "POST" => "POST — Người dùng tạo mới hoặc gửi xử lý",
+                "PUT" => "PUT — Người dùng cập nhật / chỉnh sửa dữ liệu",
+                _ => $"{m} — Gọi API"
             };
-            if (!string.IsNullOrEmpty(query))
-                parts.Add("Query: " + query);
+            var trangThai = status >= 200 && status < 300
+                ? $"{status} Thành công"
+                : status >= 400 && status < 500
+                    ? $"{status} Lỗi client"
+                    : status >= 500
+                        ? $"{status} Lỗi server"
+                        : status.ToString();
+
+            var sb = new StringBuilder();
+            sb.AppendLine(hanhDong);
+            sb.AppendLine($"API: {path}");
+            sb.AppendLine($"Kết quả: {trangThai}");
+
+            var queryLines = TomTatQuery(query);
+            if (!string.IsNullOrEmpty(queryLines))
+            {
+                sb.AppendLine("── Tham số truy vấn (GET/URL) ──");
+                sb.AppendLine(queryLines);
+            }
+
             if (!string.IsNullOrEmpty(bodyFields))
-                parts.Add(bodyFields);
-            var s = string.Join(" | ", parts);
-            return s.Length > 2000 ? s[..2000] : s;
+            {
+                sb.AppendLine(m == "GET"
+                    ? "── Dữ liệu liên quan ──"
+                    : "── Dữ liệu gửi lên (body) ──");
+                sb.AppendLine(bodyFields);
+            }
+            else if (m is "POST" or "PUT")
+            {
+                sb.AppendLine("── Dữ liệu gửi lên (body) ──");
+                sb.AppendLine("(không có body hoặc body rỗng)");
+            }
+
+            var s = sb.ToString().Trim();
+            return s.Length > 3500 ? s[..3500] + "…" : s;
         }
     }
 }

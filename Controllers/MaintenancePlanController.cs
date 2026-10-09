@@ -7,6 +7,7 @@ namespace OPC.MaintenanceAPI.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [Authorize]
     public class MaintenancePlanController : ControllerBase
     {
         private readonly IMaintenancePlanService _service;

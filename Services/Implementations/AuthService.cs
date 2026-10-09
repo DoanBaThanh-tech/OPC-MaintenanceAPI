@@ -3,6 +3,7 @@ using OPC.MaintenanceAPI.Core.Entities;
 using OPC.MaintenanceAPI.DTOs.Auth;
 using OPC.MaintenanceAPI.Helpers;
 using OPC.MaintenanceAPI.Repositories.Specific;
+using OPC.MaintenanceAPI.Security;
 using OPC.MaintenanceAPI.Services.Interfaces;
 
 namespace OPC.MaintenanceAPI.Services.Implementations
@@ -17,17 +18,22 @@ namespace OPC.MaintenanceAPI.Services.Implementations
         private readonly INhanVienRepository _nhanVienRepo;
         private readonly IXacThucQuenMatKhauRepository _otpRepo;
         private readonly IConfiguration _config;
+        private readonly LoginAttemptGuard _loginGuard;
+        private readonly IEmailSender _emailSender;
 
         private static readonly Regex MatKhauHopLe =
             new(@"^(?=.*[A-Z])(?=.*[!@#$%^&*(),.?"":{}|<>_\-]).{8,}$");
 
         public AuthService(IQuanLyNguoiDungRepository userRepo, INhanVienRepository nhanVienRepo,
-                            IXacThucQuenMatKhauRepository otpRepo, IConfiguration config)
+                            IXacThucQuenMatKhauRepository otpRepo, IConfiguration config,
+                            LoginAttemptGuard loginGuard, IEmailSender emailSender)
         {
             _userRepo = userRepo;
             _nhanVienRepo = nhanVienRepo;
             _otpRepo = otpRepo;
             _config = config;
+            _loginGuard = loginGuard;
+            _emailSender = emailSender;
         }
 
         public async Task<List<object>> GetAllAsync()
@@ -57,14 +63,30 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
         public async Task<AuthResult> DangNhapAsync(DangNhapDto dto)
         {
-            var user = await _userRepo.GetByEmailAsync(dto.Email);
+            var email = (dto.Email ?? "").Trim();
+            if (_loginGuard.IsLocked(email, out var conLai))
+            {
+                var phut = Math.Max(1, (int)Math.Ceiling(conLai.TotalMinutes));
+                return new AuthResult
+                {
+                    ThanhCong = false,
+                    Message = $"Tài khoản tạm khóa do đăng nhập sai nhiều lần. Thử lại sau khoảng {phut} phút."
+                };
+            }
+
+            var user = await _userRepo.GetByEmailAsync(email);
             if (user == null || !BCrypt.Net.BCrypt.Verify(dto.MatKhau, user.MatKhau))
+            {
+                _loginGuard.RegisterFailure(email);
                 return new AuthResult { ThanhCong = false, Message = "Email hoặc mật khẩu không đúng." };
+            }
 
             if (user.TrangThai == "Đã khóa")
                 return new AuthResult { ThanhCong = false, Message = "Tài khoản đã bị khóa." };
             if (user.TrangThai == "Chưa kích hoạt")
                 return new AuthResult { ThanhCong = false, Message = "Tài khoản chưa được kích hoạt." };
+
+            _loginGuard.RegisterSuccess(email);
 
             user.LanDangNhapCuoi = DateTime.Now;
             _userRepo.Update(user);
@@ -231,7 +253,20 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             var user = await _userRepo.GetByEmailAsync(dto.Email);
             if (user == null) return new AuthResult { ThanhCong = false, Message = "Không tìm thấy tài khoản." };
 
-            // Điều kiện: chống spam OTP - cách lần gần nhất chưa đủ 10 phút thì chặn
+            // Ưu tiên email liên hệ thật trên hồ sơ NV; không thì dùng email đăng nhập
+            var nhanVien = await _nhanVienRepo.GetByMaNguoiDungAsync(user.MaNguoiDung);
+            var emailNhan = ChonEmailNhanOtp(user.Email, nhanVien?.Email);
+            if (emailNhan == null)
+            {
+                return new AuthResult
+                {
+                    ThanhCong = false,
+                    Message = "Tài khoản chưa có email thật để nhận OTP (Gmail/Outlook…). "
+                              + "Vào hồ sơ cá nhân hoặc nhờ Admin cập nhật email liên hệ (không dùng @opc.com ảo), rồi thử lại."
+                };
+            }
+
+            // Chống spam OTP — cách lần gần nhất chưa đủ 10 phút thì chặn
             var otpGanNhat = await _otpRepo.GetMoiNhatAsync(user.MaNguoiDung);
             if (otpGanNhat != null && (DateTime.Now - otpGanNhat.NgayTao).TotalMinutes < SoPhutChoOtp)
             {
@@ -239,7 +274,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 return new AuthResult { ThanhCong = false, Message = $"Vui lòng chờ thêm {conLai} phút trước khi yêu cầu mã mới." };
             }
 
-            var otp = new Random().Next(100000, 999999).ToString();
+            var otp = Random.Shared.Next(100000, 999999).ToString();
             await _otpRepo.AddAsync(new XacThucQuenMatKhau
             {
                 MaNguoiDung = user.MaNguoiDung,
@@ -250,7 +285,77 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             });
             await _otpRepo.SaveChangesAsync();
 
-            return new AuthResult { ThanhCong = true, Message = "Đã gửi mã OTP.", Data = new { OtpTest = otp } };
+            var subject = "OPC Maintenance — Mã OTP đặt lại mật khẩu";
+            var bodyHtml =
+                $"""
+                <p>Xin chào,</p>
+                <p>Mã OTP đặt lại mật khẩu của bạn là:</p>
+                <p style="font-size:24px;font-weight:bold;letter-spacing:4px;">{otp}</p>
+                <p>Mã có hiệu lực <b>5 phút</b>. Không chia sẻ mã này cho任何人.</p>
+                <p>Nếu bạn không yêu cầu, hãy bỏ qua email này.</p>
+                <p>— Hệ thống OPC Maintenance</p>
+                """;
+            var bodyText = $"Mã OTP đặt lại mật khẩu: {otp}. Hiệu lực 5 phút.";
+
+            var loiGui = await _emailSender.SendAsync(emailNhan, subject, bodyHtml, bodyText);
+            if (loiGui != null)
+            {
+                // Dev: nếu chưa cấu hình SMTP vẫn cho test bằng OtpTest
+                var choPhepDev = string.Equals(_config["Email:DevShowOtp"], "true", StringComparison.OrdinalIgnoreCase)
+                                 || !_emailSender.IsConfigured;
+                if (choPhepDev)
+                {
+                    return new AuthResult
+                    {
+                        ThanhCong = true,
+                        Message = "Chưa gửi được email (SMTP). Mã OTP hiển thị tạm để dev/test.",
+                        Data = new { OtpTest = otp, EmailNhan = emailNhan, CanhBao = loiGui }
+                    };
+                }
+                return new AuthResult { ThanhCong = false, Message = loiGui };
+            }
+
+            var emailAn = AnEmail(emailNhan);
+            return new AuthResult
+            {
+                ThanhCong = true,
+                Message = $"Đã gửi mã OTP tới {emailAn}. Vui lòng kiểm tra hộp thư (và mục Spam).",
+                Data = new { EmailNhanAn = emailAn }
+            };
+        }
+
+        /// <summary>Chọn email nhận OTP: ưu tiên email NV thật, không nhận @opc.com ảo nếu không phải inbox thật.</summary>
+        private static string? ChonEmailNhanOtp(string emailDangNhap, string? emailNhanVien)
+        {
+            if (LaEmailCoTheNhanThu(emailNhanVien))
+                return emailNhanVien!.Trim();
+            if (LaEmailCoTheNhanThu(emailDangNhap))
+                return emailDangNhap.Trim();
+            return null;
+        }
+
+        private static bool LaEmailCoTheNhanThu(string? email)
+        {
+            if (string.IsNullOrWhiteSpace(email) || !email.Contains('@')) return false;
+            var e = email.Trim().ToLowerInvariant();
+            // @opc.com trong hệ thống đang dùng như tài khoản ảo — không gửi được
+            if (e.EndsWith("@opc.com")) return false;
+            // Một số domain phổ biến có inbox thật
+            return e.EndsWith("@gmail.com")
+                   || e.EndsWith("@googlemail.com")
+                   || e.EndsWith("@outlook.com")
+                   || e.EndsWith("@hotmail.com")
+                   || e.EndsWith("@yahoo.com")
+                   || e.EndsWith("@yahoo.com.vn")
+                   || e.EndsWith("@live.com")
+                   || e.Contains('@'); // domain công ty thật khác opc.com vẫn cho phép
+        }
+
+        private static string AnEmail(string email)
+        {
+            var at = email.IndexOf('@');
+            if (at <= 1) return "***";
+            return email[0] + "***" + email[(at - 1)..];
         }
 
         public async Task<AuthResult> XacNhanOtpAsync(XacNhanOtpDto dto)
@@ -317,6 +422,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     u.MaVaiTro,
                     HoTen = nv?.HoTen ?? u.Email,
                     SoDienThoai = nv?.SoDienThoai,
+                    EmailLienHe = nv?.Email,
                     ChucVu = nv?.ChucVu,
                     NgayVaoLam = nv?.NgayVaoLam,
                     TrangThaiNv = nv?.TrangThai,
@@ -340,6 +446,18 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (sdt.Length > 0 && !System.Text.RegularExpressions.Regex.IsMatch(sdt, @"^\d{1,10}$"))
                 return new AuthResult { ThanhCong = false, Message = "Số điện thoại chỉ gồm số, tối đa 10 chữ số." };
 
+            string? emailLienHe = null;
+            if (!string.IsNullOrWhiteSpace(dto.EmailLienHe))
+            {
+                emailLienHe = dto.EmailLienHe.Trim();
+                if (!LaEmailCoTheNhanThu(emailLienHe))
+                    return new AuthResult
+                    {
+                        ThanhCong = false,
+                        Message = "Email liên hệ phải là hộp thư thật (Gmail/Outlook…), không dùng @opc.com."
+                    };
+            }
+
             var nv = await _nhanVienRepo.GetByMaNguoiDungAsync(maNguoiDung);
             if (nv == null)
             {
@@ -348,6 +466,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     MaNguoiDung = maNguoiDung,
                     HoTen = dto.HoTen.Trim(),
                     SoDienThoai = string.IsNullOrWhiteSpace(sdt) ? null : sdt,
+                    Email = emailLienHe,
                     NgayVaoLam = dto.NgayVaoLam,
                     TrangThai = "Đang làm việc"
                 };
@@ -357,6 +476,8 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             {
                 nv.HoTen = dto.HoTen.Trim();
                 nv.SoDienThoai = string.IsNullOrWhiteSpace(sdt) ? null : sdt;
+                if (dto.EmailLienHe != null)
+                    nv.Email = emailLienHe; // null hoặc email thật
                 if (dto.NgayVaoLam.HasValue)
                     nv.NgayVaoLam = dto.NgayVaoLam;
                 _nhanVienRepo.Update(nv);
@@ -375,6 +496,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     TenVaiTro = vaiTro?.TenVaiTro,
                     HoTen = nv.HoTen,
                     SoDienThoai = nv.SoDienThoai,
+                    EmailLienHe = nv.Email,
                     NgayVaoLam = nv.NgayVaoLam
                 }
             };

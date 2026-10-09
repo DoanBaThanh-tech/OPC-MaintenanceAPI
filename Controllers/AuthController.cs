@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using OPC.MaintenanceAPI.DTOs.Auth;
 using OPC.MaintenanceAPI.Services.Interfaces;
 
@@ -24,6 +25,9 @@ namespace OPC.MaintenanceAPI.Controllers
             return r.ThanhCong ? Ok(r.Data) : NotFound(new { r.Message });
         }
 
+        /// <summary>Công khai + rate limit chặt — chống spam / brute-force.</summary>
+        [AllowAnonymous]
+        [EnableRateLimiting("login")]
         [HttpPost("dang-nhap")]
         public async Task<IActionResult> DangNhap([FromBody] DangNhapDto dto)
         {
@@ -63,6 +67,8 @@ namespace OPC.MaintenanceAPI.Controllers
             return r.ThanhCong ? Ok(new { r.Message }) : NotFound(new { r.Message });
         }
 
+        [AllowAnonymous]
+        [EnableRateLimiting("login")]
         [HttpPost("quen-mat-khau/yeu-cau")]
         public async Task<IActionResult> YeuCauOtp([FromBody] QuenMatKhauRequestDto dto)
         {
@@ -70,6 +76,8 @@ namespace OPC.MaintenanceAPI.Controllers
             return r.ThanhCong ? Ok(new { r.Message, r.Data }) : NotFound(new { r.Message });
         }
 
+        [AllowAnonymous]
+        [EnableRateLimiting("login")]
         [HttpPost("quen-mat-khau/xac-nhan")]
         public async Task<IActionResult> XacNhanOtp([FromBody] XacNhanOtpDto dto)
         {
@@ -77,6 +85,8 @@ namespace OPC.MaintenanceAPI.Controllers
             return r.ThanhCong ? Ok(new { r.Message }) : BadRequest(new { r.Message });
         }
 
+        [AllowAnonymous]
+        [EnableRateLimiting("login")]
         [HttpPost("quen-mat-khau/dat-lai")]
         public async Task<IActionResult> DatLaiMatKhau([FromBody] DatLaiMatKhauDto dto)
         {

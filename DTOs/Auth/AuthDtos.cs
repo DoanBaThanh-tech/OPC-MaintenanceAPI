@@ -25,12 +25,14 @@ namespace OPC.MaintenanceAPI.DTOs.Auth
         public int MaVaiTro { get; set; }
     }
 
-    // ===== Nhân viên tự cập nhật hồ sơ (không đổi email / vai trò / chức vụ) =====
+    // ===== Nhân viên tự cập nhật hồ sơ (không đổi email đăng nhập @opc.com / vai trò) =====
     public class NhanVienUpdateDto
     {
         public string HoTen { get; set; } = null!;
         public string? SoDienThoai { get; set; }
         public DateOnly? NgayVaoLam { get; set; }
+        /// <summary>Email thật nhận OTP (Gmail/Outlook…) — khác email đăng nhập @opc.com.</summary>
+        public string? EmailLienHe { get; set; }
     }
 
     // ===== Quên mật khẩu =====

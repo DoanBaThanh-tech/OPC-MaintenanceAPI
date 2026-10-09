@@ -367,17 +367,10 @@ namespace OPC.MaintenanceAPI.Services.Implementations
         {
             if (string.IsNullOrWhiteSpace(email) || !email.Contains('@')) return false;
             var e = email.Trim().ToLowerInvariant();
-            // @opc.com trong hệ thống đang dùng như tài khoản ảo — không gửi được
-            if (e.EndsWith("@opc.com")) return false;
-            // Một số domain phổ biến có inbox thật
+            // Chỉ Gmail nhận OTP (theo ràng buộc hồ sơ)
             return e.EndsWith("@gmail.com")
-                   || e.EndsWith("@googlemail.com")
-                   || e.EndsWith("@outlook.com")
-                   || e.EndsWith("@hotmail.com")
-                   || e.EndsWith("@yahoo.com")
-                   || e.EndsWith("@yahoo.com.vn")
-                   || e.EndsWith("@live.com")
-                   || e.Contains('@'); // domain công ty thật khác opc.com vẫn cho phép
+                   && System.Text.RegularExpressions.Regex.IsMatch(
+                       e, @"^[\w.+\-]+@gmail\.com$");
         }
 
         private static string AnEmail(string email)
@@ -501,11 +494,15 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (!string.IsNullOrWhiteSpace(dto.EmailLienHe))
             {
                 emailLienHe = dto.EmailLienHe.Trim();
-                if (!LaEmailCoTheNhanThu(emailLienHe))
+                // Chỉ chấp nhận @gmail.com (khớp app Flutter)
+                if (!System.Text.RegularExpressions.Regex.IsMatch(
+                        emailLienHe,
+                        @"^[\w.+\-]+@gmail\.com$",
+                        System.Text.RegularExpressions.RegexOptions.IgnoreCase))
                     return new AuthResult
                     {
                         ThanhCong = false,
-                        Message = "Email liên hệ phải là hộp thư thật (Gmail/Outlook…), không dùng @opc.com."
+                        Message = "Email nhận OTP phải đúng định dạng …@gmail.com."
                     };
             }
 

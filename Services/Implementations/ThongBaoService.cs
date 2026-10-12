@@ -100,5 +100,26 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             await _db.SaveChangesAsync();
             return (true, null);
         }
+    
+        public async Task<(bool ok, string? loi)> DanhDauTheoHoSoAsync(
+            int maNguoiDung, int? maHoSoBaoTri, int? maHoSoSuaChua)
+        {
+            var nv = await _nvRepo.GetByMaNguoiDungAsync(maNguoiDung);
+            if (nv == null) return (false, "Không xác định nhân viên.");
+
+            var q = _db.ThongBaos.Where(t => t.MaNhanVienNhan == nv.MaNhanVien && !t.DaDoc);
+            if (maHoSoBaoTri is > 0)
+                q = q.Where(t => t.MaHoSoBaoTri == maHoSoBaoTri);
+            else if (maHoSoSuaChua is > 0)
+                q = q.Where(t => t.MaHoSoSuaChua == maHoSoSuaChua);
+            else
+                return (false, "Thiếu mã hồ sơ.");
+
+            var list = await q.ToListAsync();
+            foreach (var item in list) item.DaDoc = true;
+            await _db.SaveChangesAsync();
+            return (true, null);
+        }
+
     }
 }

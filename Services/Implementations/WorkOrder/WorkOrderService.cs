@@ -246,6 +246,32 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             }
         }
 
+
+        /// <summary>
+        /// NVKT đã tiến hành → đánh dấu thông báo phân công liên quan là đã đọc/đã xử lý
+        /// để không hiện lại trên thiết bị của họ.
+        /// </summary>
+        protected async Task DanhDauThongBaoPhanCongDaXuLyAsync(
+            int maNhanVienNhan,
+            int? maHoSoBaoTri,
+            int? maHoSoSuaChua)
+        {
+            var q = _db.ThongBaos.Where(t =>
+                t.MaNhanVienNhan == maNhanVienNhan && !t.DaDoc);
+            if (maHoSoBaoTri is > 0)
+                q = q.Where(t => t.MaHoSoBaoTri == maHoSoBaoTri);
+            else if (maHoSoSuaChua is > 0)
+                q = q.Where(t => t.MaHoSoSuaChua == maHoSoSuaChua);
+            else
+                return;
+
+            var list = await q.ToListAsync();
+            if (list.Count == 0) return;
+            foreach (var tb in list)
+                tb.DaDoc = true;
+            await _db.SaveChangesAsync();
+        }
+
         /// <summary>Tạo thông báo chỉ cho đúng các NV được phân công.</summary>
         protected async Task TaoThongBaoPhanCongNoiBoAsync(
             IEnumerable<int> maNhanVienNhans,

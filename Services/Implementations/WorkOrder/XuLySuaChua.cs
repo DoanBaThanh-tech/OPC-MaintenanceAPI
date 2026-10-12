@@ -372,6 +372,10 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 hoSo.MaThieBiNavigation.TinhTrangHienTai = "Sửa chữa";
 
             await _repo.SaveChangesAsync();
+
+            await DanhDauThongBaoPhanCongDaXuLyAsync(
+                nhanVien.MaNhanVien, maHoSoBaoTri: null, maHoSoSuaChua: maHoSo);
+
             return (true, null);
         }
 

@@ -315,6 +315,11 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 hoSo.TrangThai = "Đang thực hiện";
 
             await _repo.SaveChangesAsync();
+
+            // NV đã tiến hành → đánh dấu TB phân công đã xử lý (không hiện lại)
+            await DanhDauThongBaoPhanCongDaXuLyAsync(
+                nhanVien.MaNhanVien, maHoSoBaoTri: maHoSo, maHoSoSuaChua: null);
+
             return (true, null);
         }
 

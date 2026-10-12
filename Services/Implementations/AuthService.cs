@@ -247,43 +247,49 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             return new AuthResult { ThanhCong = true, Message = "Đã khóa tài khoản." };
         }
 
+
+        /// <summary>
+        /// Tìm tài khoản theo email cá nhân trên hồ sơ NV (không dùng email @opc.com).
+        /// </summary>
+        private async Task<(QuanLyNguoiDung? user, NhanVien? nv, string? loi)> TimTaiKhoanTheoEmailCaNhanAsync(string emailCaNhan)
+        {
+            var nv = await _nhanVienRepo.GetByEmailLienHeAsync(emailCaNhan);
+            if (nv == null)
+                return (null, null, "Email không khớp tài khoản nào. Kiểm tra lại Gmail đã đăng ký trên hồ sơ.");
+
+            var user = await _userRepo.GetByIdAsync(nv.MaNguoiDung);
+            if (user == null)
+                return (null, null, "Không tìm thấy tài khoản liên kết với email này.");
+
+            return (user, nv, null);
+        }
+
         // Luồng 2 — Quên mật khẩu, bước Yêu cầu OTP
         public async Task<AuthResult> YeuCauOtpAsync(QuenMatKhauRequestDto dto)
         {
-            var user = await _userRepo.GetByEmailAsync(dto.Email);
-            if (user == null) return new AuthResult { ThanhCong = false, Message = "Không tìm thấy tài khoản." };
+            // Chỉ cần email cá nhân (Gmail) đã đăng ký trên hồ sơ — không còn email công ty trên form.
+            var emailNhap = (dto.EmailNhanOtp ?? dto.Email ?? "").Trim();
+            if (string.IsNullOrWhiteSpace(emailNhap))
+                return new AuthResult { ThanhCong = false, Message = "Vui lòng nhập email cá nhân (@gmail.com)." };
 
-            // BẢO MẬT: OTP CHỈ gửi tới email cá nhân đã gắn trên hồ sơ NV.
-            // Không bao giờ tin EmailNhanOtp từ client làm địa chỉ gửi (tránh chiếm tài khoản).
-            var nhanVien = await _nhanVienRepo.GetByMaNguoiDungAsync(user.MaNguoiDung);
-            var emailTrenHoSo = nhanVien?.Email?.Trim();
-            if (!LaEmailCoTheNhanThu(emailTrenHoSo))
-            {
+            if (!LaEmailCoTheNhanThu(emailNhap))
                 return new AuthResult
                 {
                     ThanhCong = false,
-                    Message = "Tài khoản chưa đăng ký email cá nhân nhận OTP trên hồ sơ. "
-                              + "Đăng nhập (nếu còn) vào Hồ sơ cá nhân để cập nhật Gmail/Outlook, "
-                              + "hoặc liên hệ Admin cập nhật email liên hệ — mỗi người một email riêng."
+                    Message = "Email phải đúng định dạng …@gmail.com."
                 };
-            }
 
-            // Nếu client gửi kèm email cá nhân: phải khớp 100% với hồ sơ (xác nhận thêm)
-            if (!string.IsNullOrWhiteSpace(dto.EmailNhanOtp))
-            {
-                var nhap = dto.EmailNhanOtp.Trim();
-                if (!string.Equals(nhap, emailTrenHoSo, StringComparison.OrdinalIgnoreCase))
+            // Tìm đúng tài khoản theo Gmail trên hồ sơ NV (mỗi vai trò / người một email riêng)
+            var (user, nhanVien, loi) = await TimTaiKhoanTheoEmailCaNhanAsync(emailNhap);
+            if (user == null)
+                return new AuthResult
                 {
-                    return new AuthResult
-                    {
-                        ThanhCong = false,
-                        Message = "Email cá nhân không khớp với email đã đăng ký trên hồ sơ tài khoản này. "
-                                  + "OTP chỉ gửi tới email đã gắn với đúng người dùng."
-                    };
-                }
-            }
+                    ThanhCong = false,
+                    Message = loi ?? "Email không khớp tài khoản nào trong hệ thống. "
+                              + "Chỉ gửi OTP khi nhập đúng Gmail đã gắn trên hồ sơ của bạn."
+                };
 
-            var emailNhan = emailTrenHoSo!;
+            var emailNhan = nhanVien!.Email!.Trim();
 
             // Chống spam — cách lần gửi gần nhất chưa đủ 1 phút thì chặn
             var otpGanNhat = await _otpRepo.GetMoiNhatAsync(user.MaNguoiDung);
@@ -382,8 +388,9 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
         public async Task<AuthResult> XacNhanOtpAsync(XacNhanOtpDto dto)
         {
-            var user = await _userRepo.GetByEmailAsync(dto.Email);
-            if (user == null) return new AuthResult { ThanhCong = false, Message = "Không tìm thấy tài khoản." };
+            var (user, _, loiTim) = await TimTaiKhoanTheoEmailCaNhanAsync(dto.Email);
+            if (user == null)
+                return new AuthResult { ThanhCong = false, Message = loiTim ?? "Không tìm thấy tài khoản." };
 
             var xacThuc = await _otpRepo.GetHopLeAsync(user.MaNguoiDung, dto.MaOTP);
             if (xacThuc == null) return new AuthResult { ThanhCong = false, Message = "Mã OTP không đúng." };
@@ -408,8 +415,9 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (!MatKhauHopLe.IsMatch(dto.MatKhauMoi))
                 return new AuthResult { ThanhCong = false, Message = "Mật khẩu phải có ít nhất 8 ký tự, gồm 1 chữ số và 1 ký tự đặc biệt." };
 
-            var user = await _userRepo.GetByEmailAsync(dto.Email);
-            if (user == null) return new AuthResult { ThanhCong = false, Message = "Không tìm thấy tài khoản." };
+            var (user, _, loiTim) = await TimTaiKhoanTheoEmailCaNhanAsync(dto.Email);
+            if (user == null)
+                return new AuthResult { ThanhCong = false, Message = loiTim ?? "Không tìm thấy tài khoản." };
 
             var xacThuc = await _otpRepo.GetDaXacNhanAsync(user.MaNguoiDung);
             if (xacThuc == null) return new AuthResult { ThanhCong = false, Message = "Chưa xác nhận OTP." };

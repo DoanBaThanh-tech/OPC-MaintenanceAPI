@@ -72,6 +72,8 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
     public interface INhanVienRepository : IBaseRepository<NhanVien>
     {
         Task<NhanVien?> GetByMaNguoiDungAsync(int maNguoiDung);
+        /// <summary>Tìm NV theo email cá nhân (Gmail) đã gắn trên hồ sơ.</summary>
+        Task<NhanVien?> GetByEmailLienHeAsync(string email);
     }
 
     public class NhanVienRepository : BaseRepository<NhanVien>, INhanVienRepository
@@ -80,6 +82,13 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
 
         public Task<NhanVien?> GetByMaNguoiDungAsync(int maNguoiDung) =>
             _dbSet.FirstOrDefaultAsync(n => n.MaNguoiDung == maNguoiDung);
+
+        public Task<NhanVien?> GetByEmailLienHeAsync(string email)
+        {
+            var e = (email ?? "").Trim().ToLower();
+            return _dbSet.FirstOrDefaultAsync(n =>
+                n.Email != null && n.Email.ToLower() == e);
+        }
     }
 
     // ===== XacThucQuenMatKhau =====

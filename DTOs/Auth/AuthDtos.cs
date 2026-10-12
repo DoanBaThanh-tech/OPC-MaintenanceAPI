@@ -38,23 +38,24 @@ namespace OPC.MaintenanceAPI.DTOs.Auth
     // ===== Quên mật khẩu =====
     public class QuenMatKhauRequestDto
     {
-        /// <summary>Email đăng nhập công ty (vd. user@opc.com).</summary>
-        public string Email { get; set; } = null!;
         /// <summary>
-        /// (Tuỳ chọn) Email cá nhân — nếu gửi phải khớp email đã đăng ký trên hồ sơ NV.
-        /// OTP luôn chỉ gửi tới email trên hồ sơ, không nhận địa chỉ lạ từ client.
+        /// Email cá nhân (Gmail) đã đăng ký trên hồ sơ — dùng để tìm đúng tài khoản và gửi OTP.
+        /// Có thể gửi qua Email hoặc EmailNhanOtp (ưu tiên EmailNhanOtp nếu có).
         /// </summary>
+        public string Email { get; set; } = null!;
         public string? EmailNhanOtp { get; set; }
     }
 
     public class XacNhanOtpDto
     {
+        /// <summary>Email cá nhân (Gmail) đã dùng khi yêu cầu OTP.</summary>
         public string Email { get; set; } = null!;
         public string MaOTP { get; set; } = null!;
     }
 
     public class DatLaiMatKhauDto
     {
+        /// <summary>Email cá nhân (Gmail) đã dùng khi yêu cầu OTP.</summary>
         public string Email { get; set; } = null!;
         public string MatKhauMoi { get; set; } = null!;
     }

@@ -32,7 +32,8 @@ namespace OPC.MaintenanceAPI.Controllers
         public async Task<IActionResult> DangNhap([FromBody] DangNhapDto dto)
         {
             var r = await _service.DangNhapAsync(dto);
-            return r.ThanhCong ? Ok(r.Data) : Unauthorized(new { r.Message });
+            // 400 (không dùng 401) — tránh app coi như "hết phiên" rồi xóa form đăng nhập
+            return r.ThanhCong ? Ok(r.Data) : BadRequest(new { r.Message });
         }
 
         [Authorize(Roles = "Admin hệ thống")]

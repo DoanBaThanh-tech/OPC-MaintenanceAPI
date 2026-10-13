@@ -44,8 +44,37 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         };
     }
 
-        public Task<QuanLyNguoiDung?> GetByEmailAsync(string email) =>
-            _dbSet.Include(u => u.MaVaiTroNavigation).FirstOrDefaultAsync(u => u.Email == email);
+        public async Task<QuanLyNguoiDung?> GetByEmailAsync(string email)
+        {
+            var e = (email ?? "").Trim().ToLowerInvariant();
+            try { e = e.Normalize(System.Text.NormalizationForm.FormC); } catch { }
+
+            // 1) Khớp chính xác (đã chuẩn hóa)
+            var user = await _dbSet.Include(u => u.MaVaiTroNavigation)
+                .FirstOrDefaultAsync(u => u.Email.ToLower() == e);
+            if (user != null) return user;
+
+            // 2) Fallback: bỏ dấu tiếng Việt (ttsx.lăn ↔ ttsx.lan) — tránh lệch gõ dấu
+            static string BoDau(string s)
+            {
+                var formD = s.Normalize(System.Text.NormalizationForm.FormD);
+                var sb = new System.Text.StringBuilder(formD.Length);
+                foreach (var c in formD)
+                {
+                    var uc = System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c);
+                    if (uc != System.Globalization.UnicodeCategory.NonSpacingMark)
+                        sb.Append(c);
+                }
+                return sb.ToString().Normalize(System.Text.NormalizationForm.FormC);
+            }
+
+            var eNoAccent = BoDau(e);
+            if (eNoAccent == e) return null;
+
+            var all = await _dbSet.Include(u => u.MaVaiTroNavigation).AsNoTracking().ToListAsync();
+            return all.FirstOrDefault(u =>
+                BoDau((u.Email ?? "").Trim().ToLowerInvariant()) == eNoAccent);
+        }
 
         public async Task<List<QuanLyNguoiDung>> GetAllWithDetailsAsync() =>
             await _dbSet

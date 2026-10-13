@@ -8,8 +8,8 @@ namespace OPC.MaintenanceAPI.Security
     /// </summary>
     public sealed class LoginAttemptGuard
     {
-        public const int MaxFails = 5;
-        public const int LockMinutes = 15;
+        public const int MaxFails = 8;
+        public const int LockMinutes = 5;
 
         private sealed class AttemptState
         {

@@ -71,9 +71,17 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
             var eNoAccent = BoDau(e);
             if (eNoAccent == e) return null;
 
-            var all = await _dbSet.Include(u => u.MaVaiTroNavigation).AsNoTracking().ToListAsync();
-            return all.FirstOrDefault(u =>
-                BoDau((u.Email ?? "").Trim().ToLowerInvariant()) == eNoAccent);
+            // Lấy id rồi load lại tracked (tránh AsNoTracking làm Update LanDangNhapCuoi lỗi)
+            var id = await _dbSet.AsNoTracking()
+                .Where(u => u.Email != null)
+                .Select(u => new { u.MaNguoiDung, u.Email })
+                .ToListAsync();
+            var hit = id.FirstOrDefault(u =>
+                BoDau(u.Email.Trim().ToLowerInvariant()) == eNoAccent);
+            if (hit == null) return null;
+
+            return await _dbSet.Include(u => u.MaVaiTroNavigation)
+                .FirstOrDefaultAsync(u => u.MaNguoiDung == hit.MaNguoiDung);
         }
 
         public async Task<List<QuanLyNguoiDung>> GetAllWithDetailsAsync() =>
@@ -112,11 +120,24 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         public Task<NhanVien?> GetByMaNguoiDungAsync(int maNguoiDung) =>
             _dbSet.FirstOrDefaultAsync(n => n.MaNguoiDung == maNguoiDung);
 
-        public Task<NhanVien?> GetByEmailLienHeAsync(string email)
+        public async Task<NhanVien?> GetByEmailLienHeAsync(string email)
         {
-            var e = (email ?? "").Trim().ToLower();
-            return _dbSet.FirstOrDefaultAsync(n =>
+            var e = (email ?? "").Trim().ToLowerInvariant();
+            try { e = e.Normalize(System.Text.NormalizationForm.FormC); } catch { }
+
+            var direct = await _dbSet.FirstOrDefaultAsync(n =>
                 n.Email != null && n.Email.ToLower() == e);
+            if (direct != null) return direct;
+
+            // Fallback không phân biệt hoa thường / khoảng trắng thừa
+            var all = await _dbSet.AsNoTracking()
+                .Where(n => n.Email != null && n.Email != "")
+                .Select(n => new { n.MaNhanVien, n.Email })
+                .ToListAsync();
+            var hit = all.FirstOrDefault(n =>
+                (n.Email ?? "").Trim().ToLowerInvariant() == e);
+            if (hit == null) return null;
+            return await _dbSet.FirstOrDefaultAsync(n => n.MaNhanVien == hit.MaNhanVien);
         }
     }
 

@@ -61,9 +61,22 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             return new AuthResult { ThanhCong = true, Data = new { u.MaNguoiDung, u.Email, u.MaVaiTro, u.TrangThai } };
         }
 
+
+        /// <summary>Chuẩn hóa email: trim, lower, Unicode FormC (tránh lệch dấu ă/â…).</summary>
+        private static string ChuanHoaEmail(string? email)
+        {
+            if (string.IsNullOrWhiteSpace(email)) return "";
+            var e = email.Trim().ToLowerInvariant();
+            try { e = e.Normalize(System.Text.NormalizationForm.FormC); } catch { /* ignore */ }
+            return e;
+        }
+
         public async Task<AuthResult> DangNhapAsync(DangNhapDto dto)
         {
-            var email = (dto.Email ?? "").Trim();
+            var email = ChuanHoaEmail(dto.Email);
+            if (string.IsNullOrEmpty(email))
+                return new AuthResult { ThanhCong = false, Message = "Vui lòng nhập email công ty." };
+
             if (_loginGuard.IsLocked(email, out var conLai))
             {
                 var phut = Math.Max(1, (int)Math.Ceiling(conLai.TotalMinutes));
@@ -75,10 +88,20 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             }
 
             var user = await _userRepo.GetByEmailAsync(email);
-            if (user == null || !BCrypt.Net.BCrypt.Verify(dto.MatKhau, user.MatKhau))
+            if (user == null)
             {
                 _loginGuard.RegisterFailure(email);
-                return new AuthResult { ThanhCong = false, Message = "Email hoặc mật khẩu không đúng." };
+                return new AuthResult
+                {
+                    ThanhCong = false,
+                    Message = "Email không đúng hoặc không tồn tại trong hệ thống."
+                };
+            }
+
+            if (string.IsNullOrEmpty(dto.MatKhau) || !BCrypt.Net.BCrypt.Verify(dto.MatKhau, user.MatKhau))
+            {
+                _loginGuard.RegisterFailure(email);
+                return new AuthResult { ThanhCong = false, Message = "Mật khẩu không đúng." };
             }
 
             if (user.TrangThai == "Đã khóa")
@@ -177,7 +200,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
             var taiKhoan = new QuanLyNguoiDung
             {
-                Email = dto.Email.Trim().ToLowerInvariant(),
+                Email = ChuanHoaEmail(dto.Email),
                 MatKhau = BCrypt.Net.BCrypt.HashPassword(dto.MatKhau),
                 MaVaiTro = dto.MaVaiTro,
                 TrangThai = "Chưa kích hoạt"
@@ -345,16 +368,21 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 return new AuthResult { ThanhCong = false, Message = loiGui };
             }
 
-            var emailAn = AnEmail(emailNhan);
+                        var emailAn = AnEmail(emailNhan);
+            var devShow = string.Equals(_config["Email:DevShowOtp"], "true", StringComparison.OrdinalIgnoreCase);
             return new AuthResult
             {
                 ThanhCong = true,
-                Message = $"Đã gửi mã OTP tới {emailAn}. Mã có hiệu lực 2 phút. Vui lòng kiểm tra hộp thư (và Spam).",
+                Message = devShow
+                    ? $"Đã xử lý OTP cho {emailAn}. (DevShowOtp: xem mã trên app nếu chưa nhận mail)"
+                    : $"Đã gửi mã OTP tới {emailAn}. Mã có hiệu lực 2 phút. Vui lòng kiểm tra hộp thư (và Spam).",
                 Data = new
                 {
                     EmailNhanAn = emailAn,
                     HetHanSauGiay = 120,
-                    GuiLaiSauGiay = 60
+                    GuiLaiSauGiay = 60,
+                    // Chỉ hiện khi DevShowOtp=true — tiện test khi Gmail chưa về
+                    OtpTest = devShow ? otp : null
                 }
             };
         }

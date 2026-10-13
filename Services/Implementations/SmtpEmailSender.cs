@@ -43,6 +43,10 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 var user = _config["Email:UserName"]!;
                 var pass = _config["Email:Password"]!;
                 var from = _config["Email:From"] ?? user;
+                if (string.IsNullOrWhiteSpace(from)
+                    || from.Contains("your.gmail", StringComparison.OrdinalIgnoreCase)
+                    || from.Contains("example", StringComparison.OrdinalIgnoreCase))
+                    from = user;
                 var fromName = _config["Email:FromName"] ?? "OPC Maintenance";
                 var enableSsl = !string.Equals(_config["Email:EnableSsl"], "false", StringComparison.OrdinalIgnoreCase);
 

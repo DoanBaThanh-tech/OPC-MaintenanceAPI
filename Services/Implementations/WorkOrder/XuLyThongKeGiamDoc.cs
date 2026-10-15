@@ -15,7 +15,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
         public async Task<object> GetThongKeGiamDocAsync(int nam)
         {
-            if (nam < 2000 || nam > 2100) nam = DateTime.Now.Year;
+            if (nam < 2026 || nam > 2100) nam = Math.Max(2026, DateTime.Now.Year);
 
             // Bảo trì: theo tháng hoàn thành thực tế, không thì ngày dự kiến, không thì ngày tạo
             var btAll = await _db.HoSoBaoTris
@@ -70,9 +70,43 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 });
             }
 
+            // Năm hiển thị: từ 2026 trở đi; chỉ khi có kế hoạch BT năm đó
+            // hoặc có hồ sơ sửa chữa đã hoàn thành trong năm đó (không hiện trước).
+            const int namToiThieu = 2026;
+            var namKeHoach = await _db.KeHoachBaoTris
+                .Where(k => k.Nam >= namToiThieu)
+                .Select(k => k.Nam)
+                .Distinct()
+                .ToListAsync();
+
+            var namScHoanThanh = await _db.HoSoSuaChuas
+                .Where(h => h.TrangThai == "Đã hoàn thành")
+                .Select(h => (h.ThoiDiemKetThucThucTe ?? h.ThoiDiemBatDauThucTe ?? h.NgayDuyet ?? h.NgayTao).Year)
+                .Where(y => y >= namToiThieu)
+                .Distinct()
+                .ToListAsync();
+
+            var danhSachNam = namKeHoach
+                .Concat(namScHoanThanh)
+                .Distinct()
+                .OrderBy(y => y)
+                .ToList();
+
+            // Nếu chưa có năm nào đủ điều kiện nhưng đang xem năm hiện tại >= 2026
+            // và năm đó đúng bằng nam đang query — vẫn trả list tối thiểu khi có data thống kê
+            if (danhSachNam.Count == 0 && nam >= namToiThieu &&
+                (btAll.Count > 0 || scAll.Count > 0))
+            {
+                danhSachNam.Add(nam);
+            }
+
+            // Nếu nam đang chọn không có trong list nhưng list không rỗng → giữ nguyên data năm đó
+            // (client sẽ chỉnh dropdown). Không ép đổi nam server.
+
             return new
             {
                 Nam = nam,
+                DanhSachNam = danhSachNam,
                 TongBaoTri = btAll.Count,
                 TongBaoTriHoanThanh = btAll.Count(x => x.TrangThai == "Đã hoàn thành"),
                 TongSuaChua = scAll.Count,

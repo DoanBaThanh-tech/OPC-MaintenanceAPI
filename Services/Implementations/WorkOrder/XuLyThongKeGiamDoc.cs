@@ -1,62 +1,46 @@
 using Microsoft.EntityFrameworkCore;
-using OPC.MaintenanceAPI.Core.Entities;
-using OPC.MaintenanceAPI.Core.Exceptions;
-using OPC.MaintenanceAPI.DTOs.WorkOrder;
-using OPC.MaintenanceAPI.Repositories.Specific;
-using OPC.MaintenanceAPI.Services.Interfaces;
-using OPC.MaintenanceAPI.DTOs.Common;
 
 namespace OPC.MaintenanceAPI.Services.Implementations
 {
     public partial class WorkOrderService
     {
-
         // ---------- từ XuLyThongKeGiamDoc.cs ----------
 
         public async Task<object> GetThongKeGiamDocAsync(int nam)
         {
             if (nam < 2026 || nam > 2100) nam = Math.Max(2026, DateTime.Now.Year);
 
-            // Map MaHoSoBaoTri -> ngày dự kiến trên kế hoạch (nếu có)
-            var mapNgayKeHoach = await _db.ChiTietKeHoachBaoTris.AsNoTracking()
-                .Where(c => c.MaHoSoBaoTri != null)
-                .Select(c => new { MaHoSo = c.MaHoSoBaoTri!.Value, c.NgayDuKienBaoTri })
-                .ToListAsync();
-            var dictKeHoach = mapNgayKeHoach
-                .GroupBy(x => x.MaHoSo)
-                .ToDictionary(g => g.Key, g => g.First().NgayDuKienBaoTri);
-
-            var btEntities = await _db.HoSoBaoTris.AsNoTracking()
-                .Where(h => h.TrangThai != "Nháp" && h.TrangThai != "Đã hủy")
+            // Chỉ hồ sơ ĐÃ HOÀN THÀNH mới vào biểu đồ / chi tiết theo tháng.
+            // Tháng thống kê = tháng hoàn thành thực tế (không lấy ngày dự kiến kế hoạch).
+            var btDone = await _db.HoSoBaoTris.AsNoTracking()
+                .Where(h => h.TrangThai == "Đã hoàn thành")
                 .Select(h => new
                 {
                     h.MaHoSoBaoTri,
-                    h.TrangThai,
-                    NgayThucTe = h.ThoiDiemKetThucThucTe ?? h.ThoiDiemBatDauThucTe ?? h.NgayDuyet ?? h.NgayTao
+                    NgayHt = h.ThoiDiemKetThucThucTe ?? h.NgayDuyet ?? h.NgayTao
                 })
                 .ToListAsync();
 
-            var btAll = btEntities.Select(h =>
-            {
-                if (dictKeHoach.TryGetValue(h.MaHoSoBaoTri, out var ngayKh))
-                {
-                    return new { h.MaHoSoBaoTri, h.TrangThai, Thang = ngayKh.Month, Nam = ngayKh.Year };
-                }
-                return new { h.MaHoSoBaoTri, h.TrangThai, Thang = h.NgayThucTe.Month, Nam = h.NgayThucTe.Year };
-            }).Where(x => x.Nam == nam).ToList();
+            var btAll = btDone
+                .Select(h => new { h.MaHoSoBaoTri, Thang = h.NgayHt.Month, Nam = h.NgayHt.Year })
+                .Where(x => x.Nam == nam)
+                .ToList();
 
-            var scAll = await _db.HoSoSuaChuas.AsNoTracking()
-                .Where(h => h.TrangThai != "Nháp" && h.TrangThai != "Đã hủy")
+            var scDone = await _db.HoSoSuaChuas.AsNoTracking()
+                .Where(h => h.TrangThai == "Đã hoàn thành")
                 .Select(h => new
                 {
                     h.MaHoSoSuaChua,
-                    h.TrangThai,
-                    Thang = (h.ThoiDiemKetThucThucTe ?? h.ThoiDiemBatDauThucTe ?? h.NgayDuyet ?? h.NgayTao).Month,
-                    Nam = (h.ThoiDiemKetThucThucTe ?? h.ThoiDiemBatDauThucTe ?? h.NgayDuyet ?? h.NgayTao).Year
+                    NgayHt = h.ThoiDiemKetThucThucTe ?? h.NgayDuyet ?? h.NgayTao
                 })
-                .Where(x => x.Nam == nam)
                 .ToListAsync();
 
+            var scAll = scDone
+                .Select(h => new { h.MaHoSoSuaChua, Thang = h.NgayHt.Month, Nam = h.NgayHt.Year })
+                .Where(x => x.Nam == nam)
+                .ToList();
+
+            // Vật tư: chỉ hồ sơ vật tư thuộc năm (theo ngày thực hiện)
             var vtAll = await _db.HoSoSuDungVatTus.AsNoTracking()
                 .Include(h => h.ChiTietSuDungVatTus)
                 .Where(h => h.NgayThucHien.Year == nam)
@@ -69,19 +53,23 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 var scThang = scAll.Where(x => x.Thang == m).ToList();
                 var vtThang = vtAll.Where(h => h.NgayThucHien.Month == m).ToList();
 
+                // SoBaoTri / SoSuaChua = số đã hoàn thành (để biểu đồ & chi tiết không lẫn hồ sơ chưa xong)
+                var soBt = btThang.Count;
+                var soSc = scThang.Count;
+
                 theoThang.Add(new
                 {
                     Thang = m,
-                    SoBaoTri = btThang.Count,
-                    SoBaoTriHoanThanh = btThang.Count(x => x.TrangThai == "Đã hoàn thành"),
-                    SoSuaChua = scThang.Count,
-                    SoSuaChuaHoanThanh = scThang.Count(x => x.TrangThai == "Đã hoàn thành"),
+                    SoBaoTri = soBt,
+                    SoBaoTriHoanThanh = soBt,
+                    SoSuaChua = soSc,
+                    SoSuaChuaHoanThanh = soSc,
                     SoLuongVatTu = vtThang.SelectMany(h => h.ChiTietSuDungVatTus).Sum(c => c.SoLuong),
                     TongTienVatTu = vtThang.Sum(h => h.TongTien)
                 });
             }
 
-            // Năm dropdown (>= 2026): kế hoạch BT, chi tiết ngày dự kiến, hồ sơ BT, SC hoàn thành
+            // Năm dropdown (>= 2026): có kế hoạch BT, chi tiết ngày dự kiến, BT/SC đã hoàn thành
             const int namToiThieu = 2026;
             var namKeHoach = await _db.KeHoachBaoTris.AsNoTracking()
                 .Where(k => k.Nam >= namToiThieu)
@@ -95,24 +83,16 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 .Distinct()
                 .ToListAsync();
 
-            var namBt = btEntities.Select(h =>
-            {
-                if (dictKeHoach.TryGetValue(h.MaHoSoBaoTri, out var ngayKh))
-                    return ngayKh.Year;
-                return h.NgayThucTe.Year;
-            }).Where(y => y >= namToiThieu).Distinct().ToList();
+            var namBt = btDone.Select(h => h.NgayHt.Year)
+                .Where(y => y >= namToiThieu).Distinct().ToList();
 
-            var namScHoanThanh = await _db.HoSoSuaChuas.AsNoTracking()
-                .Where(h => h.TrangThai == "Đã hoàn thành")
-                .Select(h => (h.ThoiDiemKetThucThucTe ?? h.ThoiDiemBatDauThucTe ?? h.NgayDuyet ?? h.NgayTao).Year)
-                .Where(y => y >= namToiThieu)
-                .Distinct()
-                .ToListAsync();
+            var namSc = scDone.Select(h => h.NgayHt.Year)
+                .Where(y => y >= namToiThieu).Distinct().ToList();
 
             var danhSachNam = namKeHoach
                 .Concat(namChiTiet)
                 .Concat(namBt)
-                .Concat(namScHoanThanh)
+                .Concat(namSc)
                 .Distinct()
                 .OrderBy(y => y)
                 .ToList();
@@ -128,14 +108,13 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 Nam = nam,
                 DanhSachNam = danhSachNam,
                 TongBaoTri = btAll.Count,
-                TongBaoTriHoanThanh = btAll.Count(x => x.TrangThai == "Đã hoàn thành"),
+                TongBaoTriHoanThanh = btAll.Count,
                 TongSuaChua = scAll.Count,
-                TongSuaChuaHoanThanh = scAll.Count(x => x.TrangThai == "Đã hoàn thành"),
+                TongSuaChuaHoanThanh = scAll.Count,
                 TongSoLuongVatTu = vtAll.SelectMany(h => h.ChiTietSuDungVatTus).Sum(c => c.SoLuong),
                 TongTienVatTu = vtAll.Sum(h => h.TongTien),
                 TheoThang = theoThang
             };
         }
-
     }
 }

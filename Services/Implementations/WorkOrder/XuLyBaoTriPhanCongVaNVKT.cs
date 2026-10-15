@@ -209,6 +209,11 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 chiTiet.TrangThai = "Đang thực hiện";
 
             await _repo.SaveChangesAsync();
+
+            // Đã Xác nhận → không thông báo phân công nữa (tránh spam)
+            await DanhDauThongBaoPhanCongDaXuLyAsync(
+                nhanVien.MaNhanVien, maHoSoBaoTri: maHoSo, maHoSoSuaChua: null);
+
             return (true, null);
         }
 
@@ -690,13 +695,16 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     MaThietBi = bt?.MaThieBi ?? sc?.MaThieBi,
                     TenThietBi = bt?.MaThieBiNavigation?.TenThietBi ?? sc?.MaThieBiNavigation?.TenThietBi,
                     NoiDung = bt?.NoiDungCongViec ?? sc?.MoTaHuHong,
-                    ThoiGianDuKien = bt?.ThoiGianDuKien,
+                    // Thời lượng sau khi Xưởng xác nhận = kết thúc − bắt đầu (đã ghi vào ThoiGianDuKien)
+                    ThoiGianDuKien = bt?.ThoiGianDuKien ?? sc?.ThoiGianDuKien,
                     TrangThaiHoSo = bt?.TrangThai ?? sc?.TrangThai,
                     NgayDuKienBaoTri = ngayDuKien,
                     NgayTaoHoSo = bt?.NgayTao ?? sc?.NgayTao,
                     LaNguoiGhiChep = p.LaNguoiGhiChep,
-                    // Có giá trị = đã từng bấm Tiến hành → nút "Tiếp tục quy trình"
+                    // NVKT bấm Tiến hành → ghi ThoiDiemBatDauThucTe
                     ThoiDiemBatDauThucTe = bt?.ThoiDiemBatDauThucTe ?? sc?.ThoiDiemBatDauThucTe,
+                    // Xưởng bấm Xác nhận → ghi ThoiDiemKetThucThucTe
+                    ThoiDiemKetThucThucTe = bt?.ThoiDiemKetThucThucTe ?? sc?.ThoiDiemKetThucThucTe,
                 });
             }
             return ketQua;
@@ -734,6 +742,11 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 hoSo.MaThieBiNavigation.TinhTrangHienTai = "Sửa chữa";
 
             await _repo.SaveChangesAsync();
+
+            // Đã Xác nhận → không thông báo phân công nữa (tránh spam)
+            await DanhDauThongBaoPhanCongDaXuLyAsync(
+                nhanVien.MaNhanVien, maHoSoBaoTri: null, maHoSoSuaChua: maHoSo);
+
             return (true, null);
         }
 

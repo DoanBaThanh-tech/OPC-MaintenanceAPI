@@ -145,9 +145,9 @@ namespace OPC.MaintenanceAPI.Data.Seed
                 }
                 else
                 {
+                    // KHÔNG ghi đè MatKhau — giữ mật khẩu đã đổi
                     user.MaVaiTro = vaiTro.MaVaiTro;
                     user.TrangThai = "Đang hoạt động";
-                    user.MatKhau = matKhauHash;
 
                     if (user.NhanVien == null)
                     {

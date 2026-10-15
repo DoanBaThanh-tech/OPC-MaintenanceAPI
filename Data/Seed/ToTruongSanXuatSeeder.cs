@@ -50,9 +50,16 @@ namespace OPC.MaintenanceAPI.Data.Seed
 
             foreach (var m in mau)
             {
+                // Khớp cả email có dấu (ttsx.lăn) và không dấu (ttsx.lan)
                 var user = await db.QuanLyNguoiDungs
                     .Include(u => u.NhanVien)
                     .FirstOrDefaultAsync(u => u.Email == m.Email);
+                if (user == null && m.Email == "ttsx.lan@opc.com")
+                {
+                    user = await db.QuanLyNguoiDungs
+                        .Include(u => u.NhanVien)
+                        .FirstOrDefaultAsync(u => u.Email == "ttsx.lăn@opc.com");
+                }
 
                 if (user == null)
                 {
@@ -82,14 +89,15 @@ namespace OPC.MaintenanceAPI.Data.Seed
                 }
                 else
                 {
+                    // KHÔNG ghi đè MatKhau — giữ mật khẩu user đã đổi (quên MK / admin)
                     user.MaVaiTro = vaiTro.MaVaiTro;
                     user.TrangThai = "Đang hoạt động";
-                    user.MatKhau = hash;
                     if (user.NhanVien != null)
                     {
                         user.NhanVien.HoTen = m.HoTen;
                         user.NhanVien.ChucVu = "Xưởng";
                         user.NhanVien.TrangThai = "Đang làm việc";
+                        // Không ghi đè Email cá nhân (Gmail OTP) nếu đã gắn
                     }
                     await db.SaveChangesAsync();
                 }

@@ -353,36 +353,25 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             var loiGui = await _emailSender.SendAsync(emailNhan, subject, bodyHtml, bodyText);
             if (loiGui != null)
             {
-                // Dev: nếu chưa cấu hình SMTP vẫn cho test bằng OtpTest
-                var choPhepDev = string.Equals(_config["Email:DevShowOtp"], "true", StringComparison.OrdinalIgnoreCase)
-                                 || !_emailSender.IsConfigured;
-                if (choPhepDev)
+                // Bắt buộc gửi được Gmail thật — không trả OTP về app
+                return new AuthResult
                 {
-                    return new AuthResult
-                    {
-                        ThanhCong = true,
-                        Message = "Chưa gửi được email (SMTP). Mã OTP hiển thị tạm để dev/test.",
-                        Data = new { OtpTest = otp, EmailNhan = emailNhan, CanhBao = loiGui }
-                    };
-                }
-                return new AuthResult { ThanhCong = false, Message = loiGui };
+                    ThanhCong = false,
+                    Message = loiGui
+                              + " Cấu hình Email:UserName và App Password Gmail (16 ký tự) trong appsettings.json rồi restart API."
+                };
             }
 
-                        var emailAn = AnEmail(emailNhan);
-            var devShow = string.Equals(_config["Email:DevShowOtp"], "true", StringComparison.OrdinalIgnoreCase);
+            var emailAn = AnEmail(emailNhan);
             return new AuthResult
             {
                 ThanhCong = true,
-                Message = devShow
-                    ? $"Đã xử lý OTP cho {emailAn}. (DevShowOtp: xem mã trên app nếu chưa nhận mail)"
-                    : $"Đã gửi mã OTP tới {emailAn}. Mã có hiệu lực 2 phút. Vui lòng kiểm tra hộp thư (và Spam).",
+                Message = $"Đã gửi mã OTP tới {emailAn}. Mã có hiệu lực 2 phút. Vui lòng kiểm tra hộp thư đến và thư Spam.",
                 Data = new
                 {
                     EmailNhanAn = emailAn,
                     HetHanSauGiay = 120,
-                    GuiLaiSauGiay = 60,
-                    // Chỉ hiện khi DevShowOtp=true — tiện test khi Gmail chưa về
-                    OtpTest = devShow ? otp : null
+                    GuiLaiSauGiay = 60
                 }
             };
         }
@@ -522,9 +511,13 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 return new AuthResult { ThanhCong = false, Message = loiHoTen };
 
             var sdt = (dto.SoDienThoai ?? "").Trim();
-            // Chỉ chữ số, tối đa 10 số — không chữ / ký tự đặc biệt / thập phân / số âm
-            if (sdt.Length > 0 && !System.Text.RegularExpressions.Regex.IsMatch(sdt, @"^\d{1,10}$"))
-                return new AuthResult { ThanhCong = false, Message = "Số điện thoại chỉ gồm số, tối đa 10 chữ số." };
+            // Bắt buộc đúng 10 chữ số — thiếu/thừa không cho lưu
+            if (string.IsNullOrEmpty(sdt))
+                return new AuthResult { ThanhCong = false, Message = "Vui lòng nhập số điện thoại đủ 10 chữ số." };
+            if (!System.Text.RegularExpressions.Regex.IsMatch(sdt, @"^\d+$"))
+                return new AuthResult { ThanhCong = false, Message = "Số điện thoại chỉ được nhập số (không chữ, không ký tự đặc biệt)." };
+            if (sdt.Length != 10)
+                return new AuthResult { ThanhCong = false, Message = $"Số điện thoại phải đủ đúng 10 chữ số (hiện {sdt.Length}/10)." };
 
             string? emailLienHe = null;
             if (!string.IsNullOrWhiteSpace(dto.EmailLienHe))

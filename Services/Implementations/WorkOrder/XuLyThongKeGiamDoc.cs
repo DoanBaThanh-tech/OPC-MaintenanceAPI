@@ -10,8 +10,16 @@ namespace OPC.MaintenanceAPI.Services.Implementations
         {
             if (nam < 2026 || nam > 2100) nam = Math.Max(2026, DateTime.Now.Year);
 
-            // Chỉ hồ sơ ĐÃ HOÀN THÀNH mới vào biểu đồ / chi tiết theo tháng.
-            // Tháng thống kê = tháng hoàn thành thực tế (không lấy ngày dự kiến kế hoạch).
+            // Ngày dự kiến trên kế hoạch (để xếp đúng tháng kế hoạch: 11, 12...)
+            var mapNgayKeHoach = await _db.ChiTietKeHoachBaoTris.AsNoTracking()
+                .Where(c => c.MaHoSoBaoTri != null)
+                .Select(c => new { MaHoSo = c.MaHoSoBaoTri!.Value, c.NgayDuKienBaoTri })
+                .ToListAsync();
+            var dictKeHoach = mapNgayKeHoach
+                .GroupBy(x => x.MaHoSo)
+                .ToDictionary(g => g.Key, g => g.First().NgayDuKienBaoTri);
+
+            // Chỉ hồ sơ ĐÃ HOÀN THÀNH — không lấy hồ sơ đang làm / chờ duyệt
             var btDone = await _db.HoSoBaoTris.AsNoTracking()
                 .Where(h => h.TrangThai == "Đã hoàn thành")
                 .Select(h => new
@@ -21,10 +29,14 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 })
                 .ToListAsync();
 
-            var btAll = btDone
-                .Select(h => new { h.MaHoSoBaoTri, Thang = h.NgayHt.Month, Nam = h.NgayHt.Year })
-                .Where(x => x.Nam == nam)
-                .ToList();
+            // Tháng trên biểu đồ = tháng kế hoạch (nếu có), không thì tháng hoàn thành thực tế.
+            // Tránh trường hợp kế hoạch tháng 12 nhưng bấm xong vào tháng 10 → bị dồn hết tháng 10.
+            var btAll = btDone.Select(h =>
+            {
+                if (dictKeHoach.TryGetValue(h.MaHoSoBaoTri, out var ngayKh))
+                    return new { h.MaHoSoBaoTri, Thang = ngayKh.Month, Nam = ngayKh.Year };
+                return new { h.MaHoSoBaoTri, Thang = h.NgayHt.Month, Nam = h.NgayHt.Year };
+            }).Where(x => x.Nam == nam).ToList();
 
             var scDone = await _db.HoSoSuaChuas.AsNoTracking()
                 .Where(h => h.TrangThai == "Đã hoàn thành")
@@ -35,12 +47,12 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 })
                 .ToListAsync();
 
+            // Sửa chữa không có kế hoạch năm → dùng tháng hoàn thành thực tế
             var scAll = scDone
                 .Select(h => new { h.MaHoSoSuaChua, Thang = h.NgayHt.Month, Nam = h.NgayHt.Year })
                 .Where(x => x.Nam == nam)
                 .ToList();
 
-            // Vật tư: chỉ hồ sơ vật tư thuộc năm (theo ngày thực hiện)
             var vtAll = await _db.HoSoSuDungVatTus.AsNoTracking()
                 .Include(h => h.ChiTietSuDungVatTus)
                 .Where(h => h.NgayThucHien.Year == nam)
@@ -52,8 +64,6 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 var btThang = btAll.Where(x => x.Thang == m).ToList();
                 var scThang = scAll.Where(x => x.Thang == m).ToList();
                 var vtThang = vtAll.Where(h => h.NgayThucHien.Month == m).ToList();
-
-                // SoBaoTri / SoSuaChua = số đã hoàn thành (để biểu đồ & chi tiết không lẫn hồ sơ chưa xong)
                 var soBt = btThang.Count;
                 var soSc = scThang.Count;
 
@@ -69,7 +79,6 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 });
             }
 
-            // Năm dropdown (>= 2026): có kế hoạch BT, chi tiết ngày dự kiến, BT/SC đã hoàn thành
             const int namToiThieu = 2026;
             var namKeHoach = await _db.KeHoachBaoTris.AsNoTracking()
                 .Where(k => k.Nam >= namToiThieu)
@@ -83,8 +92,14 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 .Distinct()
                 .ToListAsync();
 
-            var namBt = btDone.Select(h => h.NgayHt.Year)
-                .Where(y => y >= namToiThieu).Distinct().ToList();
+            var namBt = btAll.Select(x => x.Nam).Where(y => y >= namToiThieu).Distinct().ToList();
+            // cả BT hoàn thành ở năm khác (nếu dict lệch) — bổ sung từ btDone đã map
+            namBt = btDone.Select(h =>
+            {
+                if (dictKeHoach.TryGetValue(h.MaHoSoBaoTri, out var ngayKh))
+                    return ngayKh.Year;
+                return h.NgayHt.Year;
+            }).Where(y => y >= namToiThieu).Distinct().ToList();
 
             var namSc = scDone.Select(h => h.NgayHt.Year)
                 .Where(y => y >= namToiThieu).Distinct().ToList();

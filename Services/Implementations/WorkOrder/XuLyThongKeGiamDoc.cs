@@ -17,20 +17,35 @@ namespace OPC.MaintenanceAPI.Services.Implementations
         {
             if (nam < 2026 || nam > 2100) nam = Math.Max(2026, DateTime.Now.Year);
 
-            // Bảo trì: theo tháng hoàn thành thực tế, không thì ngày dự kiến, không thì ngày tạo
-            var btAll = await _db.HoSoBaoTris
+            // Map MaHoSoBaoTri -> ngày dự kiến trên kế hoạch (nếu có)
+            var mapNgayKeHoach = await _db.ChiTietKeHoachBaoTris.AsNoTracking()
+                .Where(c => c.MaHoSoBaoTri != null)
+                .Select(c => new { MaHoSo = c.MaHoSoBaoTri!.Value, c.NgayDuKienBaoTri })
+                .ToListAsync();
+            var dictKeHoach = mapNgayKeHoach
+                .GroupBy(x => x.MaHoSo)
+                .ToDictionary(g => g.Key, g => g.First().NgayDuKienBaoTri);
+
+            var btEntities = await _db.HoSoBaoTris.AsNoTracking()
                 .Where(h => h.TrangThai != "Nháp" && h.TrangThai != "Đã hủy")
                 .Select(h => new
                 {
                     h.MaHoSoBaoTri,
                     h.TrangThai,
-                    Thang = (h.ThoiDiemKetThucThucTe ?? h.ThoiDiemBatDauThucTe ?? h.NgayDuyet ?? h.NgayTao).Month,
-                    Nam = (h.ThoiDiemKetThucThucTe ?? h.ThoiDiemBatDauThucTe ?? h.NgayDuyet ?? h.NgayTao).Year
+                    NgayThucTe = h.ThoiDiemKetThucThucTe ?? h.ThoiDiemBatDauThucTe ?? h.NgayDuyet ?? h.NgayTao
                 })
-                .Where(x => x.Nam == nam)
                 .ToListAsync();
 
-            var scAll = await _db.HoSoSuaChuas
+            var btAll = btEntities.Select(h =>
+            {
+                if (dictKeHoach.TryGetValue(h.MaHoSoBaoTri, out var ngayKh))
+                {
+                    return new { h.MaHoSoBaoTri, h.TrangThai, Thang = ngayKh.Month, Nam = ngayKh.Year };
+                }
+                return new { h.MaHoSoBaoTri, h.TrangThai, Thang = h.NgayThucTe.Month, Nam = h.NgayThucTe.Year };
+            }).Where(x => x.Nam == nam).ToList();
+
+            var scAll = await _db.HoSoSuaChuas.AsNoTracking()
                 .Where(h => h.TrangThai != "Nháp" && h.TrangThai != "Đã hủy")
                 .Select(h => new
                 {
@@ -42,8 +57,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 .Where(x => x.Nam == nam)
                 .ToListAsync();
 
-            // Vật tư: theo ngày thực hiện (NgayThucHien không nullable)
-            var vtAll = await _db.HoSoSuDungVatTus
+            var vtAll = await _db.HoSoSuDungVatTus.AsNoTracking()
                 .Include(h => h.ChiTietSuDungVatTus)
                 .Where(h => h.NgayThucHien.Year == nam)
                 .ToListAsync();
@@ -55,9 +69,6 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 var scThang = scAll.Where(x => x.Thang == m).ToList();
                 var vtThang = vtAll.Where(h => h.NgayThucHien.Month == m).ToList();
 
-                var soLuongVt = vtThang.SelectMany(h => h.ChiTietSuDungVatTus).Sum(c => c.SoLuong);
-                var tongTien = vtThang.Sum(h => h.TongTien);
-
                 theoThang.Add(new
                 {
                     Thang = m,
@@ -65,21 +76,33 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     SoBaoTriHoanThanh = btThang.Count(x => x.TrangThai == "Đã hoàn thành"),
                     SoSuaChua = scThang.Count,
                     SoSuaChuaHoanThanh = scThang.Count(x => x.TrangThai == "Đã hoàn thành"),
-                    SoLuongVatTu = soLuongVt,
-                    TongTienVatTu = tongTien
+                    SoLuongVatTu = vtThang.SelectMany(h => h.ChiTietSuDungVatTus).Sum(c => c.SoLuong),
+                    TongTienVatTu = vtThang.Sum(h => h.TongTien)
                 });
             }
 
-            // Năm hiển thị: từ 2026 trở đi; chỉ khi có kế hoạch BT năm đó
-            // hoặc có hồ sơ sửa chữa đã hoàn thành trong năm đó (không hiện trước).
+            // Năm dropdown (>= 2026): kế hoạch BT, chi tiết ngày dự kiến, hồ sơ BT, SC hoàn thành
             const int namToiThieu = 2026;
-            var namKeHoach = await _db.KeHoachBaoTris
+            var namKeHoach = await _db.KeHoachBaoTris.AsNoTracking()
                 .Where(k => k.Nam >= namToiThieu)
                 .Select(k => k.Nam)
                 .Distinct()
                 .ToListAsync();
 
-            var namScHoanThanh = await _db.HoSoSuaChuas
+            var namChiTiet = await _db.ChiTietKeHoachBaoTris.AsNoTracking()
+                .Where(c => c.NgayDuKienBaoTri.Year >= namToiThieu)
+                .Select(c => c.NgayDuKienBaoTri.Year)
+                .Distinct()
+                .ToListAsync();
+
+            var namBt = btEntities.Select(h =>
+            {
+                if (dictKeHoach.TryGetValue(h.MaHoSoBaoTri, out var ngayKh))
+                    return ngayKh.Year;
+                return h.NgayThucTe.Year;
+            }).Where(y => y >= namToiThieu).Distinct().ToList();
+
+            var namScHoanThanh = await _db.HoSoSuaChuas.AsNoTracking()
                 .Where(h => h.TrangThai == "Đã hoàn thành")
                 .Select(h => (h.ThoiDiemKetThucThucTe ?? h.ThoiDiemBatDauThucTe ?? h.NgayDuyet ?? h.NgayTao).Year)
                 .Where(y => y >= namToiThieu)
@@ -87,21 +110,18 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 .ToListAsync();
 
             var danhSachNam = namKeHoach
+                .Concat(namChiTiet)
+                .Concat(namBt)
                 .Concat(namScHoanThanh)
                 .Distinct()
                 .OrderBy(y => y)
                 .ToList();
 
-            // Nếu chưa có năm nào đủ điều kiện nhưng đang xem năm hiện tại >= 2026
-            // và năm đó đúng bằng nam đang query — vẫn trả list tối thiểu khi có data thống kê
             if (danhSachNam.Count == 0 && nam >= namToiThieu &&
                 (btAll.Count > 0 || scAll.Count > 0))
             {
                 danhSachNam.Add(nam);
             }
-
-            // Nếu nam đang chọn không có trong list nhưng list không rỗng → giữ nguyên data năm đó
-            // (client sẽ chỉnh dropdown). Không ép đổi nam server.
 
             return new
             {

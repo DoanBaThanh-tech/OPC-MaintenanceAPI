@@ -111,6 +111,8 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         Task<NhanVien?> GetByMaNguoiDungAsync(int maNguoiDung);
         /// <summary>Tìm NV theo email cá nhân (Gmail) đã gắn trên hồ sơ.</summary>
         Task<NhanVien?> GetByEmailLienHeAsync(string email);
+        /// <summary>Email cá nhân đã được tài khoản khác dùng chưa (loại trừ chính user hiện tại).</summary>
+        Task<bool> EmailLienHeDangDungBoiNguoiKhacAsync(string email, int maNguoiDungHienTai);
     }
 
     public class NhanVienRepository : BaseRepository<NhanVien>, INhanVienRepository
@@ -138,6 +140,16 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
                 (n.Email ?? "").Trim().ToLowerInvariant() == e);
             if (hit == null) return null;
             return await _dbSet.FirstOrDefaultAsync(n => n.MaNhanVien == hit.MaNhanVien);
+        }
+
+        public async Task<bool> EmailLienHeDangDungBoiNguoiKhacAsync(string email, int maNguoiDungHienTai)
+        {
+            var e = (email ?? "").Trim().ToLowerInvariant();
+            if (string.IsNullOrEmpty(e)) return false;
+            return await _dbSet.AnyAsync(n =>
+                n.MaNguoiDung != maNguoiDungHienTai
+                && n.Email != null
+                && n.Email.ToLower() == e);
         }
     }
 

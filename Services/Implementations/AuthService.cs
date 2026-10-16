@@ -22,7 +22,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
         private readonly IEmailSender _emailSender;
 
         private static readonly Regex MatKhauHopLe =
-            new(@"^(?=.*[0-9])(?=.*[!@#$%^&*(),.?"":{}|<>_\-]).{8,}$"); // ≥8, có số + ký tự đặc biệt
+            new(@"^(?=.*[A-Z])(?=.*[0-9])(?=.*[!@#$%^&*(),.?"":{}|<>_\-]).{8,}$"); // ≥8, chữ hoa + số + ký tự đặc biệt
 
         public AuthService(IQuanLyNguoiDungRepository userRepo, INhanVienRepository nhanVienRepo,
                             IXacThucQuenMatKhauRepository otpRepo, IConfiguration config,
@@ -173,7 +173,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
         public async Task<AuthResult> TaoTaiKhoanAsync(TaoTaiKhoanDto dto)
         {
             if (!MatKhauHopLe.IsMatch(dto.MatKhau))
-                return new AuthResult { ThanhCong = false, Message = "Mật khẩu phải có ít nhất 8 ký tự, gồm 1 chữ số và 1 ký tự đặc biệt." };
+                return new AuthResult { ThanhCong = false, Message = "Mật khẩu phải có ít nhất 8 ký tự, gồm 1 chữ in hoa, 1 chữ số và 1 ký tự đặc biệt." };
 
             var loiEmail = KiemTraEmailCongTy(dto.Email);
             if (loiEmail != null)
@@ -278,7 +278,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
         {
             var nv = await _nhanVienRepo.GetByEmailLienHeAsync(emailCaNhan);
             if (nv == null)
-                return (null, null, "Email không khớp tài khoản nào. Kiểm tra lại Gmail đã đăng ký trên hồ sơ.");
+                return (null, null, "Email này chưa được gắn với tài khoản nào. Tài khoản mới cần đăng nhập và cập nhật email cá nhân (@gmail.com) trong thông tin cá nhân trước khi dùng quên mật khẩu.");
 
             var user = await _userRepo.GetByIdAsync(nv.MaNguoiDung);
             if (user == null)
@@ -308,8 +308,8 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 return new AuthResult
                 {
                     ThanhCong = false,
-                    Message = loi ?? "Email không khớp tài khoản nào trong hệ thống. "
-                              + "Chỉ gửi OTP khi nhập đúng Gmail đã gắn trên hồ sơ của bạn."
+                    Message = loi ?? "Email này chưa gắn với tài khoản nào. "
+                              + "Hãy đăng nhập bằng email công ty, vào Thông tin cá nhân để lưu Gmail, rồi dùng quên mật khẩu."
                 };
 
             var emailNhan = nhanVien!.Email!.Trim();
@@ -430,7 +430,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
         public async Task<AuthResult> DatLaiMatKhauAsync(DatLaiMatKhauDto dto)
         {
             if (!MatKhauHopLe.IsMatch(dto.MatKhauMoi))
-                return new AuthResult { ThanhCong = false, Message = "Mật khẩu phải có ít nhất 8 ký tự, gồm 1 chữ số và 1 ký tự đặc biệt." };
+                return new AuthResult { ThanhCong = false, Message = "Mật khẩu phải có ít nhất 8 ký tự, gồm 1 chữ in hoa, 1 chữ số và 1 ký tự đặc biệt." };
 
             var (user, _, loiTim) = await TimTaiKhoanTheoEmailCaNhanAsync(dto.Email);
             if (user == null)
@@ -461,7 +461,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 return new AuthResult { ThanhCong = false, Message = "Mật khẩu hiện tại không đúng." };
 
             if (!MatKhauHopLe.IsMatch(dto.MatKhauMoi ?? ""))
-                return new AuthResult { ThanhCong = false, Message = "Mật khẩu mới phải có ít nhất 8 ký tự, gồm 1 chữ số và 1 ký tự đặc biệt." };
+                return new AuthResult { ThanhCong = false, Message = "Mật khẩu mới phải có ít nhất 8 ký tự, gồm 1 chữ in hoa, 1 chữ số và 1 ký tự đặc biệt." };
 
             if (dto.MatKhauCu == dto.MatKhauMoi)
                 return new AuthResult { ThanhCong = false, Message = "Mật khẩu mới phải khác mật khẩu hiện tại." };
@@ -532,6 +532,14 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     {
                         ThanhCong = false,
                         Message = "Email nhận OTP phải đúng định dạng …@gmail.com."
+                    };
+
+                // Mỗi email cá nhân chỉ gắn 1 tài khoản
+                if (await _nhanVienRepo.EmailLienHeDangDungBoiNguoiKhacAsync(emailLienHe, maNguoiDung))
+                    return new AuthResult
+                    {
+                        ThanhCong = false,
+                        Message = "Email cá nhân này đã được dùng cho tài khoản khác. Vui lòng dùng Gmail khác."
                     };
             }
 

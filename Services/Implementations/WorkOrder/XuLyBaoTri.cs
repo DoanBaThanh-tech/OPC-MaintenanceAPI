@@ -45,18 +45,18 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
                 var nam = chiTiet.NgayDuKienBaoTri.Year;
                 var thang = chiTiet.NgayDuKienBaoTri.Month;
-                // Đã có BT hoặc SC trong tháng (kể cả đang mở / đã hoàn thành) → không tạo thêm
-                if (await _repo.TonTaiHoSoBtHoacScTrongThangAsync(dto.MaThietBi, nam, thang))
+                // Chỉ chặn nếu tháng này đã có hồ sơ BẢO TRÌ (SC đã xong không chặn lập BT tháng khác; cùng tháng SC xong vẫn cho BT nếu chưa có BT)
+                if (await _repo.TonTaiHoSoBaoTriTrongThangAsync(dto.MaThietBi, nam, thang))
                     return (false,
-                        $"Thiết bị này đã có hồ sơ bảo trì hoặc sửa chữa trong tháng {thang}/{nam}. Không thể tạo thêm.");
+                        $"Thiết bị này đã có hồ sơ bảo trì trong tháng {thang}/{nam}. Không thể tạo thêm.");
             }
             else
             {
                 // Không gắn chi tiết KH — vẫn chặn theo tháng tạo
                 var now = DateTime.Now;
-                if (await _repo.TonTaiHoSoBtHoacScTrongThangAsync(dto.MaThietBi, now.Year, now.Month))
+                if (await _repo.TonTaiHoSoBaoTriTrongThangAsync(dto.MaThietBi, now.Year, now.Month))
                     return (false,
-                        $"Thiết bị này đã có hồ sơ bảo trì hoặc sửa chữa trong tháng {now.Month}/{now.Year}. Không thể tạo thêm.");
+                        $"Thiết bị này đã có hồ sơ bảo trì trong tháng {now.Month}/{now.Year}. Không thể tạo thêm.");
             }
 
             TimeSpan? gioBatDau = null;

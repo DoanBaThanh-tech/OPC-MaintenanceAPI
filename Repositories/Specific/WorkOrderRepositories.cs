@@ -28,6 +28,10 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         /// Dùng chặn tạo thêm BT hoặc SC trong cùng tháng.
         /// </summary>
         Task<bool> TonTaiHoSoBtHoacScTrongThangAsync(int maThietBi, int nam, int thang);
+        /// <summary>Đã có hồ sơ bảo trì (không nháp/hủy) trong tháng — theo KH hoặc NgayTao.</summary>
+        Task<bool> TonTaiHoSoBaoTriTrongThangAsync(int maThietBi, int nam, int thang);
+        /// <summary>Đã có hồ sơ sửa chữa (không nháp/hủy) trong tháng — theo NgayTao.</summary>
+        Task<bool> TonTaiHoSoSuaChuaTrongThangAsync(int maThietBi, int nam, int thang);
         /// <summary>Cùng thiết bị + tháng đã có hồ sơ/chi tiết khác (loại trừ dòng hiện tại khi sửa).</summary>
         Task<bool> TonTaiChiTietHoacHoSoThietBiThangKhacAsync(int maThietBi, int nam, int thang, int? excludeMaChiTiet, int? excludeMaHoSo);
         Task<int?> GetNamKeHoachTheoHoSoBaoTriAsync(int maHoSoBaoTri);
@@ -429,35 +433,35 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
                 && c.NgayDuKienBaoTri.Month == thang
                 && c.MaHoSoBaoTri != null);
 
-        public async Task<bool> TonTaiHoSoBtHoacScTrongThangAsync(int maThietBi, int nam, int thang)
+        public async Task<bool> TonTaiHoSoBaoTriTrongThangAsync(int maThietBi, int nam, int thang)
         {
-            // BT: theo ngày dự kiến trên chi tiết KH (nếu có) hoặc NgayTao hồ sơ
             var coBtTheoKeHoach = await _context.ChiTietKeHoachBaoTris.AnyAsync(c =>
                 c.MaThietBi == maThietBi
                 && c.NgayDuKienBaoTri.Year == nam
                 && c.NgayDuKienBaoTri.Month == thang
                 && c.MaHoSoBaoTri != null);
-
             if (coBtTheoKeHoach) return true;
 
-            var coBtTheoNgayTao = await _context.HoSoBaoTris.AnyAsync(h =>
+            return await _context.HoSoBaoTris.AnyAsync(h =>
+                h.MaThieBi == maThietBi
+                && h.NgayTao.Year == nam
+                && h.NgayTao.Month == thang
+                && h.TrangThai != "Nháp"
+                && h.TrangThai != "Đã hủy");
+        }
+
+        public async Task<bool> TonTaiHoSoSuaChuaTrongThangAsync(int maThietBi, int nam, int thang) =>
+            await _context.HoSoSuaChuas.AnyAsync(h =>
                 h.MaThieBi == maThietBi
                 && h.NgayTao.Year == nam
                 && h.NgayTao.Month == thang
                 && h.TrangThai != "Nháp"
                 && h.TrangThai != "Đã hủy");
 
-            if (coBtTheoNgayTao) return true;
-
-            // SC: theo NgayTao hồ sơ
-            var coSc = await _context.HoSoSuaChuas.AnyAsync(h =>
-                h.MaThieBi == maThietBi
-                && h.NgayTao.Year == nam
-                && h.NgayTao.Month == thang
-                && h.TrangThai != "Nháp"
-                && h.TrangThai != "Đã hủy");
-
-            return coSc;
+        public async Task<bool> TonTaiHoSoBtHoacScTrongThangAsync(int maThietBi, int nam, int thang)
+        {
+            if (await TonTaiHoSoBaoTriTrongThangAsync(maThietBi, nam, thang)) return true;
+            return await TonTaiHoSoSuaChuaTrongThangAsync(maThietBi, nam, thang);
         }
 
         public async Task<bool> TonTaiChiTietHoacHoSoThietBiThangKhacAsync(

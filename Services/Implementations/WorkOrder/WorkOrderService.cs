@@ -100,7 +100,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
         }
 
         /// <summary>
-        /// Khi Xưởng xác nhận quy trình — chuyển HS vật tư sang trạng thái chỉ định
+        /// Khi Tổ trưởng xác nhận quy trình — chuyển HS vật tư sang trạng thái chỉ định
         /// (mặc định nghiệp vụ mới: "Chờ duyệt" = đã gửi Giám đốc, không qua Tổ trưởng).
         /// </summary>
         private async Task CapNhatTrangThaiHoSoVatTuTheoCongViecAsync(
@@ -148,7 +148,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
         /// <summary>
         /// Chỉ khóa đổi phân công khi đã có bước quy trình hoàn thành (DaXong/DaCapNhat)
-        /// hoặc đang chờ Xưởng xác nhận. Không khóa vì cờ «người ghi chép» (đã bỏ nghiệp vụ đó).
+        /// hoặc đang chờ Tổ trưởng xác nhận. Không khóa vì cờ «người ghi chép» (đã bỏ nghiệp vụ đó).
         /// </summary>
         private async Task<(bool Ok, string? Loi)> KiemTraKhoaNguoiGhiChepAsync(
             List<PhanCongCongViec> pcHienTai,
@@ -158,7 +158,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             int? maHoSoSuaChua)
         {
             if (pcHienTai.Any(p => p.TrangThai == "Chờ xác nhận"))
-                return (false, "Quy trình đang chờ Xưởng xác nhận — không được đổi phân công.");
+                return (false, "Quy trình đang chờ Tổ trưởng cơ điện xác nhận — không được đổi phân công.");
 
             // Đã có bước Xong trên server → không cho bỏ NV đã làm bước
             if (maHoSoBaoTri.HasValue || maHoSoSuaChua.HasValue)

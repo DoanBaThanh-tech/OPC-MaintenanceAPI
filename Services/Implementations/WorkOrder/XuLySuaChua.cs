@@ -138,7 +138,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 })
                 .ToList();
 
-            // Ưu tiên PC đang chờ Xưởng xác nhận quy trình (để hiện nút Xác nhận / Từ chối)
+            // Ưu tiên PC đang chờ Tổ trưởng xác nhận quy trình
             var pcChoXn = dsPc.FirstOrDefault(p => p.TrangThai == "Chờ xác nhận");
             var pcChinh = pcChoXn
                 ?? (h.MaPhanCong != null
@@ -288,7 +288,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             // Hủy mềm PC cũ — không đổi khi đang chờ Xưởng
             var pcCu = await _repo.GetPhanCongTheoHoSoSuaChuaAsync(maHoSo);
             if (pcCu.Any(p => p.TrangThai == "Chờ xác nhận"))
-                return (false, "Quy trình đang chờ Xưởng xác nhận — không được đổi phân công / người ghi chép.");
+                return (false, "Quy trình đang chờ Tổ trưởng cơ điện xác nhận — không được đổi phân công.");
 
             var (okKhoaGc, loiKhoaGc) = await KiemTraKhoaNguoiGhiChepAsync(
                 pcCu, maGhiChep, dsNv, maHoSoBaoTri: null, maHoSoSuaChua: maHoSo);
@@ -402,7 +402,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (!LaNguoiDuocGhiChep(dsPc, nhanVien.MaNhanVien))
                 return (false, "Chỉ người ghi chép quy trình mới được bấm Xong / gửi Xưởng.");
 
-            // Xong → PC chờ Xưởng; HS giữ Đang thực hiện
+            // Xong → PC chờ Tổ trưởng; HS giữ Đang thực hiện
             foreach (var pc in dsPc.Where(p => p.TrangThai is not ("Đã hủy" or "Hoàn thành")))
             {
                 pc.TrangThai = "Chờ xác nhận";

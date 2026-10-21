@@ -58,9 +58,10 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
             // Vật tư: gắn theo hồ sơ BT/SC đã hoàn thành → cùng tháng với thiết bị đó
             // (không lấy theo NgayThucHien để tránh dồn hết về tháng bấm hoàn thành)
+            // Chỉ hồ sơ vật tư đã được giám đốc xác nhận mới vào thống kê
             var vtRaw = await _db.HoSoSuDungVatTus.AsNoTracking()
                 .Include(h => h.ChiTietSuDungVatTus)
-                .Where(h => h.TrangThai != "Đã hủy" && h.TrangThai != "Từ chối")
+                .Where(h => h.TrangThai == "Xác nhận" || h.TrangThai == "Đã duyệt")
                 .Select(h => new
                 {
                     h.MaHoSoVatTu,

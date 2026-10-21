@@ -67,7 +67,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 // Chỉ chặn khi đã gửi Xưởng (Chờ xác nhận)
                 var pcDangMo = await _repo.GetPhanCongTheoHoSoBaoTriAsync(maHoSo);
                 if (pcDangMo.Any(p => p.TrangThai == "Chờ xác nhận"))
-                    return (false, "Quy trình đang chờ Xưởng xác nhận — không được đổi phân công.");
+                    return (false, "Quy trình đang chờ Tổ trưởng cơ điện xác nhận — không được đổi phân công.");
 
                 // Hủy mềm phân công cũ còn mở
                 foreach (var pc in pcDangMo.Where(p =>
@@ -158,7 +158,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (!LaNguoiDuocGhiChep(dsPc, nhanVien.MaNhanVien))
                 return (false, "Chỉ người ghi chép quy trình mới được bấm Xong / gửi Xưởng.");
 
-            // Xong → PC chờ Xưởng; HS / chi tiết kế hoạch GIỮ "Đang thực hiện"
+            // Xong → PC chờ Tổ trưởng; HS / chi tiết kế hoạch GIỮ "Đang thực hiện"
             foreach (var pc in dsPc.Where(p => p.TrangThai is not ("Đã hủy" or "Hoàn thành")))
             {
                 pc.TrangThai = "Chờ xác nhận";
@@ -366,7 +366,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 // Ưu tiên MaHoSo*Navigation (mỗi NV một dòng) — HoSoBaoTri inverse chỉ gắn PC đầu
                 var hsBt = p.MaHoSoBaoTriNavigation ?? p.HoSoBaoTri;
                 var hsSc = p.MaHoSoSuaChuaNavigation ?? p.HoSoSuaChua;
-                // Giờ bắt đầu = NVKT bấm Tiến hành; giờ kết thúc = Xưởng xác nhận
+                // Giờ bắt đầu = NVKT bấm Tiến hành; giờ kết thúc = Tổ trưởng xác nhận
                 var gioBd = hsBt?.ThoiDiemBatDauThucTe ?? hsSc?.ThoiDiemBatDauThucTe;
                 var gioKt = hsBt?.ThoiDiemKetThucThucTe ?? hsSc?.ThoiDiemKetThucThucTe;
                 return (object)new
@@ -517,7 +517,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 });
             }
 
-            // NVKT gửi kết quả → PC chờ Xưởng; HS BT/SC GIỮ "Đang thực hiện"
+            // NVKT gửi kết quả → PC chờ Tổ trưởng; HS BT/SC GIỮ "Đang thực hiện"
             phanCong.TrangThai = "Chờ xác nhận";
             phanCong.LyDoTuChoi = null;
 
@@ -542,14 +542,14 @@ namespace OPC.MaintenanceAPI.Services.Implementations
         }
 
         /// <summary>
-        /// Xưởng xác nhận hoặc từ chối kết quả BT/SC do NVKT gửi (sau khi bấm Xong).
+        /// Tổ trưởng cơ điện xác nhận hoặc từ chối kết quả BT/SC do NVKT gửi (sau khi bấm Xong).
         /// Xác nhận → Đã hoàn thành + TB về Sản xuất. Từ chối → NVKT chỉnh lại (Trạng thái Từ chối).
         /// </summary>
         public async Task<(bool, string?)> XuongXacNhanKetQuaAsync(
             int? maHoSoBaoTri, int? maHoSoSuaChua, int maNguoiDung, bool xacNhan, string? lyDo)
         {
             var nhanVien = await _nhanVienRepo.GetByMaNguoiDungAsync(maNguoiDung);
-            if (nhanVien == null) return (false, "Không xác định được nhân viên xưởng.");
+            if (nhanVien == null) return (false, "Không xác định được nhân viên.");
 
             if (maHoSoBaoTri.HasValue && maHoSoBaoTri.Value > 0)
             {
@@ -557,18 +557,18 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 if (hoSo == null) return (false, "Không tìm thấy hồ sơ bảo trì.");
 
                 var dsPc = await _repo.GetPhanCongTheoHoSoBaoTriAsync(hoSo.MaHoSoBaoTri);
-                // Chờ Xưởng: HS Đang thực hiện + PC Chờ xác nhận (hoặc HS cũ còn gắn Chờ xác nhận)
+                // Chờ Tổ trưởng: HS Đang thực hiện + PC Chờ xác nhận (hoặc HS cũ còn gắn Chờ xác nhận)
                 var choXuongXn = hoSo.TrangThai == "Chờ xác nhận"
                     || (hoSo.TrangThai == "Đang thực hiện"
                         && dsPc.Any(p => p.TrangThai == "Chờ xác nhận"));
                 if (!choXuongXn)
-                    return (false, "Hồ sơ chưa có quy trình chờ Xưởng xác nhận (vẫn Đang thực hiện / chưa gửi).");
+                    return (false, "Hồ sơ chưa có quy trình chờ Tổ trưởng cơ điện xác nhận (vẫn Đang thực hiện / chưa gửi).");
 
                 var chiTiet = await _repo.GetChiTietKeHoachByHoSoBaoTriAsync(hoSo.MaHoSoBaoTri);
 
                 if (xacNhan)
                 {
-                    // Xưởng xác nhận → Hoàn thành (đồng bộ HS + PC + chi tiết)
+                    // Tổ trưởng xác nhận → Hoàn thành (đồng bộ HS + PC + chi tiết)
                     hoSo.TrangThai = "Đã hoàn thành";
                     GhiNhanKetThucThucTe(hoSo);
                     hoSo.LyDoTuChoi = null;
@@ -586,7 +586,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                         if (tb != null) tb.TinhTrangHienTai = "Sản xuất";
                     }
 
-                    // Xưởng xác nhận → gửi thẳng hồ sơ vật tư cho Giám đốc (Chờ duyệt), không qua Tổ trưởng
+                    // Xác nhận → gửi thẳng hồ sơ vật tư cho Giám đốc (Chờ duyệt), không qua Tổ trưởng
                     await CapNhatTrangThaiHoSoVatTuTheoCongViecAsync(
                         maHoSoBaoTri: hoSo.MaHoSoBaoTri, maHoSoSuaChua: null, trangThai: "Chờ duyệt");
                 }
@@ -621,7 +621,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     || (hoSo.TrangThai == "Đang thực hiện"
                         && dsPc.Any(p => p.TrangThai == "Chờ xác nhận"));
                 if (!choXuongXn)
-                    return (false, "Hồ sơ chưa có quy trình chờ Xưởng xác nhận (vẫn Đang thực hiện / chưa gửi).");
+                    return (false, "Hồ sơ chưa có quy trình chờ Tổ trưởng cơ điện xác nhận (vẫn Đang thực hiện / chưa gửi).");
 
                 if (xacNhan)
                 {

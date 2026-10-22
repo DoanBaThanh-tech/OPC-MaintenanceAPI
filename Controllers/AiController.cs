@@ -62,8 +62,12 @@ namespace OPC.MaintenanceAPI.Controllers
         [HttpPost("chat")]
         public async Task<IActionResult> Chat([FromBody] ChatRequest req, CancellationToken ct)
         {
-            // Vai trò khóa từ JWT — client không thể giả mạo để hỏi ngoài phạm vi
+            // Vai trò + user khóa từ JWT — không tin client
             var vaiTro = LayVaiTroTuJwt();
+            var maNdClaim = User.FindFirst("MaNguoiDung")?.Value;
+            if (string.IsNullOrEmpty(maNdClaim) || !int.TryParse(maNdClaim, out var maNguoiDung))
+                return Unauthorized(new { Message = "Phiên đăng nhập không hợp lệ." });
+
             var hoTen = string.IsNullOrWhiteSpace(req.HoTen)
                 ? (User.FindFirst(ClaimTypes.Email)?.Value ?? "bạn")
                 : req.HoTen!.Trim();
@@ -73,6 +77,7 @@ namespace OPC.MaintenanceAPI.Controllers
                 .ToList();
 
             var (ok, traLoi, loi) = await _ai.ChatAsync(
+                maNguoiDung,
                 vaiTro,
                 hoTen,
                 req.CauHoi ?? "",

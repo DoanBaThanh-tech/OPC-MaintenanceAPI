@@ -1,29 +1,33 @@
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using OPC.MaintenanceAPI.Data;
 using OPC.MaintenanceAPI.Services.Interfaces;
 
 namespace OPC.MaintenanceAPI.Services.Implementations
 {
     /// <summary>
-    /// Chatbot AI local qua Ollama — không tốn token cloud, không giới hạn ngày.
-    /// System prompt khóa theo vai trò: ngoài phạm vi → từ chối lịch sự.
+    /// Chatbot AI local (Ollama) — giọng thân mật, kèm số liệu thật từ DB.
     /// </summary>
     public class AiChatService : IAiChatService
     {
         private readonly IHttpClientFactory _httpFactory;
         private readonly IConfiguration _config;
         private readonly ILogger<AiChatService> _logger;
+        private readonly OPCDbContext _db;
 
         public AiChatService(
             IHttpClientFactory httpFactory,
             IConfiguration config,
-            ILogger<AiChatService> logger)
+            ILogger<AiChatService> logger,
+            OPCDbContext db)
         {
             _httpFactory = httpFactory;
             _config = config;
             _logger = logger;
+            _db = db;
         }
 
         private string BaseUrl =>
@@ -59,9 +63,11 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             CancellationToken ct = default)
         {
             if (string.IsNullOrWhiteSpace(cauHoi))
-                return (false, null, "Vui lòng nhập câu hỏi.");
+                return (false, null, "Bạn ơi, gửi giúp mình một câu hỏi nhé.");
 
-            var system = BuildSystemPrompt(vaiTro, hoTen);
+            var soLieu = await LaySoLieuThatAsync(vaiTro, ct);
+            var system = BuildSystemPrompt(vaiTro, hoTen, soLieu);
+
             var messages = new List<object>
             {
                 new { role = "system", content = system }
@@ -69,7 +75,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
             if (lichSu != null)
             {
-                foreach (var (role, content) in lichSu.TakeLast(12))
+                foreach (var (role, content) in lichSu.TakeLast(10))
                 {
                     if (string.IsNullOrWhiteSpace(content)) continue;
                     var r = role is "assistant" or "user" ? role : "user";
@@ -89,8 +95,8 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     messages,
                     options = new
                     {
-                        temperature = 0.4,
-                        num_predict = 512
+                        temperature = 0.55,
+                        num_predict = 600
                     }
                 };
 
@@ -113,13 +119,13 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 }
 
                 if (string.IsNullOrWhiteSpace(text))
-                    return (false, null, "AI không trả lời được. Thử lại sau.");
+                    return (false, null, "Mình chưa trả lời được lúc này, bạn thử hỏi lại giúp nhé.");
 
                 return (true, text.Trim(), null);
             }
             catch (TaskCanceledException)
             {
-                return (false, null, "AI trả lời quá lâu. Thử câu hỏi ngắn hơn hoặc đợi model tải xong.");
+                return (false, null, "Câu trả lời hơi lâu. Bạn thử hỏi ngắn hơn giúp mình nhé.");
             }
             catch (Exception ex)
             {
@@ -129,76 +135,127 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             }
         }
 
-        /// <summary>System prompt khóa phạm vi theo đúng menu/vai trò app OPC.</summary>
-        internal static string BuildSystemPrompt(string vaiTro, string hoTen)
+        /// <summary>Số liệu thật từ DB — gắn vào prompt để bot trả lời số ngay.</summary>
+        private async Task<string> LaySoLieuThatAsync(string vaiTro, CancellationToken ct)
+        {
+            try
+            {
+                var now = DateTime.Now;
+                var nam = now.Year;
+                var thang = now.Month;
+                var sb = new StringBuilder();
+                sb.AppendLine($"Ngày giờ hệ thống: {now:dd/MM/yyyy HH:mm}.");
+                sb.AppendLine($"Năm {nam}, tháng {thang}.");
+
+                // Đếm hồ sơ BT theo trạng thái
+                var btGroups = await _db.HoSoBaoTris.AsNoTracking()
+                    .GroupBy(h => h.TrangThai ?? "")
+                    .Select(g => new { TrangThai = g.Key, So = g.Count() })
+                    .ToListAsync(ct);
+                sb.AppendLine("Hồ sơ bảo trì (toàn hệ thống):");
+                foreach (var g in btGroups.OrderByDescending(x => x.So))
+                    sb.AppendLine($"- {g.TrangThai}: {g.So}");
+
+                var scGroups = await _db.HoSoSuaChuas.AsNoTracking()
+                    .GroupBy(h => h.TrangThai ?? "")
+                    .Select(g => new { TrangThai = g.Key, So = g.Count() })
+                    .ToListAsync(ct);
+                sb.AppendLine("Hồ sơ sửa chữa (toàn hệ thống):");
+                foreach (var g in scGroups.OrderByDescending(x => x.So))
+                    sb.AppendLine($"- {g.TrangThai}: {g.So}");
+
+                // Ngày bảo trì dự kiến sắp tới (từ chi tiết kế hoạch)
+                var sapToi = await _db.ChiTietKeHoachBaoTris.AsNoTracking()
+                    .Where(c => c.NgayDuKienBaoTri >= DateOnly.FromDateTime(now))
+                    .OrderBy(c => c.NgayDuKienBaoTri)
+                    .Take(8)
+                    .Select(c => new
+                    {
+                        c.NgayDuKienBaoTri,
+                        TenTb = c.MaThietBiNavigation != null
+                            ? c.MaThietBiNavigation.TenThietBi
+                            : ("TB#" + c.MaThietBi)
+                    })
+                    .ToListAsync(ct);
+                if (sapToi.Count > 0)
+                {
+                    sb.AppendLine("Lịch bảo trì dự kiến sắp tới:");
+                    foreach (var x in sapToi)
+                        sb.AppendLine($"- {x.NgayDuKienBaoTri:dd/MM/yyyy}: {x.TenTb}");
+                }
+                else
+                    sb.AppendLine("Chưa có ngày bảo trì dự kiến sắp tới trong kế hoạch.");
+
+                // Tổng tiền vật tư đã xác nhận
+                var vtXacNhan = await _db.HoSoSuDungVatTus.AsNoTracking()
+                    .Where(h => h.TrangThai == "Xác nhận" || h.TrangThai == "Đã duyệt")
+                    .Select(h => new { h.TongTien, h.NgayThucHien })
+                    .ToListAsync(ct);
+                var tongAll = vtXacNhan.Sum(x => x.TongTien);
+                var tongThang = vtXacNhan
+                    .Where(x => x.NgayThucHien.Year == nam && x.NgayThucHien.Month == thang)
+                    .Sum(x => x.TongTien);
+                var tongNam = vtXacNhan.Where(x => x.NgayThucHien.Year == nam).Sum(x => x.TongTien);
+                sb.AppendLine($"Tổng tiền vật tư đã xác nhận (toàn bộ): {tongAll:N0} ₫");
+                sb.AppendLine($"Tổng tiền vật tư tháng {thang}/{nam}: {tongThang:N0} ₫");
+                sb.AppendLine($"Tổng tiền vật tư năm {nam}: {tongNam:N0} ₫");
+
+                // Số thiết bị
+                var soTb = await _db.ThietBis.AsNoTracking().CountAsync(ct);
+                sb.AppendLine($"Số thiết bị trong hệ thống: {soTb}");
+
+                return sb.ToString();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Không lấy được số liệu cho AI");
+                return "Không tải được số liệu realtime lúc này.";
+            }
+        }
+
+        internal static string BuildSystemPrompt(string vaiTro, string hoTen, string soLieu)
         {
             var ten = string.IsNullOrWhiteSpace(hoTen) ? "bạn" : hoTen.Trim();
-            var vt = (vaiTro ?? "").Trim();
-            if (string.IsNullOrEmpty(vt)) vt = "Người dùng";
+            var vt = string.IsNullOrWhiteSpace(vaiTro) ? "Người dùng" : vaiTro.Trim();
 
             var sb = new StringBuilder();
-            sb.AppendLine("Bạn là OPC Bot — trợ lý AI nội bộ của hệ thống quản lý bảo trì-sửa chữa thiết bị cơ điện công ty dược OPC.");
-            sb.AppendLine($"Người dùng hiện tại: {ten}.");
-            sb.AppendLine($"Vai trò duy nhất được hỗ trợ trong phiên này: «{vt}».");
-            sb.AppendLine("Trả lời bằng tiếng Việt, ngắn gọn, thân thiện, chuyên nghiệp.");
-            sb.AppendLine("CHỈ trả lời các câu hỏi liên quan đến chức năng và nhiệm vụ của đúng vai trò này trong app.");
-            sb.AppendLine("Nếu người dùng hỏi về vai trò khác, chức năng không thuộc phạm vi, hoặc chủ đề ngoài app (chính trị, giải trí, code không liên quan…):");
-            sb.AppendLine("→ Từ chối lịch sự và nhắc họ chỉ hỏi việc thuộc vai trò «" + vt + "».");
-            sb.AppendLine("Không bịa số liệu hồ sơ thật. Hướng dẫn thao tác trên app khi phù hợp.");
+            sb.AppendLine("Bạn là OPC Bot — trợ lý thân thiện của app quản lý bảo trì & sửa chữa thiết bị cơ điện, công ty cổ phần dược phẩm OPC.");
+            sb.AppendLine($"Đang trò chuyện với: {ten} (gọi tên một cách gần gũi, tự nhiên).");
+            sb.AppendLine($"Vai trò của họ trong app: «{vt}».");
+            sb.AppendLine();
+            sb.AppendLine("PHONG CÁCH TRẢ LỜI:");
+            sb.AppendLine("- Nói chuyện như đồng nghiệp hỗ trợ, ấm áp, dễ hiểu — không cứng nhắc, không máy móc.");
+            sb.AppendLine("- Xưng «mình», gọi người dùng bằng tên hoặc «bạn».");
+            sb.AppendLine("- Trả lời ngắn gọn, rõ ý; có thể dùng emoji nhẹ khi phù hợp.");
+            sb.AppendLine("- Khi hỏi số lượng, ngày bảo trì, tổng tiền, trạng thái hồ sơ: **ưu tiên dùng đúng số liệu thật** trong khối DỮ LIỆU HỆ THỐNG bên dưới, nêu số cụ thể ngay, đừng vòng vo.");
+            sb.AppendLine("- Không bịa số. Nếu dữ liệu không có, nói thật là chưa có trên hệ thống.");
+            sb.AppendLine("- Chỉ hỗ trợ công việc thuộc vai trò «" + vt + "». Hỏi việc vai trò khác / ngoài app → từ chối nhẹ nhàng và gợi ý hỏi đúng việc của họ.");
+            sb.AppendLine();
+            sb.AppendLine("DỮ LIỆU HỆ THỐNG (cập nhật realtime — dùng khi trả lời số liệu):");
+            sb.AppendLine(soLieu);
             sb.AppendLine();
 
             switch (vt)
             {
                 case "Tổ trưởng cơ điện":
                 case "Tổ trưởng kỹ thuật":
-                    sb.AppendLine("Phạm vi được trả lời:");
-                    sb.AppendLine("- Danh sách thiết bị, chi tiết thiết bị, quy trình bảo trì/sửa chữa trên thiết bị");
-                    sb.AppendLine("- Kế hoạch bảo trì theo năm/tháng, chu kỳ");
-                    sb.AppendLine("- Tạo hồ sơ bảo trì, gửi xưởng chốt ngày, chờ giám đốc duyệt");
-                    sb.AppendLine("- Phân công nhân viên kỹ thuật sau khi GĐ duyệt; cập nhật khi NV bận");
-                    sb.AppendLine("- Hồ sơ sửa chữa (xem/theo dõi theo quyền), lịch sử phân công, hồ sơ vật tư liên quan");
-                    sb.AppendLine("Ràng buộc nghiệp vụ quan trọng:");
-                    sb.AppendLine("- 1 thiết bị chỉ bảo trì 1 lần/tháng");
-                    sb.AppendLine("- Đang bảo trì chưa xong → không tạo SC cho thiết bị đó; BT xong mới tạo SC được");
-                    sb.AppendLine("- SC không giới hạn số lần/tháng nhưng không tạo 2 SC cùng thiết bị trong cùng 1 ngày");
+                    sb.AppendLine("Bạn hỗ trợ: thiết bị, kế hoạch BT, tạo hồ sơ BT, phân công NVKT, theo dõi SC, ràng buộc (1 BT/tháng/thiết bị; đang BT chưa xong thì chưa tạo SC; không 2 SC cùng thiết bị trong 1 ngày).");
                     break;
-
                 case "Xưởng":
                 case "Tổ trưởng sản xuất":
-                    sb.AppendLine("Phạm vi được trả lời:");
-                    sb.AppendLine("- Hồ sơ bảo trì: chốt ngày bảo trì trong tháng, gửi giám đốc duyệt");
-                    sb.AppendLine("- Khi GĐ từ chối: chỉnh sửa hồ sơ theo yêu cầu");
-                    sb.AppendLine("- Xem quy trình NVKT đã gửi, xác nhận/từ chối quy trình & vật tư");
-                    sb.AppendLine("- Hồ sơ sửa chữa: tạo/theo dõi theo quy trình xưởng");
-                    sb.AppendLine("Không hướng dẫn phân công NVKT (việc của tổ trưởng cơ điện) hay duyệt cuối của giám đốc.");
+                    sb.AppendLine("Bạn hỗ trợ: chốt ngày BT, gửi GĐ duyệt, xử lý khi GĐ từ chối, xác nhận/từ chối quy trình & vật tư NVKT, hồ sơ SC phía xưởng.");
                     break;
-
                 case "Giám đốc":
-                    sb.AppendLine("Phạm vi được trả lời:");
-                    sb.AppendLine("- Duyệt / từ chối hồ sơ bảo trì do xưởng gửi");
-                    sb.AppendLine("- Xem thống kê, báo cáo tổng quan bảo trì-sửa chữa");
-                    sb.AppendLine("- Theo dõi tình trạng hồ sơ ở mức quản lý");
-                    sb.AppendLine("Không hướng dẫn tạo hồ sơ, phân công NVKT hay thao tác kỹ thuật chi tiết trên hiện trường.");
+                    sb.AppendLine("Bạn hỗ trợ: duyệt/từ chối hồ sơ BT, xem thống kê số lượng & chi phí vật tư, góc nhìn quản lý.");
                     break;
-
                 case "Nhân viên kỹ thuật":
-                    sb.AppendLine("Phạm vi được trả lời:");
-                    sb.AppendLine("- Xem yêu cầu công việc được phân công (bảo trì / sửa chữa)");
-                    sb.AppendLine("- Thực hiện quy trình: chọn bước, chọn vật tư + số lượng, hoàn thành bước");
-                    sb.AppendLine("- Gửi kết quả cho xưởng xác nhận; cập nhật khi xưởng từ chối");
-                    sb.AppendLine("- Xem tổng tiền vật tư theo bước / toàn quy trình trên màn hình của mình");
-                    sb.AppendLine("Không hướng dẫn tạo hồ sơ, duyệt GĐ, hay phân công người khác.");
+                    sb.AppendLine("Bạn hỗ trợ: việc được phân công, chọn bước, vật tư, hoàn thành gửi xưởng, xem tổng tiền trên quy trình của mình.");
                     break;
-
                 case "Admin hệ thống":
-                    sb.AppendLine("Phạm vi được trả lời:");
-                    sb.AppendLine("- Quản lý người dùng, vai trò");
-                    sb.AppendLine("- Nhật ký hệ thống, tài khoản");
-                    sb.AppendLine("Không hướng dẫn thao tác nghiệp vụ BT/SC trên hiện trường trừ khi liên quan cấu hình hệ thống.");
+                    sb.AppendLine("Bạn hỗ trợ: tài khoản, vai trò, nhật ký hệ thống.");
                     break;
-
                 default:
-                    sb.AppendLine("Phạm vi: chỉ giải thích chức năng chung của app OPC Maintenance theo vai trò đã đăng nhập.");
+                    sb.AppendLine("Bạn hỗ trợ giải thích chức năng app theo vai trò đã đăng nhập.");
                     break;
             }
 

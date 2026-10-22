@@ -178,6 +178,26 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             return await _repo.GetAllVatTuAsync();
         }
 
+        /// <summary>
+        /// Gộp chi tiết theo (SoBuoc, MaVatTu/TenVatTu): cùng bước + cùng vật tư chỉ giữ 1 dòng
+        /// với số lượng lần gửi gần nhất (không cộng dồn) — tránh số lượng gấp đôi khi gửi trùng.
+        /// </summary>
+        private static List<ChiTietSuDungInputDto> ChuanHoaChiTietKhongTrung(List<ChiTietSuDungInputDto> chiTiet)
+        {
+            var map = new Dictionary<string, ChiTietSuDungInputDto>(StringComparer.OrdinalIgnoreCase);
+            foreach (var c in chiTiet)
+            {
+                if (c.SoLuong < 0) continue;
+                var keyVatTu = c.MaVatTu.HasValue && c.MaVatTu.Value > 0
+                    ? $"id:{c.MaVatTu.Value}"
+                    : $"ten:{(c.TenVatTu ?? "").Trim()}";
+                var key = $"{c.SoBuoc}|{keyVatTu}";
+                // Ghi đè — lấy số lượng lần cuối NVKT gửi, không cộng dồn
+                map[key] = c;
+            }
+            return map.Values.ToList();
+        }
+
         public async Task<(bool, string?, HoSoVatTuResponseDto?)> TaoHoSoSuDungVatTuAsync(TaoHoSoVatTuDto dto, int maNguoiDung)
         {
             var nhanVien = await _nhanVienRepo.GetByMaNguoiDungAsync(maNguoiDung);
@@ -198,7 +218,28 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (dto.ChiTiet.Any(c => c.SoLuong > soLuongToiDa))
                 return (false, $"Số lượng mỗi vật tư tối đa {soLuongToiDa}.", null);
 
-            var tong = dto.ChiTiet.Sum(c => c.SoLuong * c.DonGia);
+            // Chuẩn hóa: không lưu 2 dòng trùng (bước + vật tư) → tránh SL gấp đôi
+            var chiTietSach = ChuanHoaChiTietKhongTrung(dto.ChiTiet);
+            if (chiTietSach.Count == 0)
+                return (false, "Cần ít nhất 1 dòng vật tư hợp lệ.", null);
+
+            // Đã có HS vật tư cho cùng BT/SC → cập nhật thay vì tạo mới (tránh 2 HS → SL nhìn gấp đôi)
+            var existing = await _repo.GetHoSoSuDungEntityByCongViecAsync(dto.MaHoSoBaoTri, dto.MaHoSoSuaChua);
+            if (existing != null && existing.TrangThai is "Chờ gửi" or "Chờ duyệt" or "Đã gửi GĐ")
+            {
+                return await CapNhatHoSoSuDungVatTuAsync(existing.MaHoSoVatTu, new TaoHoSoVatTuDto
+                {
+                    MaHoSoBaoTri = dto.MaHoSoBaoTri,
+                    MaHoSoSuaChua = dto.MaHoSoSuaChua,
+                    MaThietBi = dto.MaThietBi,
+                    TenThietBi = dto.TenThietBi,
+                    LoaiCongViec = dto.LoaiCongViec,
+                    NgayThucHien = dto.NgayThucHien,
+                    ChiTiet = chiTietSach
+                }, maNguoiDung);
+            }
+
+            var tong = chiTietSach.Sum(c => c.SoLuong * c.DonGia);
             var hoSo = new HoSoSuDungVatTu
             {
                 MaHoSoBaoTri = dto.MaHoSoBaoTri,
@@ -213,7 +254,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 NgayTao = DateTime.Now
             };
 
-            foreach (var c in dto.ChiTiet)
+            foreach (var c in chiTietSach)
             {
                 hoSo.ChiTietSuDungVatTus.Add(new ChiTietSuDungVatTu
                 {
@@ -240,8 +281,9 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
             var hoSo = await _repo.GetHoSoSuDungEntityWithChiTietByIdAsync(id);
             if (hoSo == null) return (false, "Không tìm thấy hồ sơ vật tư.", null);
-            if (hoSo.TrangThai != "Chờ gửi")
-                return (false, "Chỉ được cập nhật hồ sơ vật tư khi còn trạng thái Chờ gửi.", null);
+            // Cho phép cập nhật khi còn Chờ gửi hoặc đã gửi Xưởng/GĐ nhưng chưa xác nhận kho
+            if (hoSo.TrangThai is not ("Chờ gửi" or "Chờ duyệt" or "Đã gửi GĐ"))
+                return (false, "Chỉ được cập nhật hồ sơ vật tư khi còn Chờ gửi / Chờ duyệt.", null);
 
             if (dto.ChiTiet == null || dto.ChiTiet.Count == 0)
                 return (false, "Cần ít nhất 1 dòng vật tư.", null);
@@ -253,12 +295,16 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (dto.ChiTiet.Any(c => c.SoLuong > soLuongToiDaCapNhat))
                 return (false, $"Số lượng mỗi vật tư tối đa {soLuongToiDaCapNhat}.", null);
 
-            // Xóa chi tiết cũ, ghi lại danh sách mới
+            var chiTietSach = ChuanHoaChiTietKhongTrung(dto.ChiTiet);
+            if (chiTietSach.Count == 0)
+                return (false, "Cần ít nhất 1 dòng vật tư hợp lệ.", null);
+
+            // Xóa chi tiết cũ, ghi lại danh sách mới (đã chuẩn hóa — không trùng bước+vật tư)
             if (hoSo.ChiTietSuDungVatTus.Count > 0)
                 await _repo.RemoveChiTietSuDungRangeAsync(hoSo.ChiTietSuDungVatTus.ToList());
 
             hoSo.ChiTietSuDungVatTus.Clear();
-            foreach (var c in dto.ChiTiet)
+            foreach (var c in chiTietSach)
             {
                 hoSo.ChiTietSuDungVatTus.Add(new ChiTietSuDungVatTu
                 {
@@ -271,12 +317,15 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 });
             }
 
-            hoSo.TongTien = dto.ChiTiet.Sum(c => c.SoLuong * c.DonGia);
+            hoSo.TongTien = chiTietSach.Sum(c => c.SoLuong * c.DonGia);
             if (!string.IsNullOrWhiteSpace(dto.TenThietBi))
                 hoSo.TenThietBi = dto.TenThietBi;
             if (dto.MaThietBi > 0)
                 hoSo.MaThietBi = dto.MaThietBi;
             hoSo.NgayThucHien = dto.NgayThucHien ?? DateTime.Now;
+            // NVKT gửi lại sau chỉnh sửa → về Chờ gửi để Xưởng thấy đúng SL mới
+            if (hoSo.TrangThai is "Chờ duyệt" or "Đã gửi GĐ")
+                hoSo.TrangThai = "Chờ gửi";
 
             await _repo.SaveChangesAsync();
             var response = await _repo.GetHoSoSuDungVatTuByIdAsync(hoSo.MaHoSoVatTu);

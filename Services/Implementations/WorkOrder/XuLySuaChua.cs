@@ -27,22 +27,22 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             var tb = await _repo.GetThietBiByIdAsync(dto.MaThietBi);
             if (tb == null) return (false, "Không tìm thấy thiết bị.");
 
-            // Đang bảo trì / sửa chữa → không tạo SC (và ngược lại với BT)
-            var ttTb = OPC.MaintenanceAPI.DTOs.Equipment.TrangThaiThietBiConst.ChuanHoa(tb.TinhTrangHienTai);
-            if (ttTb == "Bảo trì" || await _repo.CoHoSoBaoTriDangMoAsync(dto.MaThietBi))
+            // Đang bảo trì chưa xong → không tạo SC. Bảo trì đã hoàn thành → được tạo SC.
+            if (await _repo.CoHoSoBaoTriDangMoAsync(dto.MaThietBi))
                 return (false, "Thiết bị đang bảo trì — không thể tạo hồ sơ sửa chữa. Hoàn tất bảo trì trước.");
-            if (ttTb == "Sửa chữa" || await _repo.CoHoSoSuaChuaDangMoAsync(dto.MaThietBi))
+            // Đang có SC chưa hoàn thành → không tạo thêm SC
+            if (await _repo.CoHoSoSuaChuaDangMoAsync(dto.MaThietBi))
                 return (false, "Thiết bị đã có hồ sơ sửa chữa chưa hoàn thành — không thể tạo thêm.");
 
-            // Đã có BT hoặc SC trong tháng hiện tại → không tạo thêm SC
+            // Không ràng buộc số lần SC trong tháng (thiết bị có thể hư nhiều lần).
+            // Chỉ chặn spam: không tạo 2 hồ sơ SC cho cùng 1 thiết bị trong cùng 1 ngày.
             var nowSc = DateTime.Now;
-            if (await _repo.TonTaiHoSoBtHoacScTrongThangAsync(dto.MaThietBi, nowSc.Year, nowSc.Month))
+            if (await _repo.TonTaiHoSoSuaChuaTrongNgayAsync(dto.MaThietBi, nowSc.Date))
                 return (false,
-                    $"Thiết bị này đã có hồ sơ bảo trì hoặc sửa chữa trong tháng {nowSc.Month}/{nowSc.Year}. Không thể tạo thêm hồ sơ sửa chữa.");
+                    $"Thiết bị này đã có hồ sơ sửa chữa trong ngày {nowSc:dd/MM/yyyy}. Không thể tạo thêm trong cùng ngày — tránh spam hệ thống.");
 
             // Gửi Tổ trưởng phân công (không qua GĐ)
             var trangThai = dto.GuiDuyet ? "Chờ phân công" : "Nháp";
-
             // Thời gian dự kiến (giờ/phút) + giờ bắt đầu/kết thúc — cùng ngày, không tràn
             TimeSpan? gbd = null;
             TimeSpan? gkt = null;

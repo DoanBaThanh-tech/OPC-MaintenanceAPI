@@ -32,9 +32,10 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
         Task<bool> TonTaiHoSoBaoTriTrongThangAsync(int maThietBi, int nam, int thang);
         /// <summary>Đã có hồ sơ sửa chữa (không nháp/hủy) trong tháng — theo NgayTao.</summary>
         Task<bool> TonTaiHoSoSuaChuaTrongThangAsync(int maThietBi, int nam, int thang);
+        /// <summary>Đã có hồ sơ sửa chữa (không nháp/hủy) trong cùng ngày — chống spam 2 SC/ngày/thiết bị.</summary>
+        Task<bool> TonTaiHoSoSuaChuaTrongNgayAsync(int maThietBi, DateTime ngay);
         /// <summary>Cùng thiết bị + tháng đã có hồ sơ/chi tiết khác (loại trừ dòng hiện tại khi sửa).</summary>
-        Task<bool> TonTaiChiTietHoacHoSoThietBiThangKhacAsync(int maThietBi, int nam, int thang, int? excludeMaChiTiet, int? excludeMaHoSo);
-        Task<int?> GetNamKeHoachTheoHoSoBaoTriAsync(int maHoSoBaoTri);
+        Task<bool> TonTaiChiTietHoacHoSoThietBiThangKhacAsync(int maThietBi, int nam, int thang, int? excludeMaChiTiet, int? excludeMaHoSo);        Task<int?> GetNamKeHoachTheoHoSoBaoTriAsync(int maHoSoBaoTri);
         Task<bool> ThietBiDangTrongQuyTrinhKhacAsync(int maThietBi, string boQuaLoaiHoSo, int? boQuaMaHoSo);
         Task<ChiTietKeHoachBaoTri?> GetChiTietKeHoachByHoSoBaoTriAsync(int maHoSoBaoTri);
         Task<bool> CoHoSoBaoTriDangMoAsync(int maThietBi, int? loaiTruMaHoSo = null);
@@ -457,6 +458,18 @@ namespace OPC.MaintenanceAPI.Repositories.Specific
                 && h.NgayTao.Month == thang
                 && h.TrangThai != "Nháp"
                 && h.TrangThai != "Đã hủy");
+
+        public async Task<bool> TonTaiHoSoSuaChuaTrongNgayAsync(int maThietBi, DateTime ngay)
+        {
+            var tu = ngay.Date;
+            var den = tu.AddDays(1);
+            return await _context.HoSoSuaChuas.AnyAsync(h =>
+                h.MaThieBi == maThietBi
+                && h.NgayTao >= tu
+                && h.NgayTao < den
+                && h.TrangThai != "Nháp"
+                && h.TrangThai != "Đã hủy");
+        }
 
         public async Task<bool> TonTaiHoSoBtHoacScTrongThangAsync(int maThietBi, int nam, int thang)
         {

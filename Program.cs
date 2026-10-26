@@ -50,7 +50,11 @@ builder.Services.AddScoped<IThongBaoService, ThongBaoService>();
 builder.Services.AddScoped<IInventoryRepository, InventoryRepository>();
 builder.Services.AddScoped<IInventoryService, InventoryService>();
 
-// OPC Bot Intent-driven (rule-based) — không dùng Ollama
+// OPC Bot: Gemini (hiểu câu) + context DB theo vai trò; fallback rule nếu chưa có key
+builder.Services.AddHttpClient("Gemini", c =>
+{
+    c.Timeout = TimeSpan.FromSeconds(45);
+});
 builder.Services.AddScoped<IAiChatService, AiChatService>();
 
 builder.Services.AddControllers()

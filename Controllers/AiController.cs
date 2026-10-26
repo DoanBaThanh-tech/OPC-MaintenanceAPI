@@ -48,7 +48,7 @@ namespace OPC.MaintenanceAPI.Controllers
                 online,
                 model,
                 message = online
-                    ? $"OPC Bot Intent Engine sẵn sàng ({model}). Rule-based, ≤2s, không Ollama, không token cloud."
+                    ? $"OPC Bot sẵn sàng ({model}). Gemini+DB context khi có ApiKey; fallback rule nếu chưa cấu hình."
                     : loi
             });
         }
@@ -85,10 +85,8 @@ namespace OPC.MaintenanceAPI.Controllers
                 traLoi,
                 vaiTro,
                 hoTen,
-                engine = "intent-rule",
-                local = true,
-                tokenCloud = false,
-                ollama = false
+                engine = "gemini+db-context",
+                tokenCloud = true
             });
         }
     }

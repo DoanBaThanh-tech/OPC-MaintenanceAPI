@@ -52,6 +52,76 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             var nv = await _nvRepo.GetByMaNguoiDungAsync(maNguoiDung);
             if (nv == null) return Array.Empty<object>();
 
+            // Tự đánh dấu đã đọc khi NVKT đã Tiến hành / đã vào quy trình / đã hoàn thành
+            // → không còn hiện thông báo yêu cầu công việc đó nữa.
+            var chuaDoc = await _db.ThongBaos
+                .Where(t => t.MaNhanVienNhan == nv.MaNhanVien && !t.DaDoc)
+                .ToListAsync();
+            if (chuaDoc.Count > 0)
+            {
+                var maBt = chuaDoc.Where(t => t.MaHoSoBaoTri != null).Select(t => t.MaHoSoBaoTri!.Value).Distinct().ToList();
+                var maSc = chuaDoc.Where(t => t.MaHoSoSuaChua != null).Select(t => t.MaHoSoSuaChua!.Value).Distinct().ToList();
+
+                var btStarted = maBt.Count == 0
+                    ? new HashSet<int>()
+                    : (await _db.HoSoBaoTris.AsNoTracking()
+                        .Where(h => maBt.Contains(h.MaHoSoBaoTri) &&
+                            (h.ThoiDiemBatDauThucTe != null
+                             || h.TrangThai == "Đã hoàn thành"
+                             || h.TrangThai == "Đang thực hiện"))
+                        .Select(h => h.MaHoSoBaoTri)
+                        .ToListAsync()).ToHashSet();
+
+                var scStarted = maSc.Count == 0
+                    ? new HashSet<int>()
+                    : (await _db.HoSoSuaChuas.AsNoTracking()
+                        .Where(h => maSc.Contains(h.MaHoSoSuaChua) &&
+                            (h.ThoiDiemBatDauThucTe != null
+                             || h.TrangThai == "Đã hoàn thành"
+                             || h.TrangThai == "Đang thực hiện"))
+                        .Select(h => h.MaHoSoSuaChua)
+                        .ToListAsync()).ToHashSet();
+
+                // Phân công đã không còn "Chờ nhận" / đã thực hiện
+                var pcBtDone = maBt.Count == 0
+                    ? new HashSet<int>()
+                    : (await _db.PhanCongCongViecs.AsNoTracking()
+                        .Where(p => p.MaHoSoBaoTri != null && maBt.Contains(p.MaHoSoBaoTri.Value)
+                            && p.MaNhanVienThucHien == nv.MaNhanVien
+                            && p.TrangThai != null
+                            && p.TrangThai != "Chờ nhận"
+                            && p.TrangThai != "Chờ phân công")
+                        .Select(p => p.MaHoSoBaoTri!.Value)
+                        .ToListAsync()).ToHashSet();
+
+                var pcScDone = maSc.Count == 0
+                    ? new HashSet<int>()
+                    : (await _db.PhanCongCongViecs.AsNoTracking()
+                        .Where(p => p.MaHoSoSuaChua != null && maSc.Contains(p.MaHoSoSuaChua.Value)
+                            && p.MaNhanVienThucHien == nv.MaNhanVien
+                            && p.TrangThai != null
+                            && p.TrangThai != "Chờ nhận"
+                            && p.TrangThai != "Chờ phân công")
+                        .Select(p => p.MaHoSoSuaChua!.Value)
+                        .ToListAsync()).ToHashSet();
+
+                var doi = false;
+                foreach (var t in chuaDoc)
+                {
+                    var daVao = false;
+                    if (t.MaHoSoBaoTri is int b && (btStarted.Contains(b) || pcBtDone.Contains(b)))
+                        daVao = true;
+                    if (t.MaHoSoSuaChua is int s && (scStarted.Contains(s) || pcScDone.Contains(s)))
+                        daVao = true;
+                    if (daVao)
+                    {
+                        t.DaDoc = true;
+                        doi = true;
+                    }
+                }
+                if (doi) await _db.SaveChangesAsync();
+            }
+
             var q = _db.ThongBaos.AsNoTracking()
                 .Where(t => t.MaNhanVienNhan == nv.MaNhanVien);
             if (chiChuaDoc == true)

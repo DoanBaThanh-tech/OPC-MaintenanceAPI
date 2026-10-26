@@ -75,12 +75,15 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (LaCauHoiNhayCam(cauHoi))
             {
                 return (true,
-                    $"{ten} ơi, mình không chia sẻ code, mật khẩu hay cấu hình bảo mật. "
-                    + "Hỏi việc trên hệ thống theo vai trò của bạn — mình trả lời từ dữ liệu thật.",
+                    $"{ten} ơi, mình không chia sẻ được code hay mật khẩu hệ thống nhé. "
+                    + "Bạn hỏi về hồ sơ, quy trình, vật tư, số liệu trong phạm vi công việc của mình — mình hỗ trợ liền.",
                     null);
             }
 
-            // 1) Nạp dữ liệu đầy đủ theo vai trò (không phụ thuộc câu hỏi mẫu)
+            // Tách nhiều yêu cầu trong 1 tin nhắn
+            var cacCau = TachNhieuCauHoi(cauHoi);
+            var traLoiParts = new List<string>();
+
             string boDuLieu;
             try
             {
@@ -89,13 +92,331 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Lỗi nạp dữ liệu vai trò");
-                return (false, null, "Không đọc được dữ liệu hệ thống lúc này. Thử lại sau ít giây.");
+                return (false, null, "Mình chưa đọc được dữ liệu hệ thống lúc này. Bạn thử lại sau vài giây giúp mình nhé.");
             }
 
-            // 2) Gọi AI với toàn bộ ngữ cảnh — trả lời đúng câu user hỏi
-            return await GoiOllamaVoiDuLieuAsync(vt, ten, cauHoi, boDuLieu, lichSu, ct);
+            foreach (var (idx, cau) in cacCau.Select((c, i) => (i + 1, c)))
+            {
+                // Số liệu quan trọng: trả lời CHÍNH XÁC từ DB (không để model bịa số)
+                var chinhXac = await TryTraLoiChinhXacAsync(maNguoiDung, vt, ten, cau, ct);
+                string doan;
+                if (!string.IsNullOrWhiteSpace(chinhXac))
+                {
+                    doan = chinhXac!;
+                }
+                else
+                {
+                    var (ok, traLoi, loi) = await GoiOllamaVoiDuLieuAsync(
+                        vt, ten, cau, boDuLieu, idx == 1 ? lichSu : null, ct);
+                    if (!ok || string.IsNullOrWhiteSpace(traLoi))
+                        doan = loi ?? "Mình chưa trả lời được phần này. Bạn diễn đạt lại giúp mình nhé.";
+                    else
+                        doan = traLoi!;
+                }
+
+                if (cacCau.Count > 1)
+                    traLoiParts.Add($"**Yêu cầu {idx}:** {cau.Trim()}\n{doan}");
+                else
+                    traLoiParts.Add(doan);
+            }
+
+            return (true, string.Join("\n\n", traLoiParts), null);
         }
 
+        /// <summary>Tách 2+ câu hỏi trong một tin (dấu ?, xuống dòng, hoặc "và/với lại/thêm").</summary>
+        private static List<string> TachNhieuCauHoi(string raw)
+        {
+            var text = raw.Trim();
+            // Ưu tiên tách theo dòng
+            var lines = text.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(x => x.Trim()).Where(x => x.Length > 0).ToList();
+            if (lines.Count >= 2) return lines;
+
+            // Tách theo dấu ?
+            var byQ = Regex.Split(text, @"(?<=\?)\s+")
+                .Select(x => x.Trim()).Where(x => x.Length > 0).ToList();
+            if (byQ.Count >= 2) return byQ;
+
+            // Tách theo "và hỏi" / "với lại" / "thêm nữa" / số thứ tự 1) 2)
+            var byNum = Regex.Split(text, @"(?:^|\s)(?:\d+[\.\)\-:]|thứ\s*\d+)\s+", RegexOptions.IgnoreCase)
+                .Select(x => x.Trim()).Where(x => x.Length > 3).ToList();
+            if (byNum.Count >= 2) return byNum;
+
+            var byVa = Regex.Split(text, @"\s+(?:với lại|thêm nữa|ngoài ra|và hỏi)\s+", RegexOptions.IgnoreCase)
+                .Select(x => x.Trim()).Where(x => x.Length > 3).ToList();
+            if (byVa.Count >= 2) return byVa;
+
+            return new List<string> { text };
+        }
+
+        /// <summary>
+        /// Trả lời số liệu chính xác từ DB — thân thiện, đủ thông tin, không cọc lốc.
+        /// Null = để AI hội thoại xử lý.
+        /// </summary>
+        private async Task<string?> TryTraLoiChinhXacAsync(
+            int maNguoiDung, string vaiTro, string ten, string cauHoi, CancellationToken ct)
+        {
+            var q = ChuanHoaKhongDau(cauHoi);
+            var hoiVatTu = Co(q, "vat tu", "so luong vat", "dung bao nhieu vat", "bao nhieu vat tu", "may vat tu");
+            var hoiBuoc = Co(q, "buoc", "quy trinh") && Co(q, "bao nhieu", "may", "so ", "co may", "duoc chon", "da chon");
+            var hoiSoHs = Co(q, "ho so", "bao tri", "sua chua") && Co(q, "bao nhieu", "may", "so luong", "dem");
+            var hoiHoanThanh = Co(q, "hoan thanh");
+            var hoiGio = Co(q, "luc may", "may gio", "khi nao", "gio hoan thanh");
+            var hoiTongTien = Co(q, "tong tien", "chi phi");
+
+            if (hoiVatTu)
+                return await TraLoiVatTuThanThienAsync(maNguoiDung, vaiTro, ten, q, ct);
+            if (hoiBuoc)
+                return await TraLoiBuocThanThienAsync(maNguoiDung, vaiTro, ten, q, ct);
+            if (hoiGio || (hoiHoanThanh && Co(q, "luc", "gio", "ngay")))
+                return await TraLoiGioHoanThanhThanThienAsync(ten, q, ct);
+            if (hoiSoHs)
+                return await TraLoiDemHsThanThienAsync(ten, q, ct);
+            if (hoiTongTien && (vaiTro is "Giám đốc" or "Xưởng" or "Tổ trưởng sản xuất"))
+                return await TraLoiTongTienThanThienAsync(ten, ct);
+
+            return null;
+        }
+
+        private async Task<string> TraLoiVatTuThanThienAsync(
+            int maNguoiDung, string vaiTro, string ten, string q, CancellationToken ct)
+        {
+            int? filterNv = null;
+            if (vaiTro == "Nhân viên kỹ thuật")
+            {
+                filterNv = await _db.NhanViens.AsNoTracking()
+                    .Where(n => n.MaNguoiDung == maNguoiDung)
+                    .Select(n => (int?)n.MaNhanVien).FirstOrDefaultAsync(ct);
+            }
+
+            // Mã HS nếu có
+            int? maBt = null, maSc = null;
+            var mBt = Regex.Match(q, @"\bbt\s*#?\s*(\d+)\b");
+            var mSc = Regex.Match(q, @"\bsc\s*#?\s*(\d+)\b");
+            if (mBt.Success && int.TryParse(mBt.Groups[1].Value, out var idb)) maBt = idb;
+            if (mSc.Success && int.TryParse(mSc.Groups[1].Value, out var ids)) maSc = ids;
+
+            var query = _db.HoSoSuDungVatTus.AsNoTracking().AsQueryable();
+            if (filterNv != null) query = query.Where(h => h.MaNhanVienTH == filterNv);
+            if (maBt != null) query = query.Where(h => h.MaHoSoBaoTri == maBt);
+            if (maSc != null) query = query.Where(h => h.MaHoSoSuaChua == maSc);
+            // Ưu tiên bảo trì nếu câu hỏi nhắc BT
+            if (Co(q, "bao tri") && maBt == null && maSc == null)
+                query = query.Where(h => h.MaHoSoBaoTri != null);
+            if (Co(q, "sua chua") && maBt == null && maSc == null)
+                query = query.Where(h => h.MaHoSoSuaChua != null);
+
+            var list = await query.OrderByDescending(h => h.NgayThucHien).Take(8)
+                .Select(h => new
+                {
+                    h.MaHoSoBaoTri,
+                    h.MaHoSoSuaChua,
+                    h.TenThietBi,
+                    h.TongTien,
+                    h.TrangThai,
+                    h.NgayThucHien,
+                    ChiTiet = h.ChiTietSuDungVatTus.Select(c => new { c.TenVatTu, c.SoLuong, c.SoBuoc, c.DonGia }).ToList()
+                }).ToListAsync(ct);
+
+            if (list.Count == 0)
+            {
+                return $"{ten} ơi, hiện mình chưa thấy hồ sơ sử dụng vật tư nào"
+                       + (filterNv != null ? " trong công việc của bạn" : " khớp câu hỏi")
+                       + " trên hệ thống. Khi NVKT chọn vật tư và lưu quy trình, số liệu sẽ hiện ở đây nhé.";
+            }
+
+            // Gần nhất hoặc theo HS
+            var focus = list[0];
+            var hs = focus.MaHoSoBaoTri != null ? $"BT#{focus.MaHoSoBaoTri}" : $"SC#{focus.MaHoSoSuaChua}";
+            var soLoai = focus.ChiTiet.Select(c => c.TenVatTu).Distinct().Count();
+            var tongSl = focus.ChiTiet.Sum(c => c.SoLuong);
+            var sb = new StringBuilder();
+            sb.AppendLine($"{ten} ơi, với quy trình hồ sơ **{hs}** (thiết bị: {focus.TenThietBi}, ngày {focus.NgayThucHien:dd/MM/yyyy HH:mm}):");
+            sb.AppendLine($"• Có **{soLoai} loại vật tư** được sử dụng, tổng số lượng **{tongSl}**, tổng tiền **{focus.TongTien:N0} ₫** (trạng thái phiếu: {focus.TrangThai}).");
+            if (focus.ChiTiet.Count > 0)
+            {
+                sb.AppendLine("Chi tiết:");
+                foreach (var c in focus.ChiTiet.OrderBy(x => x.SoBuoc).ThenBy(x => x.TenVatTu))
+                    sb.AppendLine($"  – Bước {c.SoBuoc}: {c.TenVatTu} × {c.SoLuong} (đơn giá {c.DonGia:N0} ₫)");
+            }
+            else
+                sb.AppendLine("Phiếu đã tạo nhưng chưa có dòng chi tiết vật tư.");
+
+            if (list.Count > 1 && maBt == null && maSc == null)
+            {
+                sb.AppendLine();
+                sb.AppendLine($"Ngoài ra còn {list.Count - 1} hồ sơ vật tư gần đây khác. Bạn muốn xem mã HS cụ thể (vd. BT#12) mình liệt kê đúng hồ sơ đó nhé.");
+            }
+            return sb.ToString().TrimEnd();
+        }
+
+        private async Task<string> TraLoiBuocThanThienAsync(
+            int maNguoiDung, string vaiTro, string ten, string q, CancellationToken ct)
+        {
+            int? maBt = null, maSc = null;
+            var mBt = Regex.Match(q, @"\bbt\s*#?\s*(\d+)\b");
+            var mSc = Regex.Match(q, @"\bsc\s*#?\s*(\d+)\b");
+            if (mBt.Success && int.TryParse(mBt.Groups[1].Value, out var idb)) maBt = idb;
+            if (mSc.Success && int.TryParse(mSc.Groups[1].Value, out var ids)) maSc = ids;
+
+            var query = _db.TienDoBuocQuyTrinhs.AsNoTracking().AsQueryable();
+            if (vaiTro == "Nhân viên kỹ thuật")
+            {
+                var maNv = await _db.NhanViens.AsNoTracking()
+                    .Where(n => n.MaNguoiDung == maNguoiDung).Select(n => (int?)n.MaNhanVien).FirstOrDefaultAsync(ct);
+                if (maNv != null)
+                {
+                    var pc = await _db.PhanCongCongViecs.AsNoTracking()
+                        .Where(p => p.MaNhanVienThucHien == maNv)
+                        .Select(p => new { p.MaHoSoBaoTri, p.MaHoSoSuaChua }).ToListAsync(ct);
+                    var bts = pc.Where(x => x.MaHoSoBaoTri != null).Select(x => x.MaHoSoBaoTri!.Value).ToList();
+                    var scs = pc.Where(x => x.MaHoSoSuaChua != null).Select(x => x.MaHoSoSuaChua!.Value).ToList();
+                    query = query.Where(t =>
+                        (t.MaHoSoBaoTri != null && bts.Contains(t.MaHoSoBaoTri.Value)) ||
+                        (t.MaHoSoSuaChua != null && scs.Contains(t.MaHoSoSuaChua.Value)));
+                }
+            }
+            if (maBt != null) query = query.Where(t => t.MaHoSoBaoTri == maBt);
+            if (maSc != null) query = query.Where(t => t.MaHoSoSuaChua == maSc);
+            if (Co(q, "bao tri") && maBt == null && maSc == null)
+                query = query.Where(t => t.MaHoSoBaoTri != null);
+
+            var rows = await query.OrderByDescending(t => t.ThoiDiemCapNhat).Take(300)
+                .Select(t => new { t.MaHoSoBaoTri, t.MaHoSoSuaChua, t.SoBuoc, t.MoTaBuoc, t.TrangThai, t.ThoiDiemCapNhat })
+                .ToListAsync(ct);
+
+            if (rows.Count == 0)
+                return $"{ten} ơi, hiện chưa có bước quy trình nào được ghi nhận"
+                       + (maBt != null ? $" trên BT#{maBt}" : maSc != null ? $" trên SC#{maSc}" : "")
+                       + ". Khi NVKT chọn và hoàn thành bước trên app, mình sẽ có số liệu ngay.";
+
+            var g = rows.GroupBy(t => t.MaHoSoBaoTri != null ? $"BT#{t.MaHoSoBaoTri}" : $"SC#{t.MaHoSoSuaChua}")
+                .OrderByDescending(x => x.Max(i => i.ThoiDiemCapNhat)).First();
+            var uniq = g.GroupBy(x => x.SoBuoc).Select(x => x.OrderByDescending(i => i.ThoiDiemCapNhat).First())
+                .OrderBy(x => x.SoBuoc).ToList();
+            var xong = uniq.Count(x => x.TrangThai == "DaXong");
+            var dang = uniq.Count(x => x.TrangThai == "DangLam");
+            var sb = new StringBuilder();
+            sb.AppendLine($"{ten} ơi, quy trình hồ sơ **{g.Key}** hiện có **{uniq.Count} bước** đã được chọn/ghi nhận trên hệ thống.");
+            sb.AppendLine($"Trong đó **{xong} bước đã xong**, **{dang} bước đang làm**.");
+            sb.AppendLine("Danh sách bước:");
+            foreach (var b in uniq)
+                sb.AppendLine($"  – Bước {b.SoBuoc}: {b.MoTaBuoc} ({b.TrangThai})");
+            return sb.ToString().TrimEnd();
+        }
+
+        private async Task<string> TraLoiGioHoanThanhThanThienAsync(string ten, string q, CancellationToken ct)
+        {
+            var uuBt = Co(q, "bao tri") || !Co(q, "sua chua");
+            if (uuBt)
+            {
+                var h = await _db.HoSoBaoTris.AsNoTracking()
+                    .Where(x => x.TrangThai == "Đã hoàn thành")
+                    .OrderByDescending(x => x.ThoiDiemKetThucThucTe ?? x.NgayDuyet ?? x.NgayTao)
+                    .Select(x => new
+                    {
+                        x.MaHoSoBaoTri,
+                        Ten = x.MaThieBiNavigation != null ? x.MaThieBiNavigation.TenThietBi : "",
+                        x.ThoiDiemBatDauThucTe,
+                        x.ThoiDiemKetThucThucTe,
+                        x.NgayDuyet,
+                        x.NgayTao
+                    }).FirstOrDefaultAsync(ct);
+                if (h == null)
+                    return $"{ten} ơi, hiện chưa có hồ sơ bảo trì nào ở trạng thái Đã hoàn thành trên hệ thống.";
+                var kt = h.ThoiDiemKetThucThucTe?.ToString("dd/MM/yyyy HH:mm")
+                         ?? h.NgayDuyet?.ToString("dd/MM/yyyy HH:mm")
+                         ?? h.NgayTao.ToString("dd/MM/yyyy HH:mm");
+                var bd = h.ThoiDiemBatDauThucTe?.ToString("dd/MM/yyyy HH:mm") ?? "chưa ghi";
+                return $"{ten} ơi, hồ sơ bảo trì **BT#{h.MaHoSoBaoTri}** (thiết bị: {h.Ten}) đã hoàn thành.\n"
+                       + $"• Bắt đầu thực tế: **{bd}**\n"
+                       + $"• Hoàn thành: **{kt}**"
+                       + (h.ThoiDiemKetThucThucTe == null ? " (theo ngày duyệt/tạo vì chưa ghi giờ kết thúc thực tế)." : ".");
+            }
+            else
+            {
+                var h = await _db.HoSoSuaChuas.AsNoTracking()
+                    .Where(x => x.TrangThai == "Đã hoàn thành")
+                    .OrderByDescending(x => x.ThoiDiemKetThucThucTe ?? x.NgayDuyet ?? x.NgayTao)
+                    .Select(x => new
+                    {
+                        x.MaHoSoSuaChua,
+                        Ten = x.MaThieBiNavigation != null ? x.MaThieBiNavigation.TenThietBi : "",
+                        x.ThoiDiemBatDauThucTe,
+                        x.ThoiDiemKetThucThucTe,
+                        x.NgayDuyet,
+                        x.NgayTao
+                    }).FirstOrDefaultAsync(ct);
+                if (h == null)
+                    return $"{ten} ơi, hiện chưa có hồ sơ sửa chữa nào Đã hoàn thành.";
+                var kt = h.ThoiDiemKetThucThucTe?.ToString("dd/MM/yyyy HH:mm")
+                         ?? h.NgayDuyet?.ToString("dd/MM/yyyy HH:mm")
+                         ?? h.NgayTao.ToString("dd/MM/yyyy HH:mm");
+                return $"{ten} ơi, hồ sơ **SC#{h.MaHoSoSuaChua}** ({h.Ten}) hoàn thành lúc **{kt}**.";
+            }
+        }
+
+        private async Task<string> TraLoiDemHsThanThienAsync(string ten, string q, CancellationToken ct)
+        {
+            var baoTri = Co(q, "bao tri") || !Co(q, "sua chua");
+            if (baoTri)
+            {
+                var groups = await _db.HoSoBaoTris.AsNoTracking()
+                    .GroupBy(h => h.TrangThai ?? "(trống)")
+                    .Select(g => new { Tt = g.Key, So = g.Count() }).ToListAsync(ct);
+                int Dem(string tt) => groups.FirstOrDefault(x => x.Tt == tt)?.So ?? 0;
+                if (Co(q, "hoan thanh"))
+                    return $"{ten} ơi, hiện có **{Dem("Đã hoàn thành")}** hồ sơ bảo trì ở trạng thái **Đã hoàn thành** (trên tổng **{groups.Sum(x => x.So)}** hồ sơ BT).";
+                var sb = new StringBuilder();
+                sb.AppendLine($"{ten} ơi, tổng số hồ sơ bảo trì trên hệ thống là **{groups.Sum(x => x.So)}**, chia theo trạng thái:");
+                foreach (var g in groups.OrderByDescending(x => x.So))
+                    sb.AppendLine($"• {g.Tt}: **{g.So}**");
+                return sb.ToString().TrimEnd();
+            }
+            else
+            {
+                var groups = await _db.HoSoSuaChuas.AsNoTracking()
+                    .GroupBy(h => h.TrangThai ?? "(trống)")
+                    .Select(g => new { Tt = g.Key, So = g.Count() }).ToListAsync(ct);
+                var sb = new StringBuilder();
+                sb.AppendLine($"{ten} ơi, tổng hồ sơ sửa chữa: **{groups.Sum(x => x.So)}**.");
+                foreach (var g in groups.OrderByDescending(x => x.So))
+                    sb.AppendLine($"• {g.Tt}: **{g.So}**");
+                return sb.ToString().TrimEnd();
+            }
+        }
+
+        private async Task<string> TraLoiTongTienThanThienAsync(string ten, CancellationToken ct)
+        {
+            var now = DateTime.Now;
+            var vt = await _db.HoSoSuDungVatTus.AsNoTracking()
+                .Where(h => h.TrangThai == "Xác nhận" || h.TrangThai == "Đã duyệt")
+                .Select(h => new { h.TongTien, h.NgayThucHien }).ToListAsync(ct);
+            var thang = vt.Where(x => x.NgayThucHien.Year == now.Year && x.NgayThucHien.Month == now.Month).Sum(x => x.TongTien);
+            var nam = vt.Where(x => x.NgayThucHien.Year == now.Year).Sum(x => x.TongTien);
+            return $"{ten} ơi, tổng tiền vật tư **đã xác nhận** trên hệ thống:\n"
+                   + $"• Tháng {now.Month}/{now.Year}: **{thang:N0} ₫**\n"
+                   + $"• Cả năm {now.Year}: **{nam:N0} ₫**\n"
+                   + $"• Mọi thời điểm: **{vt.Sum(x => x.TongTien):N0} ₫**";
+        }
+
+        private static string ChuanHoaKhongDau(string input)
+        {
+            var s = input.Trim().ToLowerInvariant();
+            s = Regex.Replace(s, @"\s+", " ");
+            var norm = s.Normalize(NormalizationForm.FormD);
+            var sb = new StringBuilder();
+            foreach (var c in norm)
+            {
+                if (CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark)
+                    sb.Append(c);
+            }
+            return sb.ToString().Normalize(NormalizationForm.FormC).Replace('đ', 'd');
+        }
+
+        private static bool Co(string q, params string[] keys) => keys.Any(k => q.Contains(k));
+
+        // ===================== NẠP DỮ LIỆU THEO VAI TRÒ =====================
         // ===================== NẠP DỮ LIỆU THEO VAI TRÒ =====================
 
         private async Task<string> NapDuLieuTheoVaiTroAsync(int maNguoiDung, string vaiTro, CancellationToken ct)
@@ -303,17 +624,41 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     h.LoaiCongViec,
                     h.TongTien,
                     h.TrangThai,
-                    h.NgayThucHien
+                    h.NgayThucHien,
+                    ChiTiet = h.ChiTietSuDungVatTus.Select(c => new
+                    {
+                        c.SoBuoc,
+                        c.TenVatTu,
+                        c.SoLuong,
+                        c.DonGia
+                    }).ToList()
                 }).ToListAsync(ct);
 
             sb.AppendLine(chiMaNv != null
-                ? "[Hồ sơ vật tư / tổng tiền quy trình — CỦA NHÂN VIÊN NÀY]"
-                : "[Hồ sơ vật tư gần đây]");
-            if (list.Count == 0) sb.AppendLine("  (không có)");
+                ? "[Vật tư trong quy trình — CỦA NHÂN VIÊN NÀY]"
+                : "[Vật tư sử dụng trong quy trình HS — chi tiết số lượng]");
+            if (list.Count == 0) sb.AppendLine("  (không có hồ sơ vật tư)");
             foreach (var h in list)
             {
                 var hs = h.MaHoSoBaoTri != null ? $"BT#{h.MaHoSoBaoTri}" : $"SC#{h.MaHoSoSuaChua}";
-                sb.AppendLine($"  {hs} | {h.NgayThucHien:dd/MM/yyyy HH:mm} | {h.LoaiCongViec} | {h.TenThietBi} | {h.TongTien:N0}₫ | {h.TrangThai}");
+                var tongSl = h.ChiTiet.Sum(c => c.SoLuong);
+                var soDongVt = h.ChiTiet.Count;
+                var soLoaiVt = h.ChiTiet.Select(c => c.TenVatTu).Distinct().Count();
+                sb.AppendLine($"  {hs} | {h.NgayThucHien:dd/MM/yyyy HH:mm} | {h.LoaiCongViec} | {h.TenThietBi}");
+                sb.AppendLine($"    Tổng tiền: {h.TongTien:N0}₫ | TT: {h.TrangThai} | Số dòng VT: {soDongVt} | Số loại VT: {soLoaiVt} | Tổng SL: {tongSl}");
+                foreach (var c in h.ChiTiet.OrderBy(x => x.SoBuoc).ThenBy(x => x.TenVatTu))
+                    sb.AppendLine($"    • Bước {c.SoBuoc}: {c.TenVatTu} × {c.SoLuong} (đơn giá {c.DonGia:N0}₫)");
+            }
+
+            // Tổng hợp theo từng HS BT/SC (gộp nếu nhiều phiếu VT)
+            sb.AppendLine("[Tổng hợp vật tư theo hồ sơ BT/SC]");
+            var theoHs = list.GroupBy(h => h.MaHoSoBaoTri != null ? $"BT#{h.MaHoSoBaoTri}" : $"SC#{h.MaHoSoSuaChua}");
+            foreach (var g in theoHs)
+            {
+                var allCt = g.SelectMany(x => x.ChiTiet).ToList();
+                var tongSl = allCt.Sum(c => c.SoLuong);
+                var soLoai = allCt.Select(c => c.TenVatTu).Distinct().Count();
+                sb.AppendLine($"  {g.Key}: {soLoai} loại vật tư, tổng số lượng dùng = {tongSl}, tổng tiền phiếu = {g.Sum(x => x.TongTien):N0}₫");
             }
         }
 
@@ -472,20 +817,18 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             IReadOnlyList<(string role, string content)>? lichSu, CancellationToken ct)
         {
             var system = new StringBuilder();
-            system.AppendLine("Bạn là OPC Bot — trợ lý nội bộ app quản lý bảo trì & sửa chữa thiết bị cơ điện (công ty dược OPC).");
-            system.AppendLine($"Người dùng: {hoTen}. Vai trò: «{vaiTro}».");
-            system.AppendLine("Xưng «mình», nói tiếng Việt rõ ràng, thân thiện.");
+            system.AppendLine("Bạn là OPC Bot — trợ lý thân thiện của app bảo trì & sửa chữa (dược OPC).");
+            system.AppendLine($"User: {hoTen}. Vai trò: «{vaiTro}».");
+            system.AppendLine("Xưng «mình», nói chuyện lịch sự, ấm áp, đầy đủ ý — không cọc lốc, không cục tính.");
             system.AppendLine();
-            system.AppendLine("NHIỆM VỤ:");
-            system.AppendLine("- Đọc kỹ câu hỏi của user (kể cả thiếu dấu, viết tắt, câu nói miệng).");
-            system.AppendLine("- Trả lời ĐÚNG ý hỏi bằng dữ liệu trong khối DỮ LIỆU HỆ THỐNG bên dưới.");
-            system.AppendLine("- Số lượng, trạng thái, giờ, bước quy trình, tổng tiền, tên thiết bị, mã hồ sơ… phải lấy từ dữ liệu, nêu số/giờ cụ thể.");
-            system.AppendLine("- CẤM trả lời kiểu «bạn vào app xem», «mở màn hình kiểm tra», «hệ thống chưa cập nhật» nếu dữ liệu bên dưới đã có thông tin.");
-            system.AppendLine("- Chỉ khi dữ liệu bên dưới thật sự không có thông tin liên quan mới nói: chưa có trên hệ thống / chưa ghi nhận — và nêu những gì ĐANG có liên quan.");
-            system.AppendLine("- Chỉ trả lời trong phạm vi vai trò «" + vaiTro + "». Hỏi ngoài phạm vi → từ chối nhẹ.");
-            system.AppendLine("- CẤM lộ code, mật khẩu, connection string, JWT, API key.");
+            system.AppendLine("QUY TẮC:");
+            system.AppendLine("1) Trả lời đúng chủ đề câu hỏi, đủ thông tin cần thiết (số liệu, tên HS, trạng thái…) — không thiếu ý.");
+            system.AppendLine("2) Không nhồi chủ đề lạc đề; nhưng trong đúng chủ đề thì giải thích rõ ràng, dễ hiểu.");
+            system.AppendLine("3) Mọi số liệu lấy từ DỮ LIỆU HỆ THỐNG — không bịa số.");
+            system.AppendLine("4) CẤM bảo «vào app xem». Không có dữ liệu thì nói nhẹ nhàng chưa ghi nhận.");
+            system.AppendLine("5) Phạm vi «" + vaiTro + "». Cấm lộ code/mật khẩu.");
             system.AppendLine();
-            system.AppendLine("DỮ LIỆU HỆ THỐNG (realtime, đã lọc theo vai trò) — đây là nguồn sự thật duy nhất:");
+            system.AppendLine("DỮ LIỆU HỆ THỐNG (realtime):");
             system.AppendLine(boDuLieu);
 
             var messages = new List<object> { new { role = "system", content = system.ToString() } };
@@ -504,8 +847,8 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             messages.Add(new
             {
                 role = "user",
-                content = "Câu hỏi (có thể thiếu dấu câu): " + cauHoi.Trim()
-                          + "\n\nHãy trả lời cụ thể dựa trên DỮ LIỆU HỆ THỐNG. Không bảo tôi vào app tự xem."
+                content = "Câu hỏi: " + cauHoi.Trim()
+                          + "\n\nChỉ trả lời đúng câu này, ngắn gọn, lấy số liệu từ DỮ LIỆU HỆ THỐNG. Không thêm thông tin ngoài chủ đề. Không bảo vào app xem."
             });
 
             try
@@ -519,7 +862,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     options = new
                     {
                         temperature = 0.2,
-                        num_predict = 900
+                        num_predict = 450
                     }
                 };
 

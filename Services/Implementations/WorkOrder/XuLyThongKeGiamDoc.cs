@@ -4,13 +4,14 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 {
     public partial class WorkOrderService
     {
-        // ---------- từ XuLyThongKeGiamDoc.cs ----------
-
+        /// <summary>
+        /// Thống kê GĐ: số HS BT/SC Đã hoàn thành (sau Xưởng xác nhận quy trình) hiện trước;
+        /// số lượng &amp; tổng tiền vật tư chỉ khi GĐ đã xác nhận hồ sơ vật tư.
+        /// </summary>
         public async Task<object> GetThongKeGiamDocAsync(int nam)
         {
             if (nam < 2026 || nam > 2100) nam = Math.Max(2026, DateTime.Now.Year);
 
-            // Ngày dự kiến trên kế hoạch (xếp đúng tháng kế hoạch: 11, 12...)
             var mapNgayKeHoach = await _db.ChiTietKeHoachBaoTris.AsNoTracking()
                 .Where(c => c.MaHoSoBaoTri != null)
                 .Select(c => new { MaHoSo = c.MaHoSoBaoTri!.Value, c.NgayDuKienBaoTri })
@@ -19,7 +20,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 .GroupBy(x => x.MaHoSo)
                 .ToDictionary(g => g.Key, g => g.First().NgayDuKienBaoTri);
 
-            // Hồ sơ bảo trì đã hoàn thành
+            // --- HS BT/SC đã hoàn thành (Xưởng xác nhận quy trình xong) ---
             var btDone = await _db.HoSoBaoTris.AsNoTracking()
                 .Where(h => h.TrangThai == "Đã hoàn thành")
                 .Select(h => new
@@ -36,10 +37,8 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 return new { h.MaHoSoBaoTri, Thang = h.NgayHt.Month, Nam = h.NgayHt.Year };
             }).Where(x => x.Nam == nam).ToList();
 
-            // Map mã HS BT -> (tháng, năm) thống kê
             var mapBtThang = btAll.ToDictionary(x => x.MaHoSoBaoTri, x => (x.Thang, x.Nam));
 
-            // Hồ sơ sửa chữa đã hoàn thành
             var scDone = await _db.HoSoSuaChuas.AsNoTracking()
                 .Where(h => h.TrangThai == "Đã hoàn thành")
                 .Select(h => new
@@ -56,51 +55,85 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
             var mapScThang = scAll.ToDictionary(x => x.MaHoSoSuaChua, x => (x.Thang, x.Nam));
 
-            // Vật tư: gắn theo hồ sơ BT/SC đã hoàn thành → cùng tháng với thiết bị đó
-            // (không lấy theo NgayThucHien để tránh dồn hết về tháng bấm hoàn thành)
-            // Chỉ hồ sơ vật tư đã được giám đốc xác nhận mới vào thống kê
+            // --- Vật tư: CHỈ sau khi Giám đốc xác nhận ---
+            // Trạng thái sau XacNhanHoSoVatTuAsync = "Xác nhận" (và biến thể)
+            var trangThaiGdXacNhan = new[] { "Xác nhận", "Đã xác nhận", "Đã duyệt", "Xac nhan", "Da duyet" };
             var vtRaw = await _db.HoSoSuDungVatTus.AsNoTracking()
-                .Include(h => h.ChiTietSuDungVatTus)
-                .Where(h => h.TrangThai == "Xác nhận" || h.TrangThai == "Đã duyệt")
+                .Where(h => trangThaiGdXacNhan.Contains(h.TrangThai))
                 .Select(h => new
                 {
                     h.MaHoSoVatTu,
                     h.MaHoSoBaoTri,
                     h.MaHoSoSuaChua,
                     h.NgayThucHien,
-                    h.TongTien,
-                    ChiTiet = h.ChiTietSuDungVatTus.Select(c => new { c.SoLuong }).ToList()
+                    h.NgayGuiGiamDoc,
+                    h.TongTien
                 })
                 .ToListAsync();
+
+            var maVtIds = vtRaw.Select(x => x.MaHoSoVatTu).ToList();
+            var chiTietSl = await _db.ChiTietSuDungVatTus.AsNoTracking()
+                .Where(c => maVtIds.Contains(c.MaHoSoVatTu))
+                .GroupBy(c => c.MaHoSoVatTu)
+                .Select(g => new { MaHoSoVatTu = g.Key, SoLuong = g.Sum(x => x.SoLuong) })
+                .ToListAsync();
+            var dictSl = chiTietSl.ToDictionary(x => x.MaHoSoVatTu, x => x.SoLuong);
 
             var vtTheoThang = new List<(int Thang, int Nam, int SoLuong, decimal TongTien)>();
             foreach (var h in vtRaw)
             {
                 int thang;
                 int namHs;
-                var ganVoiHsHoanThanh = false;
+                var coThang = false;
 
+                // Ưu tiên tháng của HS BT/SC đã hoàn thành (cùng thiết bị/quy trình)
                 if (h.MaHoSoBaoTri is int maBt && mapBtThang.TryGetValue(maBt, out var btT))
                 {
                     thang = btT.Thang;
                     namHs = btT.Nam;
-                    ganVoiHsHoanThanh = true;
+                    coThang = true;
                 }
                 else if (h.MaHoSoSuaChua is int maSc && mapScThang.TryGetValue(maSc, out var scT))
                 {
                     thang = scT.Thang;
                     namHs = scT.Nam;
-                    ganVoiHsHoanThanh = true;
+                    coThang = true;
+                }
+                else if (h.MaHoSoBaoTri is int maBt2)
+                {
+                    // HS chưa nằm trong map năm đang xem — lấy năm/tháng hoàn thành thực tế nếu HS đã HT
+                    var bt = btDone.FirstOrDefault(x => x.MaHoSoBaoTri == maBt2);
+                    if (bt != null)
+                    {
+                        thang = bt.NgayHt.Month;
+                        namHs = bt.NgayHt.Year;
+                        coThang = true;
+                    }
+                    else continue; // quy trình chưa hoàn thành → chưa đưa VT vào TK (theo yêu cầu)
+                }
+                else if (h.MaHoSoSuaChua is int maSc2)
+                {
+                    var sc = scDone.FirstOrDefault(x => x.MaHoSoSuaChua == maSc2);
+                    if (sc != null)
+                    {
+                        thang = sc.NgayHt.Month;
+                        namHs = sc.NgayHt.Year;
+                        coThang = true;
+                    }
+                    else continue;
                 }
                 else
                 {
-                    // Không gắn HS đã HT → bỏ qua (tránh đếm vật tư của hồ sơ chưa xong)
-                    continue;
+                    // Không gắn HS → dùng ngày gửi GĐ / thực hiện
+                    var ngay = h.NgayGuiGiamDoc ?? h.NgayThucHien;
+                    thang = ngay.Month;
+                    namHs = ngay.Year;
+                    coThang = true;
                 }
 
-                if (!ganVoiHsHoanThanh || namHs != nam) continue;
+                if (!coThang || namHs != nam) continue;
 
-                var soLuong = h.ChiTiet.Sum(c => c.SoLuong);
+                var soLuong = dictSl.TryGetValue(h.MaHoSoVatTu, out var sl) ? sl : 0;
                 vtTheoThang.Add((thang, namHs, soLuong, h.TongTien));
             }
 
@@ -110,16 +143,13 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 var btThang = btAll.Where(x => x.Thang == m).ToList();
                 var scThang = scAll.Where(x => x.Thang == m).ToList();
                 var vtThang = vtTheoThang.Where(x => x.Thang == m).ToList();
-                var soBt = btThang.Count;
-                var soSc = scThang.Count;
-
                 theoThang.Add(new
                 {
                     Thang = m,
-                    SoBaoTri = soBt,
-                    SoBaoTriHoanThanh = soBt,
-                    SoSuaChua = soSc,
-                    SoSuaChuaHoanThanh = soSc,
+                    SoBaoTri = btThang.Count,
+                    SoBaoTriHoanThanh = btThang.Count,
+                    SoSuaChua = scThang.Count,
+                    SoSuaChuaHoanThanh = scThang.Count,
                     SoLuongVatTu = vtThang.Sum(x => x.SoLuong),
                     TongTienVatTu = vtThang.Sum(x => x.TongTien)
                 });
@@ -127,43 +157,21 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
             const int namToiThieu = 2026;
             var namKeHoach = await _db.KeHoachBaoTris.AsNoTracking()
-                .Where(k => k.Nam >= namToiThieu)
-                .Select(k => k.Nam)
-                .Distinct()
-                .ToListAsync();
-
+                .Where(k => k.Nam >= namToiThieu).Select(k => k.Nam).Distinct().ToListAsync();
             var namChiTiet = await _db.ChiTietKeHoachBaoTris.AsNoTracking()
                 .Where(c => c.NgayDuKienBaoTri.Year >= namToiThieu)
-                .Select(c => c.NgayDuKienBaoTri.Year)
-                .Distinct()
-                .ToListAsync();
-
+                .Select(c => c.NgayDuKienBaoTri.Year).Distinct().ToListAsync();
             var namBt = btDone.Select(h =>
-            {
-                if (dictKeHoach.TryGetValue(h.MaHoSoBaoTri, out var ngayKh))
-                    return ngayKh.Year;
-                return h.NgayHt.Year;
-            }).Where(y => y >= namToiThieu).Distinct().ToList();
-
-            var namSc = scDone.Select(h => h.NgayHt.Year)
+                dictKeHoach.TryGetValue(h.MaHoSoBaoTri, out var nk) ? nk.Year : h.NgayHt.Year)
                 .Where(y => y >= namToiThieu).Distinct().ToList();
+            var namSc = scDone.Select(h => h.NgayHt.Year).Where(y => y >= namToiThieu).Distinct().ToList();
+            var namVt = vtTheoThang.Select(x => x.Nam).Where(y => y >= namToiThieu).Distinct().ToList();
 
-            var danhSachNam = namKeHoach
-                .Concat(namChiTiet)
-                .Concat(namBt)
-                .Concat(namSc)
-                .Distinct()
-                .OrderBy(y => y)
-                .ToList();
-
+            var danhSachNam = namKeHoach.Concat(namChiTiet).Concat(namBt).Concat(namSc).Concat(namVt)
+                .Distinct().OrderBy(y => y).ToList();
             if (danhSachNam.Count == 0 && nam >= namToiThieu &&
-                (btAll.Count > 0 || scAll.Count > 0))
-            {
+                (btAll.Count > 0 || scAll.Count > 0 || vtTheoThang.Count > 0))
                 danhSachNam.Add(nam);
-            }
-
-            var tongSlVt = vtTheoThang.Sum(x => x.SoLuong);
-            var tongTienVt = vtTheoThang.Sum(x => x.TongTien);
 
             return new
             {
@@ -173,8 +181,8 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 TongBaoTriHoanThanh = btAll.Count,
                 TongSuaChua = scAll.Count,
                 TongSuaChuaHoanThanh = scAll.Count,
-                TongSoLuongVatTu = tongSlVt,
-                TongTienVatTu = tongTienVt,
+                TongSoLuongVatTu = vtTheoThang.Sum(x => x.SoLuong),
+                TongTienVatTu = vtTheoThang.Sum(x => x.TongTien),
                 TheoThang = theoThang
             };
         }

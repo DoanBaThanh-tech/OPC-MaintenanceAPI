@@ -50,10 +50,11 @@ builder.Services.AddScoped<IThongBaoService, ThongBaoService>();
 builder.Services.AddScoped<IInventoryRepository, InventoryRepository>();
 builder.Services.AddScoped<IInventoryService, InventoryService>();
 
-// OPC Bot: Gemini (hiểu câu) + context DB theo vai trò; fallback rule nếu chưa có key
-builder.Services.AddHttpClient("Gemini", c =>
+// OPC Bot: Groq (hiểu câu) + context DB theo vai trò; số liệu cứng DB trước
+builder.Services.AddHttpClient("Groq", c =>
 {
     c.Timeout = TimeSpan.FromSeconds(45);
+    c.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "OPC-MaintenanceAPI");
 });
 builder.Services.AddScoped<IAiChatService, AiChatService>();
 

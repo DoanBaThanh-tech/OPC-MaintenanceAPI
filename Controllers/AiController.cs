@@ -48,7 +48,7 @@ namespace OPC.MaintenanceAPI.Controllers
                 online,
                 model,
                 message = online
-                    ? $"OPC Bot sẵn sàng ({model}). Gemini+DB context khi có ApiKey; fallback rule nếu chưa cấu hình."
+                    ? $"OPC Bot sẵn sàng ({model}). Groq+DB khi có ApiKey; fallback rule nếu chưa cấu hình."
                     : loi
             });
         }
@@ -85,8 +85,8 @@ namespace OPC.MaintenanceAPI.Controllers
                 traLoi,
                 vaiTro,
                 hoTen,
-                engine = "gemini+db-context",
-                tokenCloud = true
+                engine = "groq+db-context",
+                tokenCloud = true /* Groq free tier có hạn mức */
             });
         }
     }

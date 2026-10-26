@@ -6,7 +6,7 @@ using OPC.MaintenanceAPI.Services.Interfaces;
 namespace OPC.MaintenanceAPI.Controllers
 {
     /// <summary>
-    /// Chatbot AI local (Ollama) — khóa theo vai trò JWT của user đăng nhập.
+    /// OPC Bot — State Memory engine, khóa theo vai trò JWT.
     /// </summary>
     [ApiController]
     [Route("api/[controller]")]
@@ -50,7 +50,7 @@ namespace OPC.MaintenanceAPI.Controllers
                 online,
                 model,
                 message = online
-                    ? $"AI local sẵn sàng (model: {model}). Không tốn token cloud."
+                    ? $"OPC Bot State Engine sẵn sàng ({model}). Trả lời ≤2s, không tốn token cloud."
                     : loi
             });
         }

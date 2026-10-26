@@ -47,12 +47,12 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             var q = ChuanHoa(cauHoi);
 
             if (LaNhayCam(q))
-                return (true, $"{ten} ơi, mình không chia sẻ code hay mật khẩu hệ thống được. Hỏi nghiệp vụ trong phạm vi «{vt}» giúp mình nhé.", null);
+                return (true, $"Dạ, mình không chia sẻ thông tin bảo mật hệ thống. Hỏi nghiệp vụ trong phạm vi «{vt}» giúp mình.", null);
 
             // Chặn hỏi ngoài phạm vi vai trò
             var chan = KiemTraVuotQuyen(vt, q);
             if (chan != null)
-                return (true, $"{ten} ơi, {chan}", null);
+                return (true, $"Dạ, {chan}", null);
 
             try
             {
@@ -343,67 +343,78 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (Co(q, "lich", "sap toi", "ke hoach", "ngay du kien"))
                 return TraLoiLich(ten, st, vt);
 
-            // --- Hướng dẫn theo vai trò ---
+            // --- Hướng dẫn (chỉ khi hỏi rõ cách làm) ---
             if (Co(q, "cach", "lam sao", "huong dan", "phai lam", "quy trinh tao", "phan cong nhu"))
                 return HuongDanVaiTro(ten, vt, q);
 
-            // --- Chào / giúp gì ---
-            if (Co(q, "xin chao", "hello", "chào", "giup gi", "ban la ai", "ban co the"))
-                return ChaoVaPhamVi(ten, vt, st);
+            // --- Chào ngắn ---
+            if (Co(q, "xin chao", "hello", "chao", "giup gi", "ban la ai"))
+                return $"Dạ, chào {ten}. Vai trò «{vt}». Hỏi số liệu hoặc thao tác trong phạm vi của bạn, mình trả lời ngay từ hệ thống.";
 
-            // Fallback: tóm tắt phạm vi + gợi ý hỏi
-            return ChaoVaPhamVi(ten, vt, st) + "\n\nBạn có thể hỏi cụ thể hơn, ví dụ trạng thái một thiết bị, số hồ sơ đã hoàn thành, vật tư trong quy trình…";
+            // Không khớp → ngắn, không lan man
+            return $"Dạ, mình chưa khớp đúng dữ liệu cho câu hỏi này trong phạm vi «{vt}». "
+                   + "Bạn nêu rõ tên thiết bị, mã hồ sơ (BT#/SC#) hoặc loại số liệu cần xem giúp mình.";
         }
 
         private string? TraLoiThietBi(string ten, string q, RoleState st)
         {
             if (st.ThietBis.Count == 0)
-                return $"{ten} ơi, phạm vi của bạn hiện không có dữ liệu danh sách thiết bị.";
+                return $"Dạ, phạm vi «{st.VaiTro}» hiện không có dữ liệu danh sách thiết bị.";
 
-            // Hỏi 1 thiết bị theo tên (khớp gần đúng)
+            // Khớp tên thiết bị
             var candidates = st.ThietBis
-                .Select(t => new { Tb = t, Score = DiemKhopTen(q, t.Ten) })
+                .Select(tb => new { Tb = tb, Score = DiemKhopTen(q, tb.Ten) })
                 .Where(x => x.Score >= 2)
                 .OrderByDescending(x => x.Score)
                 .Take(5)
                 .ToList();
 
-            if (candidates.Count > 0 && (Co(q, "trang thai", "tinh trang", "lich", "bao tri", "dang o") || candidates[0].Score >= 3))
+            if (candidates.Count > 0 && (Co(q, "trang thai", "tinh trang", "lich", "bao tri", "dang o", "tiep theo", "gan nhat") || candidates[0].Score >= 3))
             {
-                var t = candidates[0].Tb;
-                var sb = new StringBuilder();
-                sb.AppendLine($"{ten} ơi, thiết bị **{t.Ten}** (mã TB#{t.Ma}):");
-                sb.AppendLine($"• Tình trạng hiện tại: **{(string.IsNullOrWhiteSpace(t.TinhTrang) ? "chưa ghi" : t.TinhTrang)}**");
-                if (!string.IsNullOrWhiteSpace(t.Loai)) sb.AppendLine($"• Danh mục/loại: {t.Loai}");
-                if (!string.IsNullOrWhiteSpace(t.ViTri)) sb.AppendLine($"• Vị trí: {t.ViTri}");
-                sb.AppendLine($"• Bảo trì gần nhất: **{(t.BtGanNhat.HasValue ? t.BtGanNhat.Value.ToString("dd/MM/yyyy") : "chưa có")}**");
-                sb.AppendLine($"• Bảo trì tiếp theo: **{(t.BtTiepTheo.HasValue ? t.BtTiepTheo.Value.ToString("dd/MM/yyyy") : "chưa có")}**");
-                if (candidates.Count > 1 && candidates[0].Score == candidates[1].Score)
-                {
-                    sb.AppendLine("\nCó thể bạn còn muốn nói đến:");
-                    foreach (var c in candidates.Skip(1).Take(3))
-                        sb.AppendLine($"• {c.Tb.Ten} — {c.Tb.TinhTrang}");
-                }
-                return sb.ToString().TrimEnd();
+                var tb = candidates[0].Tb;
+                var tt = string.IsNullOrWhiteSpace(tb.TinhTrang) ? "chưa ghi" : tb.TinhTrang;
+                var gan = tb.BtGanNhat.HasValue ? tb.BtGanNhat.Value.ToString("dd/MM/yyyy") : "chưa có";
+                var tiep = tb.BtTiepTheo.HasValue ? tb.BtTiepTheo.Value.ToString("dd/MM/yyyy") : "chưa có";
+                return $"Dạ, thiết bị **{tb.Ten}** hiện đang ở trạng thái **{tt}**. "
+                     + $"Lịch bảo trì gần nhất là **{gan}** và tiếp theo là **{tiep}** ạ.";
             }
 
-            // Tổng quan danh mục / tình trạng
-            if (Co(q, "bao nhieu", "danh muc", "tong", "co may", "tinh trang", "san xuat", "bao tri", "sua chua")
-                || Co(q, "thiet bi"))
+            // Tổng quan: danh mục + 4 nhóm tình trạng
+            if (Co(q, "bao nhieu", "danh muc", "tong", "co may", "tinh trang", "san xuat", "thiet bi", "tat ca"))
             {
+                int DemTt(string key) =>
+                    st.DemTheoTinhTrang
+                        .Where(kv => kv.Key.Contains(key, StringComparison.OrdinalIgnoreCase))
+                        .Sum(kv => kv.Value);
+                var sx = DemTt("Sản xuất");
+                var bt = DemTt("Bảo trì");
+                var sc = DemTt("Sửa chữa");
                 var sb = new StringBuilder();
-                sb.AppendLine($"{ten} ơi, hệ thống đang có **{st.ThietBis.Count}** thiết bị.");
+                sb.AppendLine($"Dạ, tổng **{st.ThietBis.Count}** thiết bị (Tất cả).");
+                sb.AppendLine($"• Sản xuất: **{sx}** | Bảo trì: **{bt}** | Sửa chữa: **{sc}**.");
                 if (st.DemTheoLoai.Count > 0)
                 {
-                    sb.AppendLine("Theo danh mục/loại:");
+                    sb.AppendLine("Theo danh mục:");
                     foreach (var kv in st.DemTheoLoai.OrderByDescending(x => x.Value))
                         sb.AppendLine($"• {kv.Key}: **{kv.Value}**");
                 }
-                if (st.DemTheoTinhTrang.Count > 0)
+                // Liệt kê tên TB đang BT / SC nếu hỏi trạng thái
+                if (Co(q, "bao tri", "sua chua", "dang") || bt + sc > 0)
                 {
-                    sb.AppendLine("Theo tình trạng:");
-                    foreach (var kv in st.DemTheoTinhTrang.OrderByDescending(x => x.Value))
-                        sb.AppendLine($"• {kv.Key}: **{kv.Value}**");
+                    var dangBt = st.ThietBis.Where(x => (x.TinhTrang ?? "").Contains("Bảo trì", StringComparison.OrdinalIgnoreCase)).Take(10).ToList();
+                    var dangSc = st.ThietBis.Where(x => (x.TinhTrang ?? "").Contains("Sửa chữa", StringComparison.OrdinalIgnoreCase)).Take(10).ToList();
+                    if (dangBt.Count > 0)
+                    {
+                        sb.AppendLine("Thiết bị đang Bảo trì:");
+                        foreach (var x in dangBt)
+                            sb.AppendLine($"• {x.Ten}" + (x.BtTiepTheo.HasValue ? $" (BT tiếp theo {x.BtTiepTheo:dd/MM/yyyy})" : ""));
+                    }
+                    if (dangSc.Count > 0)
+                    {
+                        sb.AppendLine("Thiết bị đang Sửa chữa:");
+                        foreach (var x in dangSc)
+                            sb.AppendLine($"• {x.Ten}");
+                    }
                 }
                 return sb.ToString().TrimEnd();
             }
@@ -423,7 +434,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
         private string TraLoiVatTu(string ten, string q, RoleState st, string vt)
         {
             if (st.VatTu.Count == 0)
-                return $"{ten} ơi, hiện chưa có hồ sơ vật tư trong phạm vi của bạn trên hệ thống.";
+                return $"Dạ, chưa có hồ sơ vật tư trong phạm vi của bạn.";
 
             VtItem focus;
             var mBt = Regex.Match(q, @"\bbt\s*#?\s*(\d+)\b");
@@ -441,7 +452,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
             var hs = focus.MaBt != null ? $"BT#{focus.MaBt}" : $"SC#{focus.MaSc}";
             var sb = new StringBuilder();
-            sb.AppendLine($"{ten} ơi, quy trình hồ sơ **{hs}** (thiết bị: {focus.TenTb}, {focus.Ngay:dd/MM/yyyy HH:mm}):");
+            sb.AppendLine($"Dạ, quy trình hồ sơ **{hs}** (thiết bị: {focus.TenTb}, {focus.Ngay:dd/MM/yyyy HH:mm}):");
             sb.AppendLine($"• **{focus.SoLoai} loại vật tư**, tổng số lượng **{focus.TongSl}**, tổng tiền **{focus.TongTien:N0} ₫**.");
             sb.AppendLine($"• Trạng thái phiếu vật tư: **{focus.TrangThai}**.");
 
@@ -456,7 +467,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
         private string TraLoiBuoc(string ten, string q, RoleState st)
         {
             if (st.BuocTheoHs.Count == 0)
-                return $"{ten} ơi, hiện chưa ghi nhận bước quy trình nào trong phạm vi của bạn.";
+                return $"Dạ, chưa ghi nhận bước quy trình nào trong phạm vi của bạn.";
 
             BuocHsItem focus;
             var mBt = Regex.Match(q, @"\bbt\s*#?\s*(\d+)\b");
@@ -469,7 +480,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 focus = st.BuocTheoHs[0];
 
             var sb = new StringBuilder();
-            sb.AppendLine($"{ten} ơi, hồ sơ **{focus.Key}** có **{focus.SoBuoc} bước** đã chọn/ghi nhận (xong: {focus.DaXong}, đang làm: {focus.DangLam}).");
+            sb.AppendLine($"Dạ, hồ sơ **{focus.Key}**: **{focus.SoBuoc} bước** đã chọn (xong: {focus.DaXong}, đang làm: {focus.DangLam}).");
             foreach (var c in focus.ChiTiet)
                 sb.AppendLine($"• {c}");
             return sb.ToString().TrimEnd();
@@ -480,7 +491,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (vt == "Nhân viên kỹ thuật")
             {
                 var sb = new StringBuilder();
-                sb.AppendLine($"{ten} ơi, công việc được phân công cho bạn: **{st.PhanCongs.Count}** lệnh gần đây.");
+                sb.AppendLine($"Dạ, bạn có **{st.PhanCongs.Count}** phân công gần đây.");
                 foreach (var g in st.PhanCongs.GroupBy(p => p.TrangThai))
                     sb.AppendLine($"• {g.Key}: {g.Count()}");
                 if (st.BtGanDay.Count > 0)
@@ -509,7 +520,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             {
                 var n = dict.GetValueOrDefault("Đã hoàn thành", 0);
                 var sb = new StringBuilder();
-                sb.AppendLine($"{ten} ơi, có **{n}** hồ sơ {loai} **Đã hoàn thành**.");
+                sb.AppendLine($"Dạ, có **{n}** hồ sơ {loai} **Đã hoàn thành**.");
                 var list = (uuBt ? st.BtGanDay : st.ScGanDay).Where(h => h.TrangThai == "Đã hoàn thành").Take(5);
                 foreach (var h in list)
                 {
@@ -520,14 +531,14 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             }
 
             if (Co(q, "cho duyet") && vt is "Giám đốc")
-                return $"{ten} ơi, đang có **{st.BtChoDuyet}** hồ sơ bảo trì và **{st.ScChoDuyet}** hồ sơ sửa chữa **Chờ duyệt**.";
+                return $"Dạ, chờ duyệt: BT **{st.BtChoDuyet}**, SC **{st.ScChoDuyet}**.";
 
             if (Co(q, "cho xuong", "chot ngay") && vt is "Xưởng" or "Tổ trưởng sản xuất")
-                return $"{ten} ơi, có **{st.BtChoChot}** hồ sơ bảo trì cần Xưởng xử lý (chốt ngày / chờ xưởng). Hồ sơ bị trả về (Từ chối): **{st.BtTuChoiVeXuong}**.";
+                return $"Dạ, hồ sơ cần Xưởng xử lý: **{st.BtChoChot}**. Bị trả về (Từ chối): **{st.BtTuChoiVeXuong}**.";
 
             var tong = dict.Values.Sum();
             var sb2 = new StringBuilder();
-            sb2.AppendLine($"{ten} ơi, tổng hồ sơ {loai}: **{tong}**.");
+            sb2.AppendLine($"Dạ, tổng hồ sơ {loai}: **{tong}**.");
             foreach (var kv in dict.OrderByDescending(x => x.Value))
                 sb2.AppendLine($"• {kv.Key}: **{kv.Value}**");
             return sb2.ToString().TrimEnd();
@@ -536,11 +547,11 @@ namespace OPC.MaintenanceAPI.Services.Implementations
         private string TraLoiLich(string ten, RoleState st, string vt)
         {
             if (vt is "Nhân viên kỹ thuật")
-                return $"{ten} ơi, lịch kế hoạch bảo trì do Tổ trưởng / Xưởng quản lý. Bạn xem công việc được phân công trên tài khoản nhé.";
+                return $"Dạ, lịch kế hoạch do Tổ trưởng/Xưởng quản lý. NVKT xem việc được phân công trên tài khoản.";
             if (st.LichBt.Count == 0)
-                return $"{ten} ơi, hiện chưa có lịch bảo trì dự kiến sắp tới trên kế hoạch.";
+                return $"Dạ, chưa có lịch bảo trì dự kiến sắp tới.";
             var sb = new StringBuilder();
-            sb.AppendLine($"{ten} ơi, lịch bảo trì dự kiến sắp tới:");
+            sb.AppendLine($"Dạ, lịch bảo trì dự kiến sắp tới:");
             foreach (var x in st.LichBt)
                 sb.AppendLine($"• {x.Ngay:dd/MM/yyyy}: {x.TenTb}");
             return sb.ToString().TrimEnd();
@@ -551,59 +562,15 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             return vt switch
             {
                 "Tổ trưởng cơ điện" or "Tổ trưởng kỹ thuật" =>
-                    $"{ten} ơi, với vai trò Tổ trưởng cơ điện bạn có thể:\n"
-                    + "• Lập/xem kế hoạch bảo trì, tạo hồ sơ bảo trì theo thiết bị.\n"
-                    + "• Phân công NVKT; khi nhân viên bận thì cập nhật lại người thực hiện trên hệ thống.\n"
-                    + "• Tra cứu thiết bị (Sản xuất / Bảo trì / Sửa chữa) và hồ sơ vật tư liên quan.\n"
-                    + "Mình **không** hỗ trợ thao tác phê duyệt của Giám đốc hay chốt ngày của Xưởng — đó thuộc vai trò khác.",
-
+                    "Dạ, Tổ trưởng: lập KH/HS bảo trì → phân công NVKT → theo dõi thiết bị & vật tư. Không duyệt hộ GĐ / không chốt ngày hộ Xưởng.",
                 "Xưởng" or "Tổ trưởng sản xuất" =>
-                    $"{ten} ơi, Xưởng tập trung:\n"
-                    + "• Chốt ngày bảo trì trong tháng cho hồ sơ chờ xưởng.\n"
-                    + "• Gửi hồ sơ lên Giám đốc duyệt; nếu GĐ từ chối thì chỉnh sửa và gửi lại.\n"
-                    + "• Xác nhận/từ chối quy trình do NVKT gửi lên.",
-
+                    "Dạ, Xưởng: chốt ngày BT trong tháng → gửi GĐ; GĐ trả về thì sửa & gửi lại; xác nhận/từ chối quy trình NVKT.",
                 "Giám đốc" =>
-                    $"{ten} ơi, Giám đốc dùng chatbot để:\n"
-                    + "• Xem nhanh số hồ sơ chờ duyệt, tóm tắt trạng thái.\n"
-                    + "• Hỗ trợ soạn lý do từ chối trả về Xưởng (bạn hỏi mình gợi ý nội dung).\n"
-                    + "• Xem thống kê số lượng BT/SC đã hoàn thành và chi phí vật tư đã xác nhận.",
-
+                    "Dạ, Giám đốc: duyệt/từ chối HS; xem lịch sử phê duyệt & thống kê VT đã xác nhận. Cần gợi ý lý do từ chối thì nói rõ hồ sơ.",
                 "Nhân viên kỹ thuật" =>
-                    $"{ten} ơi, NVKT làm theo:\n"
-                    + "1) Nhận phân công trên tài khoản → bấm **Tiến hành**.\n"
-                    + "2) Chọn/thực hiện từng bước quy trình, gắn vật tư nếu cần.\n"
-                    + "3) **Hoàn thành** gửi Xưởng xác nhận.\n"
-                    + "Nếu Xưởng từ chối: vào **Cập nhật quy trình**, xem lý do từ chối, chỉnh rồi gửi lại.",
-
-                _ => $"{ten} ơi, hãy hỏi số liệu hoặc thao tác trong đúng vai trò «{vt}» của bạn."
+                    "Dạ, NVKT: Tiến hành → làm từng bước + vật tư → Hoàn thành gửi Xưởng. Bị từ chối: Cập nhật quy trình theo lý do rồi gửi lại.",
+                _ => $"Dạ, hỏi số liệu trong đúng vai trò «{vt}»."
             };
-        }
-
-        private static string ChaoVaPhamVi(string ten, string vt, RoleState st)
-        {
-            var sb = new StringBuilder();
-            sb.AppendLine($"Chào {ten}! Mình là **OPC Bot** — trợ lý realtime cho vai trò «{vt}».");
-            sb.AppendLine($"Dữ liệu nạp lúc {st.TaiLuc:HH:mm:ss} (cache ~30s).");
-            switch (vt)
-            {
-                case "Tổ trưởng cơ điện":
-                case "Tổ trưởng kỹ thuật":
-                    sb.AppendLine($"Thiết bị: **{st.ThietBis.Count}** | HS BT: **{st.BtTheoTt.Values.Sum()}** | HS SC: **{st.ScTheoTt.Values.Sum()}**.");
-                    break;
-                case "Xưởng":
-                case "Tổ trưởng sản xuất":
-                    sb.AppendLine($"Hồ sơ chờ Xưởng xử lý: **{st.BtChoChot}** | Từ chối cần sửa: **{st.BtTuChoiVeXuong}**.");
-                    break;
-                case "Giám đốc":
-                    sb.AppendLine($"Chờ duyệt BT: **{st.BtChoDuyet}** | SC: **{st.ScChoDuyet}** | Tiền VT đã xác nhận (gần đây): **{st.TongTienVtXn:N0} ₫**.");
-                    break;
-                case "Nhân viên kỹ thuật":
-                    sb.AppendLine($"Bạn có **{st.PhanCongs.Count}** phân công gần đây trong phạm vi tài khoản.");
-                    break;
-            }
-            sb.AppendLine("Hỏi mình bất kỳ số liệu/thao tác trong phạm vi vai trò — mình trả lời từ dữ liệu hệ thống.");
-            return sb.ToString().TrimEnd();
         }
 
         private static string? KiemTraVuotQuyen(string vt, string q)

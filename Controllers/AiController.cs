@@ -6,7 +6,8 @@ using OPC.MaintenanceAPI.Services.Interfaces;
 namespace OPC.MaintenanceAPI.Controllers
 {
     /// <summary>
-    /// OPC Bot — State Memory engine, khóa theo vai trò JWT.
+    /// OPC Bot — Rule-based / Intent-driven, khóa theo vai trò JWT.
+    /// Không dùng Ollama local.
     /// </summary>
     [ApiController]
     [Route("api/[controller]")]
@@ -20,9 +21,7 @@ namespace OPC.MaintenanceAPI.Controllers
         public class ChatRequest
         {
             public string? CauHoi { get; set; }
-            /// <summary>Họ tên hiển thị (JWT không chứa HoTen) — chỉ dùng để chào.</summary>
             public string? HoTen { get; set; }
-            /// <summary>[{ "role": "user"|"assistant", "content": "..." }]</summary>
             public List<ChatTurnDto>? LichSu { get; set; }
         }
 
@@ -32,7 +31,6 @@ namespace OPC.MaintenanceAPI.Controllers
             public string? Content { get; set; }
         }
 
-        /// <summary>Vai trò luôn lấy từ JWT — không tin client.</summary>
         private string LayVaiTroTuJwt()
         {
             return User.FindFirst(ClaimTypes.Role)?.Value
@@ -40,7 +38,7 @@ namespace OPC.MaintenanceAPI.Controllers
                    ?? "Người dùng";
         }
 
-        /// <summary>Kiểm tra Ollama local có chạy không.</summary>
+        /// <summary>Intent engine luôn online khi API chạy.</summary>
         [HttpGet("trang-thai")]
         public async Task<IActionResult> TrangThai(CancellationToken ct)
         {
@@ -50,19 +48,14 @@ namespace OPC.MaintenanceAPI.Controllers
                 online,
                 model,
                 message = online
-                    ? $"OPC Bot State Engine sẵn sàng ({model}). Trả lời ≤2s, không tốn token cloud."
+                    ? $"OPC Bot Intent Engine sẵn sàng ({model}). Rule-based, ≤2s, không Ollama, không token cloud."
                     : loi
             });
         }
 
-        /// <summary>
-        /// Chat — tự lấy vai trò + họ tên từ JWT.
-        /// AI chỉ trả lời trong phạm vi vai trò đó.
-        /// </summary>
         [HttpPost("chat")]
         public async Task<IActionResult> Chat([FromBody] ChatRequest req, CancellationToken ct)
         {
-            // Vai trò + user khóa từ JWT — không tin client
             var vaiTro = LayVaiTroTuJwt();
             var maNdClaim = User.FindFirst("MaNguoiDung")?.Value;
             if (string.IsNullOrEmpty(maNdClaim) || !int.TryParse(maNdClaim, out var maNguoiDung))
@@ -92,8 +85,10 @@ namespace OPC.MaintenanceAPI.Controllers
                 traLoi,
                 vaiTro,
                 hoTen,
+                engine = "intent-rule",
                 local = true,
-                tokenCloud = false
+                tokenCloud = false,
+                ollama = false
             });
         }
     }

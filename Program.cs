@@ -50,11 +50,7 @@ builder.Services.AddScoped<IThongBaoService, ThongBaoService>();
 builder.Services.AddScoped<IInventoryRepository, InventoryRepository>();
 builder.Services.AddScoped<IInventoryService, InventoryService>();
 
-// AI chatbot local (Ollama) — không tốn token cloud
-builder.Services.AddHttpClient("Ollama", c =>
-{
-    c.Timeout = TimeSpan.FromMinutes(3);
-});
+// OPC Bot Intent-driven (rule-based) — không dùng Ollama
 builder.Services.AddScoped<IAiChatService, AiChatService>();
 
 builder.Services.AddControllers()

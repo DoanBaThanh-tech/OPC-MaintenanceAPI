@@ -10,8 +10,9 @@ using OPC.MaintenanceAPI.Services.Interfaces;
 namespace OPC.MaintenanceAPI.Services.Implementations
 {
     /// <summary>
-    /// OPC Bot: Groq API + CONTEXT DB theo vai trò. Số liệu cứng DB trước; fallback rule nếu chưa có key.
-    /// Không dùng Ollama.
+    /// OPC Bot: Groq + KIẾN THỨC HỆ THỐNG + CONTEXT DB theo vai trò.
+    /// LLM hiểu toàn bộ luồng app; mỗi role chỉ được trả lời trong phạm vi role đó.
+    /// Không dùng cặp Q&amp;A mẫu; không dùng Ollama.
     /// </summary>
     public class AiChatService : IAiChatService
     {
@@ -68,18 +69,12 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (LaNhayCam(q))
                 return (true, "Dạ, mình không chia sẻ thông tin bảo mật hệ thống.", null);
 
-            var tuChoi = TuChoiVuotVaiTro(vt, q);
-            if (tuChoi != null)
-                return (true, tuChoi, null);
-
             try
             {
-                // 1) Số liệu định lượng: tính cứng từ DB trước (tháng/ngày/TT/TB...) — đúng như app
-                var soLieu = await TraLoiSoLieuChinhXacAsync(maNguoiDung, vt, q, cauHoi.Trim(), ct);
-                if (soLieu != null)
-                    return (true, soLieu, null);
-
-                // 2) Context + thống kê theo tháng → Groq (câu mở / nhiều ý)
+                // KIẾN TRÚC: Chatbot = "người đọc app"
+                // 1) Nạp TOÀN BỘ snapshot DB liên quan (thiết bị, HS, phân công, vật tư…) theo vai trò.
+                // 2) Groq ĐỌC câu hỏi tự nhiên → tự tìm trong snapshot → trả lời (KHÔNG khớp mẫu câu hỏi).
+                // 3) Chỉ khi Groq lỗi/hết key mới tra DB trực tiếp (vẫn không dùng Q&A mẫu).
                 var context = await NapContextVaiTroAsync(maNguoiDung, vt, ct);
                 context = await GanThongKeTheoThangAsync(context, vt, ct);
 
@@ -88,8 +83,13 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     var (ok, text, err) = await GoiGroqAsync(vt, ten, cauHoi.Trim(), context, lichSu, ct);
                     if (ok && !string.IsNullOrWhiteSpace(text))
                         return (true, text.Trim(), null);
-                    _logger.LogWarning("Groq lỗi, fallback: {Err}", err);
+                    _logger.LogWarning("Groq lỗi, chuyển tra DB trực tiếp: {Err}", err);
                 }
+
+                // Fallback: tra DB theo ngữ nghĩa câu hỏi (không gợi ý mẫu câu)
+                var soLieu = await TraLoiSoLieuChinhXacAsync(maNguoiDung, vt, q, cauHoi.Trim(), ct);
+                if (soLieu != null)
+                    return (true, soLieu, null);
 
                 return (true, await FallbackRuleAsync(vt, q, ct), null);
             }
@@ -125,8 +125,9 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 sb.AppendLine($"  Tinh_trang[{g.Key}]={g.Count()}");
             foreach (var g in tbs.GroupBy(x => x.LoaiThietBi ?? "(chưa loại)"))
                 sb.AppendLine($"  Danh_muc[{g.Key}]={g.Count()}");
-            sb.AppendLine("DS_thiet_bi:");
-            foreach (var t in tbs.Take(80))
+            // Đủ danh sách thiết bị để trả lời «hệ thống có những thiết bị nào?»
+            sb.AppendLine("DS_thiet_bi (đầy đủ — dùng khi user hỏi danh sách/có những thiết bị nào):");
+            foreach (var t in tbs.OrderBy(x => x.LoaiThietBi).ThenBy(x => x.TenThietBi))
             {
                 sb.AppendLine(
                     $"  TB#{t.MaThietBi}|{t.TenThietBi}|loai={t.LoaiThietBi}|vitri={t.ViTriLapDat}"
@@ -135,7 +136,17 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     + $"|bt_tiep={(t.NgayBaoTriTiepTheo.HasValue ? t.NgayBaoTriTiepTheo.Value.ToString("dd/MM/yyyy") : "-")}");
             }
 
-            if (vt is "Tổ trưởng cơ điện" or "Tổ trưởng kỹ thuật" or "Xưởng" or "Tổ trưởng sản xuất" or "Giám đốc")
+            // Kho vật tư (catalog) — hỏi «có những vật tư nào»
+            var vatTuCat = await _db.VatTus.AsNoTracking()
+                .Select(v => new { v.MaVatTu, v.TenVatTu, v.DonViTinh, v.SoLuongTonKho, v.DonGia })
+                .OrderBy(v => v.TenVatTu)
+                .ToListAsync(ct);
+            sb.AppendLine($"Tong_vat_tu_kho: {vatTuCat.Count}");
+            sb.AppendLine("DS_vat_tu_kho:");
+            foreach (var v in vatTuCat)
+                sb.AppendLine($"  VTU#{v.MaVatTu}|{v.TenVatTu}|dvt={v.DonViTinh}|ton={v.SoLuongTonKho}|dongia={v.DonGia:0}");
+
+            if (vt is "Tổ trưởng cơ điện" or "Tổ trưởng kỹ thuật" or "Xưởng" or "Tổ trưởng sản xuất" or "Giám đốc" or "Phó giám đốc")
             {
                 var bts = await _db.HoSoBaoTris.AsNoTracking()
                     .Select(h => new
@@ -181,10 +192,10 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 foreach (var h in scs.OrderByDescending(x => x.NgayHt).Take(40))
                     sb.AppendLine($"  SC#{h.MaHoSoSuaChua}|{h.TenTb}|tt={h.TrangThai}|ht={h.NgayHt:dd/MM/yyyy HH:mm}");
 
-                var vts = await _db.HoSoSuDungVatTus.AsNoTracking()
-                    .OrderByDescending(h => h.NgayThucHien).Take(40)
+                var vtsAll = await _db.HoSoSuDungVatTus.AsNoTracking()
                     .Select(h => new
                     {
+                        h.MaHoSoVatTu,
                         h.MaHoSoBaoTri,
                         h.MaHoSoSuaChua,
                         TenTb = h.TenThietBi ?? "",
@@ -194,11 +205,23 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                         SoLoai = h.ChiTietSuDungVatTus.Select(c => c.TenVatTu).Distinct().Count(),
                         TongSl = h.ChiTietSuDungVatTus.Sum(c => c.SoLuong)
                     }).ToListAsync(ct);
-                sb.AppendLine("HS_vat_tu:");
-                foreach (var v in vts)
+                sb.AppendLine($"Tong_HS_vat_tu: {vtsAll.Count}");
+                foreach (var g in vtsAll.GroupBy(x => x.TrangThai ?? "(trống)"))
+                    sb.AppendLine($"  VT_TT[{g.Key}]={g.Count()}");
+                // Alias UI: "Xác nhận" gồm cả "Đã xem"
+                var vtXacNhan = vtsAll.Count(x =>
                 {
-                    var hs = v.MaHoSoBaoTri != null ? $"BT#{v.MaHoSoBaoTri}" : $"SC#{v.MaHoSoSuaChua}";
-                    sb.AppendLine($"  {hs}|{v.TenTb}|sl={v.TongSl}|loai={v.SoLoai}|tien={v.TongTien:0}|tt={v.TrangThai}|ngay={v.NgayThucHien:dd/MM/yyyy}");
+                    var t = x.TrangThai ?? "";
+                    return t.Contains("Xác nhận", StringComparison.OrdinalIgnoreCase)
+                           || t.Equals("Đã xem", StringComparison.OrdinalIgnoreCase);
+                });
+                sb.AppendLine($"  VT_TT[Xác nhận_hoac_Da_xem]={vtXacNhan}");
+                sb.AppendLine("HS_vat_tu:");
+                foreach (var v in vtsAll.OrderByDescending(x => x.NgayThucHien).Take(50))
+                {
+                    var hs = v.MaHoSoBaoTri != null ? $"BT#{v.MaHoSoBaoTri}"
+                        : (v.MaHoSoSuaChua != null ? $"SC#{v.MaHoSoSuaChua}" : $"VT#{v.MaHoSoVatTu}");
+                    sb.AppendLine($"  VT#{v.MaHoSoVatTu}|{hs}|{v.TenTb}|sl={v.TongSl}|loai={v.SoLoai}|tien={v.TongTien:0}|tt={v.TrangThai}|ngay={v.NgayThucHien:dd/MM/yyyy}");
                 }
 
                 var lich = await _db.ChiTietKeHoachBaoTris.AsNoTracking()
@@ -374,7 +397,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             return text;
         }
 
-        // ===================== GEMINI =====================
+        // ===================== GROQ + KIẾN THỨC HỆ THỐNG =====================
 
         private async Task<(bool ok, string? text, string? err)> GoiGroqAsync(
             string vt,
@@ -384,41 +407,48 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             IReadOnlyList<(string role, string content)>? lichSu,
             CancellationToken ct)
         {
+            // Không khớp mẫu câu hỏi. LLM tự đọc CAU_HOI + CONTEXT_DB như người đang xem app.
+            var kienThuc = XayDungKienThucHeThong(vt);
             var phamVi = MoTaPhamVi(vt);
             var system =
-                "Bạn là OPC Bot — trợ lý nội bộ app quản lý hồ sơ bảo trì/sửa chữa thiết bị cơ điện (Công ty Dược OPC).\n" +
-                $"NGƯỜI DÙNG: {ten}\n" +
-                $"VAI TRÒ HIỆN TẠI: «{vt}» — chỉ trả lời trong phạm vi công việc của vai trò này.\n" +
-                "PHẠM VI:\n" + phamVi + "\n\n" +
-                "QUY TẮC BẮT BUỘC:\n" +
-                "1) Chỉ dùng dữ liệu trong CONTEXT (và LICH_SU nếu có). CẤM bịa số, mã hồ sơ, tên thiết bị, tên NV.\n" +
-                "2) Phân tích đầy đủ câu hỏi tiếng Việt: tách từng ý (số lượng / liệt kê / trạng thái / tháng-ngày / nhân viên / so sánh).\n" +
-                "3) Câu hỏi chi tiết hoặc nhiều ý → trả lời có cấu trúc: mở đầu bằng \"Dạ,\", nêu tổng số, rồi bullet từng mục (mã HS, thiết bị, trạng thái, ngày). Không lan man ngoài dữ liệu.\n" +
-                "4) Câu hỏi đơn giản (1 con số) → trả lời ngắn 1–3 câu.\n" +
-                "5) Hỏi theo tháng/năm: ưu tiên THONG_KE_BT_THEO_THANG và HS_BT (ngay_kh_hoac_ht / ht).\n" +
-                "6) Hỏi phân công / NV rảnh-bận: dùng DS_NVKT, Phan_cong, HS_BT_cho_phan_cong.\n" +
-                "7) Thiếu dữ liệu trong CONTEXT → nói rõ \"không thấy trong dữ liệu hiện có\", không đoán.\n" +
-                "8) CẤM: trả lời hộ vai trò khác; lộ mật khẩu/API key/code; giải thích dài dòng không liên quan.\n" +
-                "9) Luôn tiếng Việt, giọng trợ lý chuyên nghiệp, dễ đọc trên mobile.";
+                "Bạn là OPC Bot — trợ lý đã «vào trong» app quản lý bảo trì/sửa chữa thiết bị cơ điện (Công ty Dược OPC).\n" +
+                "Bạn đang xem đúng dữ liệu vận hành realtime của app (CONTEXT_DB) và nắm quy trình nghiệp vụ (KIẾN THỨC).\n" +
+                $"Người hỏi: {ten}. Vai trò đăng nhập: «{vt}».\n\n" +
+                "CÁCH LÀM VIỆC (bắt buộc):\n" +
+                "1) Đọc hiểu CAU_HOI bằng tiếng Việt tự nhiên — không cần câu hỏi đúng mẫu, không cần từ khóa cố định.\n" +
+                "2) Tự xác định user muốn biết gì (danh sách, số lượng, trạng thái, quy trình, ai phụ trách, mã HS, tên máy…).\n" +
+                "3) Tự tìm câu trả lời trong CONTEXT_DB và KIẾN THỨC. Ví dụ:\n" +
+                "   - «hệ thống có những thiết bị nào?» → liệt kê từ DS_thiet_bi / Tong_thiet_bi / Danh_muc\n" +
+                "   - «máy X đang thế nào?» → tìm tên trong DS_thiet_bi\n" +
+                "   - «có bao nhiêu hồ sơ chờ duyệt?» → đếm HS_BT / HS_SC theo trạng thái\n" +
+                "   - «tôi phải làm gì tiếp?» → giải thích bước tiếp theo theo vai trò từ KIẾN THỨC\n" +
+                "4) Trả lời đúng trọng tâm, đủ ý; liệt kê thì dùng bullet; mở đầu bằng «Dạ,».\n" +
+                "5) Chỉ dùng số liệu có trong CONTEXT_DB — cấm bịa mã HS, tên thiết bị, tên người.\n" +
+                "6) Nếu CONTEXT không có dữ liệu phù hợp → nói rõ «trong dữ liệu hiện tại chưa thấy…», không bịa, không bảo user hỏi theo mẫu.\n" +
+                "7) Tôn trọng phạm vi vai trò «" + vt + "»: không làm hộ việc của role khác; có thể giải thích role nào phụ trách.\n" +
+                "8) Cấm lộ mật khẩu, API key, mã nguồn.\n\n" +
+                "KIẾN THỨC NGHIỆP VỤ:\n" + kienThuc + "\n" +
+                "PHẠM VI VAI TRÒ:\n" + phamVi;
 
             var user = new StringBuilder();
-            user.AppendLine("CONTEXT:");
+            user.AppendLine("CONTEXT_DB — snapshot dữ liệu app đang chạy (nguồn sự thật duy nhất cho số liệu):");
             user.AppendLine(context);
             if (lichSu != null && lichSu.Count > 0)
             {
-                user.AppendLine("LICH_SU:");
-                foreach (var (role, content) in lichSu.TakeLast(6))
+                user.AppendLine("LICH_SU_HOI_THOAI:");
+                foreach (var (role, content) in lichSu.TakeLast(8))
                     user.AppendLine($"- {role}: {content}");
             }
-            user.AppendLine("CAU_HOI:");
+            user.AppendLine("CAU_HOI_CUA_NGUOI_DUNG:");
             user.AppendLine(cauHoi);
+            user.AppendLine("Hãy phân tích câu hỏi trên và trả lời dựa trên CONTEXT_DB + kiến thức nghiệp vụ.");
 
             // Groq OpenAI-compatible Chat Completions
             var body = new
             {
                 model = GroqModel,
-                temperature = 0.1,
-                max_tokens = 1200,
+                temperature = 0.2,
+                max_tokens = 2048,
                 messages = new object[]
                 {
                     new { role = "system", content = system },
@@ -495,11 +525,12 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             // 1) VẬT TƯ — phải trước "hồ sơ" (tránh "hồ sơ vật tư" bị nhầm HS bảo trì)
             if (LaHoiVatTu(q))
             {
+                // UI/DB: "Xác nhận" | "Đã xem" | "Chờ duyệt" | "Chờ gửi" | "Đã gửi GĐ"
                 string? ttVt = null;
-                if (Co(q, "xac nhan", "da xac nhan")) ttVt = "Xác nhận";
+                if (Co(q, "xac nhan", "da xac nhan", "da xem")) ttVt = "Xác nhận";
+                else if (Co(q, "cho duyet", "da gui")) ttVt = "Chờ duyệt";
                 else if (Co(q, "cho gui")) ttVt = "Chờ gửi";
                 else if (Co(q, "tu choi")) ttVt = "Từ chối";
-                else if (Co(q, "cho xac nhan")) ttVt = "Chờ xác nhận";
                 return await TraLoiVatTuAsync(maNd, vt, maBt, maSc, ttVt, ct);
             }
 
@@ -512,8 +543,10 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     return await TraLoiPhanCongToTruongAsync(ct);
             }
 
-            // 3) THIẾT BỊ
-            if (Co(q, "thiet bi") && !LaHoiVatTu(q) && !LaHoiPhanCong(q) && !Co(q, "ho so bao tri", "ho so sua chua"))
+            // 3) THIẾT BỊ — danh sách / có những gì / trạng thái từng máy (fallback khi Groq lỗi)
+            if (Co(q, "thiet bi", "may moc", "may nen", "danh sach may")
+                && !LaHoiVatTu(q) && !LaHoiPhanCong(q)
+                && !Co(q, "ho so bao tri", "ho so sua chua"))
             {
                 var tbs = await _db.ThietBis.AsNoTracking()
                     .Select(t => new
@@ -521,13 +554,15 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                         t.MaThietBi,
                         t.TenThietBi,
                         t.LoaiThietBi,
+                        t.ViTriLapDat,
                         t.TinhTrangHienTai,
                         t.NgayBaoTriGanNhat,
                         t.NgayBaoTriTiepTheo
                     }).ToListAsync(ct);
 
+                // Hỏi 1 máy cụ thể
                 var tenGoi = TrichTenThietBi(q);
-                if (tenGoi != null && (Co(q, "trang thai", "tinh trang", "dang o", "lich bao tri")))
+                if (tenGoi != null)
                 {
                     var hit = tbs
                         .Select(x => new { x, sc = DiemKhop(tenGoi, x.TenThietBi) })
@@ -540,20 +575,33 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                         var tt = string.IsNullOrWhiteSpace(hit.TinhTrangHienTai) ? "chưa ghi" : hit.TinhTrangHienTai;
                         var gan = hit.NgayBaoTriGanNhat?.ToString("dd/MM/yyyy") ?? "chưa có";
                         var tiep = hit.NgayBaoTriTiepTheo?.ToString("dd/MM/yyyy") ?? "chưa có";
-                        return $"Dạ, thiết bị **{hit.TenThietBi}** hiện đang ở trạng thái **{tt}**. "
-                             + $"Lịch bảo trì gần nhất là **{gan}** và tiếp theo là **{tiep}** ạ.";
+                        var vtTri = string.IsNullOrWhiteSpace(hit.ViTriLapDat) ? "chưa ghi" : hit.ViTriLapDat;
+                        return $"Dạ, **{hit.TenThietBi}** (TB#{hit.MaThietBi}).\n"
+                             + $"• Loại: {hit.LoaiThietBi ?? "—"}\n"
+                             + $"• Vị trí: {vtTri}\n"
+                             + $"• Trạng thái: **{tt}**\n"
+                             + $"• BT gần nhất: {gan} | BT tiếp theo: {tiep}";
                     }
                 }
 
-                if (Co(q, "bao nhieu", "tong", "co may", "danh muc", "tinh trang") && !Co(q, "ho so"))
+                // Hỏi danh sách / hệ thống có những thiết bị nào / gồm những gì
+                var hoiDanhSach = Co(q, "nao", "nhung", "gom", "bao gom", "danh sach", "danh muc",
+                    "he thong", "co nhung", "nhung gi", "cai gi", "nhung may");
+                var hoiDem = Co(q, "bao nhieu", "tong", "co may", "tinh trang");
+                if (hoiDanhSach || hoiDem || (Co(q, "thiet bi") && !Co(q, "ho so")))
                 {
                     int Dem(string k) => tbs.Count(x => (x.TinhTrangHienTai ?? "")
                         .Contains(k, StringComparison.OrdinalIgnoreCase));
                     var sb = new StringBuilder();
-                    sb.AppendLine($"Dạ, tổng **{tbs.Count}** thiết bị (Tất cả).");
-                    sb.AppendLine($"• Sản xuất: **{Dem("Sản xuất")}** | Bảo trì: **{Dem("Bảo trì")}** | Sửa chữa: **{Dem("Sửa chữa")}**.");
-                    foreach (var g in tbs.GroupBy(x => x.LoaiThietBi ?? "(chưa loại)").OrderByDescending(g => g.Count()))
-                        sb.AppendLine($"• {g.Key}: **{g.Count()}**");
+                    sb.AppendLine($"Dạ, hệ thống đang quản lý **{tbs.Count}** thiết bị.");
+                    sb.AppendLine($"Trạng thái: Sản xuất **{Dem("Sản xuất")}** | Bảo trì **{Dem("Bảo trì")}** | Sửa chữa **{Dem("Sửa chữa")}**.");
+                    foreach (var g in tbs.GroupBy(x => x.LoaiThietBi ?? "(chưa loại)").OrderBy(g => g.Key))
+                    {
+                        sb.AppendLine($"**{g.Key}** ({g.Count()}):");
+                        foreach (var t in g.OrderBy(x => x.TenThietBi))
+                            sb.AppendLine($"  • TB#{t.MaThietBi} {t.TenThietBi} — {t.TinhTrangHienTai ?? "—"}"
+                                          + (string.IsNullOrWhiteSpace(t.ViTriLapDat) ? "" : $" ({t.ViTriLapDat})"));
+                    }
                     return sb.ToString().TrimEnd();
                 }
             }
@@ -780,8 +828,16 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (!string.IsNullOrEmpty(trangThai))
             {
                 list = list.Where(h =>
-                    (h.TrangThai ?? "").Contains(trangThai, StringComparison.OrdinalIgnoreCase)
-                    || (trangThai == "Xác nhận" && (h.TrangThai ?? "").Contains("xác nhận", StringComparison.OrdinalIgnoreCase)));
+                {
+                    var t = h.TrangThai ?? "";
+                    if (trangThai == "Xác nhận")
+                        return t.Contains("Xác nhận", StringComparison.OrdinalIgnoreCase)
+                               || t.Equals("Đã xem", StringComparison.OrdinalIgnoreCase);
+                    if (trangThai == "Chờ duyệt")
+                        return t.Contains("Chờ duyệt", StringComparison.OrdinalIgnoreCase)
+                               || t.Equals("Đã gửi GĐ", StringComparison.OrdinalIgnoreCase);
+                    return t.Contains(trangThai, StringComparison.OrdinalIgnoreCase);
+                });
             }
             var arr = list.Take(30).ToList();
 
@@ -981,11 +1037,24 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             int? ngay = null, thang = null, nam = null;
             TrichNgayThangNam(q, ref ngay, ref thang, ref nam);
 
-            if (Co(q, "thiet bi") && Co(q, "bao nhieu", "tong", "danh muc", "san xuat", "bao tri", "sua chua"))
+            // Danh sách thiết bị khi Groq lỗi — không bắt buộc từ khóa «bao nhiêu»
+            if (Co(q, "thiet bi", "may moc") && !Co(q, "ho so"))
             {
-                var tbs = await _db.ThietBis.AsNoTracking().Select(t => t.TinhTrangHienTai).ToListAsync(ct);
-                int Dem(string k) => tbs.Count(x => (x ?? "").Contains(k, StringComparison.OrdinalIgnoreCase));
-                return $"Dạ, tổng **{tbs.Count}** thiết bị. Sản xuất: **{Dem("Sản xuất")}**, Bảo trì: **{Dem("Bảo trì")}**, Sửa chữa: **{Dem("Sửa chữa")}**.";
+                var tbs = await _db.ThietBis.AsNoTracking()
+                    .Select(t => new { t.MaThietBi, t.TenThietBi, t.LoaiThietBi, t.TinhTrangHienTai, t.ViTriLapDat })
+                    .OrderBy(t => t.LoaiThietBi).ThenBy(t => t.TenThietBi)
+                    .ToListAsync(ct);
+                if (tbs.Count == 0)
+                    return "Dạ, trong hệ thống hiện chưa có thiết bị nào được ghi nhận.";
+                var sbTb = new StringBuilder();
+                sbTb.AppendLine($"Dạ, hệ thống đang quản lý **{tbs.Count}** thiết bị:");
+                foreach (var g in tbs.GroupBy(x => x.LoaiThietBi ?? "(chưa loại)"))
+                {
+                    sbTb.AppendLine($"**{g.Key}** ({g.Count()}):");
+                    foreach (var t in g)
+                        sbTb.AppendLine($"  • TB#{t.MaThietBi} {t.TenThietBi} — {t.TinhTrangHienTai ?? "—"}");
+                }
+                return sbTb.ToString().TrimEnd();
             }
 
             // Fallback chỉ khi đúng ý hỏi HS BT/SC — không nuốt vật tư / phân công
@@ -1031,63 +1100,130 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 return sb.ToString().TrimEnd();
             }
 
-            return "Dạ, hiện đang dùng fallback rule (Groq chưa cấu hình hoặc lỗi model/API). "
-                   + "Kiểm tra Groq:ApiKey + Groq:Model trong appsettings.json (model hiện hỗ trợ free: qwen/qwen3.8-27b, openai/gpt-oss-20b) rồi restart API. "
-                   + "Hỏi mẫu: «tháng 12/2026 có bao nhiêu hồ sơ bảo trì đã hoàn thành?» / «nhân viên nào đang được phân công?»";
+            return "Dạ, hiện chưa tìm thấy dữ liệu khớp câu hỏi trong hệ thống (hoặc dịch vụ AI tạm gián đoạn). "
+                   + "Bạn thử hỏi lại theo nội dung đang có trên app — ví dụ thiết bị, hồ sơ bảo trì/sửa chữa, "
+                   + "phân công, vật tư, trạng thái — mình sẽ tra đúng dữ liệu đang vận hành.";
         }
 
         // ===================== ROLE + HELPERS =====================
 
+        /// <summary>
+        /// Kiến thức domain toàn hệ thống (không phải Q&amp;A mẫu).
+        /// LLM dùng để hiểu luồng/app; phạm vi trả lời vẫn bị khóa theo vai trò.
+        /// </summary>
+        private static string XayDungKienThucHeThong(string vt)
+        {
+            var chung =
+                "APP: 2 chức năng chính — Bảo trì định kỳ và Sửa chữa sự cố thiết bị cơ điện.\n"
+                + "VAI TRÒ: Tổ trưởng cơ điện | Xưởng | Giám đốc (Phó giám đốc) | Nhân viên kỹ thuật | Admin hệ thống.\n\n"
+                + "LUỒNG BẢO TRÌ (tuần tự):\n"
+                + "1) Tổ trưởng cơ điện TẠO hồ sơ bảo trì (gắn thiết bị, nội dung, thời gian dự kiến).\n"
+                + "2) Tổ trưởng GỬI hồ sơ → Xưởng.\n"
+                + "3) Xưởng CHỐT NGÀY bảo trì trong tháng đó.\n"
+                + "4) Xưởng GỬI hồ sơ → Giám đốc duyệt.\n"
+                + "5) Giám đốc TỪ CHỐI → trả Xưởng chỉnh sửa; Giám đốc DUYỆT → mở khóa phân công cho Tổ trưởng.\n"
+                + "6) Tổ trưởng PHÂN CÔNG một hoặc nhiều NVKT (NV bận thì Tổ trưởng cập nhật lại trên hệ thống).\n"
+                + "7) Mỗi NVKT nhận việc trên tài khoản mình → chọn các bước quy trình → đủ bước thì HOÀN THÀNH → gửi Xưởng.\n"
+                + "8) Xưởng xác nhận kết quả hoàn thành.\n\n"
+                + "LUỒNG SỬA CHỮA (tóm tắt):\n"
+                + "- Xưởng tạo hồ sơ sửa chữa (mô tả hư hỏng, phương án) → gửi Giám đốc duyệt → sau duyệt Tổ trưởng phân công NVKT → NVKT thực hiện bước → hoàn thành gửi Xưởng.\n\n"
+                + "TỪ ĐIỂN TRẠNG THÁI HỒ SƠ BT (thường gặp):\n"
+                + "Nháp | Chờ xưởng | Chờ GĐ duyệt / Chờ duyệt | Từ chối | Đã duyệt | Chờ phân công | Đang thực hiện | Chờ xác nhận | Đã hoàn thành | Đã hủy.\n"
+                + "Ý nghĩa: «Đã duyệt»/«Chờ phân công» = GĐ đã duyệt, Tổ trưởng được phân công NVKT.\n"
+                + "«Đang thực hiện» = NVKT đã nhận/tiến hành. «Chờ xác nhận» = NVKT hoàn thành, chờ Xưởng.\n\n"
+                + "PHÂN CÔNG: 1 HS có thể gắn nhiều NVKT; có thể có người ghi chép (LaNguoiGhiChep).\n"
+                + "BƯỚC QUY TRÌNH: lấy từ catalog QuyTrinhThietBi theo thiết bị; tiến độ lưu TienDoBuocQuyTrinh (SoBuoc, MoTaBuoc, TrangThai).\n"
+                + "VẬT TƯ: hồ sơ sử dụng vật tư gắn HS BT hoặc SC; trạng thái có thể gồm chờ xác nhận / Xác nhận / Đã xem.\n"
+                + "THIẾT BỊ: TinhTrangHienTai ví dụ Sản xuất | Bảo trì | Sửa chữa; có NgayBaoTriGanNhat / NgayBaoTriTiepTheo.\n";
+
+            // Bổ sung kiến thức sâu hơn cho đúng role đang chat (vẫn trong khung hệ thống)
+            var theoRole = vt switch
+            {
+                "Tổ trưởng cơ điện" or "Tổ trưởng kỹ thuật" =>
+                    "CHI TIẾT CHO TỔ TRƯỞNG CƠ ĐIỆN:\n"
+                    + "- Tạo HS BT, gửi Xưởng; sau GĐ duyệt mới phân công.\n"
+                    + "- Phân công nhiều NV; cập nhật khi NV bận.\n"
+                    + "- Theo dõi bước, vật tư, lịch sử phân công, thiết bị, kế hoạch BT.\n"
+                    + "- Không chốt ngày thay Xưởng; không duyệt thay Giám đốc.\n",
+                "Xưởng" or "Tổ trưởng sản xuất" =>
+                    "CHI TIẾT CHO XƯỞNG:\n"
+                    + "- Nhận HS BT từ Tổ trưởng → chốt ngày trong tháng → gửi Giám đốc.\n"
+                    + "- GĐ từ chối → Xưởng chỉnh sửa rồi gửi lại.\n"
+                    + "- Tạo HS sửa chữa; xác nhận kết quả khi NVKT hoàn thành.\n"
+                    + "- Không phân công NVKT; không phê duyệt cuối như GĐ.\n",
+                "Giám đốc" or "Phó giám đốc" =>
+                    "CHI TIẾT CHO GIÁM ĐỐC / PHÓ GIÁM ĐỐC:\n"
+                    + "- Duyệt hoặc từ chối HS bảo trì / sửa chữa / vật tư (theo phân quyền).\n"
+                    + "- Xem thống kê, lịch sử phê duyệt, trạng thái toàn hệ thống.\n"
+                    + "- Không phân công NVKT; không chốt ngày Xưởng.\n",
+                "Nhân viên kỹ thuật" =>
+                    "CHI TIẾT CHO NHÂN VIÊN KỸ THUẬT:\n"
+                    + "- Chỉ thấy việc được phân công cho mình.\n"
+                    + "- Chọn bước bảo trì/sửa chữa; khi đủ bước bấm hoàn thành → gửi Xưởng.\n"
+                    + "- Có thể ghi nhận vật tư sử dụng theo bước.\n"
+                    + "- Không xem toàn công ty; không duyệt; không chốt ngày; không phân công người khác.\n",
+                _ => "CHI TIẾT: chỉ thông tin gắn tài khoản đang đăng nhập.\n"
+            };
+
+            return chung + theoRole;
+        }
+
         private static string MoTaPhamVi(string vt) => vt switch
         {
             "Tổ trưởng cơ điện" or "Tổ trưởng kỹ thuật" =>
-                "- Công việc: tạo HS bảo trì, phân công nhiều NVKT, cập nhật NV bận, theo dõi bước/vật tư, thống kê.\n"
-                + "- Dữ liệu được phép: thiết bị, lịch/KH/HS BT-SC, DS_NVKT (rảnh/bận), Phan_cong, HS chờ phân công, bước, vật tư.\n"
-                + "- Ví dụ hỏi đúng: «HS chờ phân công tháng này?», «NV nào rảnh?», «BT#12 đang ở bước nào?»\n"
-                + "- KHÔNG duyệt hộ Giám đốc; KHÔNG chốt ngày hộ Xưởng.",
+                "- Được hỏi/trả lời: tạo & theo dõi HS bảo trì, phân công NVKT, NV rảnh/bận, HS chờ phân công,\n"
+                + "  bước quy trình, vật tư gắn HS, thiết bị, lịch/kế hoạch BT, thống kê liên quan tổ.\n"
+                + "- CẤM: duyệt hộ GĐ, chốt ngày hộ Xưởng, xem hộ việc riêng tư không liên quan.\n"
+                + "- Khi user hỏi «tôi làm gì?» / «quy trình của tôi» → giải thích đúng bước 1–2 và 6 của luồng BT.",
             "Xưởng" or "Tổ trưởng sản xuất" =>
-                "- Công việc: chốt ngày bảo trì trong tháng, gửi HS lên GĐ, xác nhận/từ chối kết quả NVKT.\n"
-                + "- Dữ liệu: HS chờ xưởng, lịch chốt ngày, trạng thái sau khi GĐ duyệt/từ chối.\n"
-                + "- KHÔNG phân công NVKT; KHÔNG duyệt cuối như GĐ.",
-            "Giám đốc" =>
-                "- Công việc: duyệt/từ chối HS BT-SC, xem thống kê toàn hệ thống.\n"
-                + "- Dữ liệu: HS chờ duyệt, lịch sử phê duyệt, tổng hợp theo tháng/trạng thái.\n"
-                + "- KHÔNG phân công NVKT; KHÔNG chốt ngày Xưởng.",
+                "- Được hỏi/trả lời: HS chờ xưởng, chốt ngày BT, gửi GĐ, HS bị từ chối cần sửa,\n"
+                + "  tạo/theo dõi HS sửa chữa, xác nhận hoàn thành từ NVKT, trạng thái liên quan xưởng.\n"
+                + "- CẤM: phân công NVKT, phê duyệt cuối như GĐ.\n"
+                + "- Khi hỏi quy trình xưởng → nhấn mạnh bước 3–4–5 và xác nhận bước 8.",
+            "Giám đốc" or "Phó giám đốc" =>
+                "- Được hỏi/trả lời: HS chờ duyệt, duyệt/từ chối, lịch sử phê duyệt, thống kê toàn hệ thống,\n"
+                + "  trạng thái BT/SC/vật tư tổng hợp.\n"
+                + "- CẤM: phân công NVKT, chốt ngày Xưởng.\n"
+                + "- Khi hỏi quy trình GĐ → nhấn mạnh bước 5 (duyệt/từ chối).",
             "Nhân viên kỹ thuật" =>
-                "- Công việc: nhận việc được phân công, chọn bước bảo trì/sửa chữa, hoàn thành gửi Xưởng.\n"
-                + "- CHỈ dữ liệu gắn tài khoản này: phân công của tôi, HS của tôi, bước/vật tư của tôi.\n"
-                + "- KHÔNG xem toàn công ty; KHÔNG duyệt; KHÔNG chốt ngày; KHÔNG phân công người khác.",
+                "- CHỈ dữ liệu của tài khoản này: phân công của tôi, HS của tôi, bước/vật tư của tôi.\n"
+                + "- Được hỏi: việc đang làm, bước còn lại, cách hoàn thành gửi Xưởng.\n"
+                + "- CẤM: toàn công ty, duyệt, chốt ngày, phân công người khác.",
             _ => "- Chỉ thông tin gắn tài khoản đang đăng nhập."
         };
 
         private static string? TuChoiVuotVaiTro(string vt, string q)
         {
+            // Chặn sớm các yêu cầu vượt quyền rõ ràng (Groq vẫn nhận kiến thức hệ thống để giải thích đúng ai phụ trách)
             if (vt == "Nhân viên kỹ thuật")
             {
                 if (Co(q, "toan bo", "tat ca nhan vien", "toan cong ty"))
                     return "Dạ, NVKT chỉ xem công việc được phân công trên tài khoản của bạn.";
-                if (Co(q, "duyet ho so") && Co(q, "giam doc", "ho so"))
-                    return "Dạ, NVKT không phê duyệt hồ sơ (thuộc Giám đốc).";
+                if (Co(q, "duyet") && Co(q, "ho so", "giam doc"))
+                    return "Dạ, phê duyệt hồ sơ thuộc Giám đốc — NVKT không thực hiện được.";
                 if (Co(q, "chot ngay"))
                     return "Dạ, chốt ngày bảo trì thuộc Xưởng.";
+                if (Co(q, "phan cong") && Co(q, "nhan vien", "to truong"))
+                    return "Dạ, phân công nhân viên thuộc Tổ trưởng cơ điện.";
             }
             if (vt is "Tổ trưởng cơ điện" or "Tổ trưởng kỹ thuật")
             {
                 if (Co(q, "thay giam doc") || (Co(q, "toi duyet", "duyet ho") && Co(q, "giam doc")))
-                    return "Dạ, Tổ trưởng không duyệt hộ Giám đốc.";
-                if (Co(q, "chot ngay ho", "chot ngay thay") && Co(q, "xuong"))
-                    return "Dạ, chốt ngày thuộc Xưởng.";
+                    return "Dạ, Tổ trưởng không duyệt hộ Giám đốc. Sau khi GĐ duyệt, bạn mới phân công NVKT.";
+                if (Co(q, "chot ngay") && Co(q, "thay", "ho"))
+                    return "Dạ, chốt ngày bảo trì trong tháng thuộc Xưởng.";
             }
             if (vt is "Xưởng" or "Tổ trưởng sản xuất")
             {
-                if (Co(q, "phan cong") && Co(q, "thay to truong", "nhan vien"))
-                    return "Dạ, phân công NVKT thuộc Tổ trưởng cơ điện.";
+                // Chỉ chặn khi Xưởng muốn tự phân công thay Tổ trưởng
+                if (Co(q, "phan cong") && Co(q, "thay to truong", "ho to truong", "toi phan cong", "giup phan cong"))
+                    return "Dạ, phân công NVKT thuộc Tổ trưởng cơ điện. Xưởng chốt ngày và xác nhận hoàn thành.";
             }
-            if (vt == "Giám đốc")
+            if (vt is "Giám đốc" or "Phó giám đốc")
             {
-                if (Co(q, "phan cong nhan vien") && Co(q, "thay to truong"))
-                    return "Dạ, phân công thuộc Tổ trưởng cơ điện.";
-                if (Co(q, "chot ngay") && Co(q, "thay xuong"))
+                if (Co(q, "phan cong nhan vien") && Co(q, "thay", "ho"))
+                    return "Dạ, phân công thuộc Tổ trưởng cơ điện (sau khi bạn duyệt hồ sơ).";
+                if (Co(q, "chot ngay") && Co(q, "thay", "ho"))
                     return "Dạ, chốt ngày thuộc Xưởng.";
             }
             return null;

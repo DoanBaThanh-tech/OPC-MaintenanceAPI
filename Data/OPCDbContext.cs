@@ -68,7 +68,12 @@ public partial class OPCDbContext : DbContext
     public virtual DbSet<ThongBao> ThongBaos { get; set; }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
-        => optionsBuilder.UseSqlServer("Name=ConnectionStrings:DefaultConnection");
+    {
+        // Chỉ dùng connection string mặc định khi context được tạo ngoài DI
+        // (AddDbContext luôn truyền connection string thật từ appsettings).
+        if (!optionsBuilder.IsConfigured)
+            optionsBuilder.UseSqlServer("Name=ConnectionStrings:DefaultConnection");
+    }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

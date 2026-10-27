@@ -8,7 +8,10 @@ namespace OPC.MaintenanceAPI.Services.Interfaces
             string hoTen,
             string cauHoi,
             IReadOnlyList<(string role, string content)>? lichSu,
-            CancellationToken ct = default);
+            CancellationToken ct = default,
+            bool baoSai = false,
+            string? cauHoiGoc = null,
+            string? traLoiSai = null);
 
         Task<(bool online, string? model, string? loi)> KiemTraAsync(CancellationToken ct = default);
     }

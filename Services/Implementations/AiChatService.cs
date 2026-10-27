@@ -10,9 +10,11 @@ using OPC.MaintenanceAPI.Services.Interfaces;
 namespace OPC.MaintenanceAPI.Services.Implementations
 {
     /// <summary>
-    /// OPC Bot: Groq + KIẾN THỨC HỆ THỐNG + CONTEXT DB theo vai trò.
-    /// LLM hiểu toàn bộ luồng app; mỗi role chỉ được trả lời trong phạm vi role đó.
-    /// Không dùng cặp Q&amp;A mẫu; không dùng Ollama.
+    /// OPC Bot.
+    /// 1) Vai trò lấy từ JWT; mỗi vai trò chỉ được hỏi/đọc đúng chủ đề của vai trò (QuyenChuDe).
+    /// 2) Câu hỏi về SỐ LIỆU được tính trực tiếp từ DB bằng code (cùng công thức màn hình app) —
+    ///    LLM không tự đếm. LLM chỉ dùng cho câu hỏi giải thích/quy trình, với context gọn.
+    /// 3) Người dùng báo sai → tính lại từ DB, hiểu lại ý, ghi nhớ cách hiểu (không ghi nhớ con số).
     /// </summary>
     public class AiChatService : IAiChatService
     {
@@ -31,13 +33,12 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             _logger = logger;
             _httpFactory = httpFactory;
             _config = config;
+            ChatbotBaiHocStore.DatDuongDan(config["Chatbot:BaiHocPath"]);
         }
 
         private string? GroqKey => _config["Groq:ApiKey"]?.Trim();
-        /// <summary>
-        /// Model Groq hiện dùng. llama-3.1-8b-instant / llama-3.3-70b-versatile đã hết free-tier (404 model_not_found).
-        /// Model ổn định free (Oct 2026): qwen/qwen3.8-27b, openai/gpt-oss-20b, openai/gpt-oss-120b.
-        /// </summary>
+
+        /// <summary>Model Groq (cấu hình Groq:Model). Mặc định giữ như bản cũ.</summary>
         private string GroqModel =>
             string.IsNullOrWhiteSpace(_config["Groq:Model"])
                 ? "qwen/qwen3.8-27b"
@@ -46,10 +47,74 @@ namespace OPC.MaintenanceAPI.Services.Implementations
         public Task<(bool online, string? model, string? loi)> KiemTraAsync(CancellationToken ct = default)
         {
             if (string.IsNullOrEmpty(GroqKey))
-                return Task.FromResult<(bool, string?, string?)>((true, "OPC-RuleFallback",
-                    "Chưa cấu hình Groq:ApiKey — đang dùng fallback rule (số liệu DB vẫn chạy)."));
+                return Task.FromResult<(bool, string?, string?)>((true, "OPC-TraDB",
+                    "Chưa cấu hình Groq:ApiKey — số liệu vẫn tra trực tiếp DB, chỉ câu hỏi giải thích là bị hạn chế."));
             return Task.FromResult<(bool, string?, string?)>((true, GroqModel, null));
         }
+
+        // =====================================================================
+        //  KIỂU DỮ LIỆU
+        // =====================================================================
+
+        private enum VaiTroKey { Khac, ToTruong, Xuong, GiamDoc, Nvkt }
+
+        private enum ChuDeHoi { Khac, HoSoBt, HoSoSc, VatTu, PhanCong, ThietBi, LichBt, Buoc }
+
+        /// <summary>
+        /// PHẠM VI CHỦ ĐỀ THEO VAI TRÒ — sửa ở đây nếu muốn mở/đóng quyền hỏi.
+        /// NVKT luôn bị giới hạn trong dữ liệu gắn phân công của chính mình.
+        /// </summary>
+        private static readonly Dictionary<VaiTroKey, ChuDeHoi[]> QuyenChuDe = new()
+        {
+            [VaiTroKey.ToTruong] = new[] { ChuDeHoi.HoSoBt, ChuDeHoi.HoSoSc, ChuDeHoi.VatTu, ChuDeHoi.PhanCong, ChuDeHoi.ThietBi, ChuDeHoi.LichBt, ChuDeHoi.Buoc },
+            [VaiTroKey.Xuong] = new[] { ChuDeHoi.HoSoBt, ChuDeHoi.HoSoSc, ChuDeHoi.VatTu, ChuDeHoi.ThietBi, ChuDeHoi.LichBt, ChuDeHoi.Buoc },
+            [VaiTroKey.GiamDoc] = new[] { ChuDeHoi.HoSoBt, ChuDeHoi.HoSoSc, ChuDeHoi.VatTu, ChuDeHoi.ThietBi, ChuDeHoi.LichBt, ChuDeHoi.Buoc },
+            [VaiTroKey.Nvkt] = new[] { ChuDeHoi.HoSoBt, ChuDeHoi.HoSoSc, ChuDeHoi.VatTu, ChuDeHoi.PhanCong, ChuDeHoi.Buoc },
+            [VaiTroKey.Khac] = Array.Empty<ChuDeHoi>()
+        };
+
+        /// <summary>Cách hiểu một câu hỏi (kết quả phân tích) — đây là thứ được "học", không phải con số.</summary>
+        private sealed class YeuCau
+        {
+            public ChuDeHoi ChuDe { get; set; } = ChuDeHoi.Khac;
+            public bool CaBtVaSc { get; set; }
+            /// <summary>Khóa trạng thái chuẩn hóa (TtKey / VtKey), null = không nêu.</summary>
+            public string? TrangThai { get; set; }
+            public int? Ngay { get; set; }
+            public int? Thang { get; set; }
+            public int? Nam { get; set; }
+            public bool TatCa { get; set; }
+            public int? MaBt { get; set; }
+            public int? MaSc { get; set; }
+            public string? TenThietBi { get; set; }
+            public string? TinhTrangTb { get; set; }
+            /// <summary>"app" = BT tính theo tháng kế hoạch (như thống kê app); "thuc_te" = theo ngày hoàn thành thực tế.</summary>
+            public string CoSo { get; set; } = "app";
+            public bool CoKy => Thang != null || Ngay != null || Nam != null;
+            public YeuCau Clone() => (YeuCau)MemberwiseClone();
+        }
+
+        private sealed record HsRow(int Ma, string TenTb, string? TrangThai, DateTime NgayHt, DateOnly? NgayKh);
+
+        private sealed class KetQuaHs
+        {
+            public List<HsRow> List { get; set; } = new();
+            public Dictionary<string, int> TheoTt { get; set; } = new();
+            public string? TtChinh { get; set; }
+            public YeuCau Y { get; set; } = new();
+            public string? GhiChuKy { get; set; }
+        }
+
+        private sealed class PhamViNv
+        {
+            public int? MaNv { get; set; }
+            public HashSet<int> Bt { get; set; } = new();
+            public HashSet<int> Sc { get; set; } = new();
+        }
+
+        // =====================================================================
+        //  ĐIỂM VÀO
+        // =====================================================================
 
         public async Task<(bool ok, string? traLoi, string? loi)> ChatAsync(
             int maNguoiDung,
@@ -64,34 +129,38 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
             var ten = string.IsNullOrWhiteSpace(hoTen) ? "bạn" : hoTen.Trim();
             var vt = (vaiTro ?? "Người dùng").Trim();
-            var q = ChuanHoa(cauHoi);
+            var vk = LayVaiTroKey(vt);
+            var q = Nghia(cauHoi);
 
             if (LaNhayCam(q))
                 return (true, "Dạ, mình không chia sẻ thông tin bảo mật hệ thống.", null);
 
             try
             {
-                // KIẾN TRÚC: Chatbot = "người đọc app"
-                // 1) Nạp TOÀN BỘ snapshot DB liên quan (thiết bị, HS, phân công, vật tư…) theo vai trò.
-                // 2) Groq ĐỌC câu hỏi tự nhiên → tự tìm trong snapshot → trả lời (KHÔNG khớp mẫu câu hỏi).
-                // 3) Chỉ khi Groq lỗi/hết key mới tra DB trực tiếp (vẫn không dùng Q&A mẫu).
-                var context = await NapContextVaiTroAsync(maNguoiDung, vt, ct);
-                context = await GanThongKeTheoThangAsync(context, vt, ct);
+                // 1) Người dùng báo sai → tính lại + hiểu lại + ghi nhớ
+                if (LaBaoCauTraLoiSai(q))
+                    return (true, await XuLySuaSaiAsync(maNguoiDung, vk, vt, ten, cauHoi.Trim(), lichSu, ct), null);
 
+                // 2) Chặn yêu cầu vượt quyền vai trò
+                var vuot = TuChoiVuotVaiTro(vk, q);
+                if (vuot != null) return (true, vuot, null);
+
+                // 3) Câu hỏi số liệu/danh sách → tra DB trực tiếp (luôn dữ liệu mới nhất)
+                var y = XacDinhYeuCau(vk, q, lichSu);
+                if (y.ChuDe != ChuDeHoi.Khac)
+                    return (true, await TraLoiTheoYeuCauAsync(maNguoiDung, vk, vt, y, ct), null);
+
+                // 4) Câu hỏi giải thích / quy trình → LLM với context gọn
                 if (!string.IsNullOrEmpty(GroqKey))
                 {
-                    var (ok, text, err) = await GoiGroqAsync(vt, ten, cauHoi.Trim(), context, lichSu, ct);
+                    var context = await NapContextGonAsync(maNguoiDung, vk, vt, ct);
+                    var (ok, text, err) = await GoiGroqAsync(vk, vt, ten, cauHoi.Trim(), context, lichSu, ct);
                     if (ok && !string.IsNullOrWhiteSpace(text))
                         return (true, text.Trim(), null);
-                    _logger.LogWarning("Groq lỗi, chuyển tra DB trực tiếp: {Err}", err);
+                    _logger.LogWarning("Groq lỗi: {Err}", err);
                 }
 
-                // Fallback: tra DB theo ngữ nghĩa câu hỏi (không gợi ý mẫu câu)
-                var soLieu = await TraLoiSoLieuChinhXacAsync(maNguoiDung, vt, q, cauHoi.Trim(), ct);
-                if (soLieu != null)
-                    return (true, soLieu, null);
-
-                return (true, await FallbackRuleAsync(vt, q, ct), null);
+                return (true, MauCauHoi(vk, vt), null);
             }
             catch (Exception ex)
             {
@@ -100,594 +169,234 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             }
         }
 
-        // ===================== CONTEXT =====================
+        // =====================================================================
+        //  PHÂN TÍCH CÂU HỎI → YeuCau
+        // =====================================================================
 
-        private async Task<string> NapContextVaiTroAsync(int maNd, string vt, CancellationToken ct)
+        private static YeuCau PhanTich(string q)
         {
-            var sb = new StringBuilder();
-            sb.AppendLine($"Vai_tro: {vt}");
-            sb.AppendLine($"Thoi_diem: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
-
-            var tbs = await _db.ThietBis.AsNoTracking()
-                .Select(t => new
-                {
-                    t.MaThietBi,
-                    t.TenThietBi,
-                    t.LoaiThietBi,
-                    t.ViTriLapDat,
-                    t.TinhTrangHienTai,
-                    t.NgayBaoTriGanNhat,
-                    t.NgayBaoTriTiepTheo
-                }).ToListAsync(ct);
-
-            sb.AppendLine($"Tong_thiet_bi: {tbs.Count}");
-            foreach (var g in tbs.GroupBy(x => x.TinhTrangHienTai ?? "(trống)"))
-                sb.AppendLine($"  Tinh_trang[{g.Key}]={g.Count()}");
-            foreach (var g in tbs.GroupBy(x => x.LoaiThietBi ?? "(chưa loại)"))
-                sb.AppendLine($"  Danh_muc[{g.Key}]={g.Count()}");
-            // Đủ danh sách thiết bị để trả lời «hệ thống có những thiết bị nào?»
-            sb.AppendLine("DS_thiet_bi (đầy đủ — dùng khi user hỏi danh sách/có những thiết bị nào):");
-            foreach (var t in tbs.OrderBy(x => x.LoaiThietBi).ThenBy(x => x.TenThietBi))
-            {
-                sb.AppendLine(
-                    $"  TB#{t.MaThietBi}|{t.TenThietBi}|loai={t.LoaiThietBi}|vitri={t.ViTriLapDat}"
-                    + $"|tt={t.TinhTrangHienTai}"
-                    + $"|bt_gan={(t.NgayBaoTriGanNhat.HasValue ? t.NgayBaoTriGanNhat.Value.ToString("dd/MM/yyyy") : "-")}"
-                    + $"|bt_tiep={(t.NgayBaoTriTiepTheo.HasValue ? t.NgayBaoTriTiepTheo.Value.ToString("dd/MM/yyyy") : "-")}");
-            }
-
-            // Kho vật tư (catalog) — hỏi «có những vật tư nào»
-            var vatTuCat = await _db.VatTus.AsNoTracking()
-                .Select(v => new { v.MaVatTu, v.TenVatTu, v.DonViTinh, v.SoLuongTonKho, v.DonGia })
-                .OrderBy(v => v.TenVatTu)
-                .ToListAsync(ct);
-            sb.AppendLine($"Tong_vat_tu_kho: {vatTuCat.Count}");
-            sb.AppendLine("DS_vat_tu_kho:");
-            foreach (var v in vatTuCat)
-                sb.AppendLine($"  VTU#{v.MaVatTu}|{v.TenVatTu}|dvt={v.DonViTinh}|ton={v.SoLuongTonKho}|dongia={v.DonGia:0}");
-
-            if (vt is "Tổ trưởng cơ điện" or "Tổ trưởng kỹ thuật" or "Xưởng" or "Tổ trưởng sản xuất" or "Giám đốc" or "Phó giám đốc")
-            {
-                var bts = await _db.HoSoBaoTris.AsNoTracking()
-                    .Select(h => new
-                    {
-                        h.MaHoSoBaoTri,
-                        h.TrangThai,
-                        NgayHt = h.ThoiDiemKetThucThucTe ?? h.NgayDuyet ?? h.NgayTao,
-                        h.NgayTao,
-                        TenTb = h.MaThieBiNavigation != null ? h.MaThieBiNavigation.TenThietBi : ""
-                    }).ToListAsync(ct);
-
-                var mapKh = await _db.ChiTietKeHoachBaoTris.AsNoTracking()
-                    .Where(c => c.MaHoSoBaoTri != null)
-                    .Select(c => new { Ma = c.MaHoSoBaoTri!.Value, c.NgayDuKienBaoTri })
-                    .ToListAsync(ct);
-                var dictKh = mapKh.GroupBy(x => x.Ma).ToDictionary(g => g.Key, g => g.First().NgayDuKienBaoTri);
-
-                sb.AppendLine($"Tong_HS_BT: {bts.Count}");
-                foreach (var g in bts.GroupBy(x => x.TrangThai ?? "(trống)"))
-                    sb.AppendLine($"  BT_TT[{g.Key}]={g.Count()}");
-                sb.AppendLine("HS_BT:");
-                foreach (var h in bts.OrderByDescending(x => x.NgayHt).Take(60))
-                {
-                    var ky = dictKh.TryGetValue(h.MaHoSoBaoTri, out var nk)
-                        ? nk.ToString("dd/MM/yyyy")
-                        : h.NgayHt.ToString("dd/MM/yyyy");
-                    sb.AppendLine(
-                        $"  BT#{h.MaHoSoBaoTri}|{h.TenTb}|tt={h.TrangThai}|ngay_kh_hoac_ht={ky}|ht={h.NgayHt:dd/MM/yyyy HH:mm}");
-                }
-
-                var scs = await _db.HoSoSuaChuas.AsNoTracking()
-                    .Select(h => new
-                    {
-                        h.MaHoSoSuaChua,
-                        h.TrangThai,
-                        NgayHt = h.ThoiDiemKetThucThucTe ?? h.NgayDuyet ?? h.NgayTao,
-                        TenTb = h.MaThieBiNavigation != null ? h.MaThieBiNavigation.TenThietBi : ""
-                    }).ToListAsync(ct);
-                sb.AppendLine($"Tong_HS_SC: {scs.Count}");
-                foreach (var g in scs.GroupBy(x => x.TrangThai ?? "(trống)"))
-                    sb.AppendLine($"  SC_TT[{g.Key}]={g.Count()}");
-                sb.AppendLine("HS_SC:");
-                foreach (var h in scs.OrderByDescending(x => x.NgayHt).Take(40))
-                    sb.AppendLine($"  SC#{h.MaHoSoSuaChua}|{h.TenTb}|tt={h.TrangThai}|ht={h.NgayHt:dd/MM/yyyy HH:mm}");
-
-                var vtsAll = await _db.HoSoSuDungVatTus.AsNoTracking()
-                    .Select(h => new
-                    {
-                        h.MaHoSoVatTu,
-                        h.MaHoSoBaoTri,
-                        h.MaHoSoSuaChua,
-                        TenTb = h.TenThietBi ?? "",
-                        h.TongTien,
-                        h.TrangThai,
-                        h.NgayThucHien,
-                        SoLoai = h.ChiTietSuDungVatTus.Select(c => c.TenVatTu).Distinct().Count(),
-                        TongSl = h.ChiTietSuDungVatTus.Sum(c => c.SoLuong)
-                    }).ToListAsync(ct);
-                sb.AppendLine($"Tong_HS_vat_tu: {vtsAll.Count}");
-                foreach (var g in vtsAll.GroupBy(x => x.TrangThai ?? "(trống)"))
-                    sb.AppendLine($"  VT_TT[{g.Key}]={g.Count()}");
-                // Alias UI: "Xác nhận" gồm cả "Đã xem"
-                var vtXacNhan = vtsAll.Count(x =>
-                {
-                    var t = x.TrangThai ?? "";
-                    return t.Contains("Xác nhận", StringComparison.OrdinalIgnoreCase)
-                           || t.Equals("Đã xem", StringComparison.OrdinalIgnoreCase);
-                });
-                sb.AppendLine($"  VT_TT[Xác nhận_hoac_Da_xem]={vtXacNhan}");
-                sb.AppendLine("HS_vat_tu:");
-                foreach (var v in vtsAll.OrderByDescending(x => x.NgayThucHien).Take(50))
-                {
-                    var hs = v.MaHoSoBaoTri != null ? $"BT#{v.MaHoSoBaoTri}"
-                        : (v.MaHoSoSuaChua != null ? $"SC#{v.MaHoSoSuaChua}" : $"VT#{v.MaHoSoVatTu}");
-                    sb.AppendLine($"  VT#{v.MaHoSoVatTu}|{hs}|{v.TenTb}|sl={v.TongSl}|loai={v.SoLoai}|tien={v.TongTien:0}|tt={v.TrangThai}|ngay={v.NgayThucHien:dd/MM/yyyy}");
-                }
-
-                var lich = await _db.ChiTietKeHoachBaoTris.AsNoTracking()
-                    .Where(c => c.NgayDuKienBaoTri >= DateOnly.FromDateTime(DateTime.Now.AddMonths(-2)))
-                    .OrderBy(c => c.NgayDuKienBaoTri).Take(40)
-                    .Select(c => new
-                    {
-                        c.NgayDuKienBaoTri,
-                        c.MaHoSoBaoTri,
-                        Ten = c.MaThietBiNavigation != null ? c.MaThietBiNavigation.TenThietBi : ("TB#" + c.MaThietBi)
-                    }).ToListAsync(ct);
-                sb.AppendLine("Lich_BT:");
-                foreach (var c in lich)
-                    sb.AppendLine($"  {c.NgayDuKienBaoTri:dd/MM/yyyy}|{c.Ten}|hs={(c.MaHoSoBaoTri.HasValue ? "BT#" + c.MaHoSoBaoTri : "-")}");
-
-                var buoc = await _db.TienDoBuocQuyTrinhs.AsNoTracking()
-                    .OrderByDescending(t => t.ThoiDiemCapNhat).Take(120)
-                    .Select(t => new { t.MaHoSoBaoTri, t.MaHoSoSuaChua, t.SoBuoc, t.MoTaBuoc, t.TrangThai })
-                    .ToListAsync(ct);
-                foreach (var g in buoc.GroupBy(t => t.MaHoSoBaoTri != null ? $"BT#{t.MaHoSoBaoTri}" : $"SC#{t.MaHoSoSuaChua}").Take(25))
-                {
-                    var uniq = g.GroupBy(x => x.SoBuoc).Select(x => x.First()).OrderBy(x => x.SoBuoc);
-                    sb.AppendLine($"Buoc[{g.Key}]: {string.Join("; ", uniq.Select(x => $"B{x.SoBuoc}:{x.MoTaBuoc}({x.TrangThai})"))}");
-                }
-
-                // --- Bổ sung cho Tổ trưởng: NVKT + phân công (hỗ trợ hỏi trên mọi trang role Tổ trưởng) ---
-                if (vt is "Tổ trưởng cơ điện" or "Tổ trưởng kỹ thuật")
-                {
-                    var nvs = await _db.NhanViens.AsNoTracking()
-                        .Where(n => n.ChucVu != null
-                                    && (n.ChucVu.Contains("kỹ thuật") || n.ChucVu.Contains("Kỹ thuật")
-                                        || n.ChucVu.Contains("NVKT") || n.ChucVu.Contains("nhân viên")))
-                        .Select(n => new { n.MaNhanVien, n.HoTen, n.ChucVu, n.TrangThai })
-                        .ToListAsync(ct);
-                    // Fallback: lấy NV không phải GĐ/Xưởng nếu filter quá hẹp
-                    if (nvs.Count == 0)
-                    {
-                        nvs = await _db.NhanViens.AsNoTracking()
-                            .OrderBy(n => n.MaNhanVien).Take(40)
-                            .Select(n => new { n.MaNhanVien, n.HoTen, n.ChucVu, n.TrangThai })
-                            .ToListAsync(ct);
-                    }
-                    sb.AppendLine($"DS_NVKT: {nvs.Count}");
-                    foreach (var n in nvs)
-                        sb.AppendLine($"  NV#{n.MaNhanVien}|{n.HoTen}|cv={n.ChucVu}|tt={n.TrangThai ?? "Hoạt động"}");
-
-                    var pcs = await _db.PhanCongCongViecs.AsNoTracking()
-                        .OrderByDescending(p => p.NgayPhanCong).Take(50)
-                        .Select(p => new
-                        {
-                            p.MaPhanCong,
-                            p.MaHoSoBaoTri,
-                            p.MaHoSoSuaChua,
-                            p.TrangThai,
-                            p.NgayPhanCong,
-                            p.LaNguoiGhiChep,
-                            TenNv = p.MaNhanVienThucHienNavigation != null
-                                ? p.MaNhanVienThucHienNavigation.HoTen : ("NV#" + p.MaNhanVienThucHien)
-                        }).ToListAsync(ct);
-                    sb.AppendLine($"Tong_phan_cong: {pcs.Count}");
-                    foreach (var g in pcs.GroupBy(x => x.TrangThai ?? "(trống)"))
-                        sb.AppendLine($"  PC_TT[{g.Key}]={g.Count()}");
-                    sb.AppendLine("Phan_cong:");
-                    foreach (var p in pcs.Take(40))
-                    {
-                        var hs = p.MaHoSoBaoTri != null ? $"BT#{p.MaHoSoBaoTri}" : $"SC#{p.MaHoSoSuaChua}";
-                        sb.AppendLine(
-                            $"  PC#{p.MaPhanCong}|{hs}|nv={p.TenNv}|tt={p.TrangThai}"
-                            + $"|ghi_chep={(p.LaNguoiGhiChep ? "1" : "0")}|ngay={p.NgayPhanCong:dd/MM/yyyy}");
-                    }
-
-                    // HS chờ phân công (GĐ đã duyệt → Tổ trưởng mở khóa phân công)
-                    var choPc = bts.Where(h =>
-                        string.Equals(h.TrangThai, "Đã duyệt", StringComparison.OrdinalIgnoreCase)
-                        || string.Equals(h.TrangThai, "Chờ phân công", StringComparison.OrdinalIgnoreCase)
-                        || string.Equals(h.TrangThai, "Đã phê duyệt", StringComparison.OrdinalIgnoreCase)).ToList();
-                    sb.AppendLine($"HS_BT_cho_phan_cong: {choPc.Count}");
-                    foreach (var h in choPc.Take(20))
-                        sb.AppendLine($"  BT#{h.MaHoSoBaoTri}|{h.TenTb}|tt={h.TrangThai}");
-                }
-            }
-
-            if (vt == "Nhân viên kỹ thuật")
-            {
-                var maNv = await _db.NhanViens.AsNoTracking()
-                    .Where(n => n.MaNguoiDung == maNd)
-                    .Select(n => (int?)n.MaNhanVien).FirstOrDefaultAsync(ct);
-                sb.AppendLine($"Ma_NV: {maNv}");
-                if (maNv != null)
-                {
-                    var pc = await _db.PhanCongCongViecs.AsNoTracking()
-                        .Where(p => p.MaNhanVienThucHien == maNv)
-                        .OrderByDescending(p => p.NgayPhanCong).Take(30)
-                        .Select(p => new { p.MaPhanCong, p.MaHoSoBaoTri, p.MaHoSoSuaChua, p.TrangThai, p.NgayPhanCong })
-                        .ToListAsync(ct);
-                    sb.AppendLine($"Phan_cong: {pc.Count}");
-                    foreach (var p in pc)
-                    {
-                        var hs = p.MaHoSoBaoTri != null ? $"BT#{p.MaHoSoBaoTri}" : $"SC#{p.MaHoSoSuaChua}";
-                        sb.AppendLine($"  PC#{p.MaPhanCong}|{hs}|tt={p.TrangThai}|ngay={p.NgayPhanCong:dd/MM/yyyy}");
-                    }
-
-                    var maBt = pc.Where(x => x.MaHoSoBaoTri != null).Select(x => x.MaHoSoBaoTri!.Value).Distinct().ToList();
-                    var maSc = pc.Where(x => x.MaHoSoSuaChua != null).Select(x => x.MaHoSoSuaChua!.Value).Distinct().ToList();
-
-                    if (maBt.Count > 0)
-                    {
-                        var myBt = await _db.HoSoBaoTris.AsNoTracking()
-                            .Where(h => maBt.Contains(h.MaHoSoBaoTri))
-                            .Select(h => new
-                            {
-                                h.MaHoSoBaoTri,
-                                h.TrangThai,
-                                TenTb = h.MaThieBiNavigation != null ? h.MaThieBiNavigation.TenThietBi : "",
-                                h.ThoiDiemBatDauThucTe,
-                                h.ThoiDiemKetThucThucTe
-                            }).ToListAsync(ct);
-                        sb.AppendLine("HS_BT_cua_toi:");
-                        foreach (var h in myBt)
-                            sb.AppendLine($"  BT#{h.MaHoSoBaoTri}|{h.TenTb}|tt={h.TrangThai}|bd={h.ThoiDiemBatDauThucTe}|ht={h.ThoiDiemKetThucThucTe}");
-                    }
-                    if (maSc.Count > 0)
-                    {
-                        var mySc = await _db.HoSoSuaChuas.AsNoTracking()
-                            .Where(h => maSc.Contains(h.MaHoSoSuaChua))
-                            .Select(h => new
-                            {
-                                h.MaHoSoSuaChua,
-                                h.TrangThai,
-                                TenTb = h.MaThieBiNavigation != null ? h.MaThieBiNavigation.TenThietBi : ""
-                            }).ToListAsync(ct);
-                        sb.AppendLine("HS_SC_cua_toi:");
-                        foreach (var h in mySc)
-                            sb.AppendLine($"  SC#{h.MaHoSoSuaChua}|{h.TenTb}|tt={h.TrangThai}");
-                    }
-
-                    var myVt = await _db.HoSoSuDungVatTus.AsNoTracking()
-                        .Where(h => h.MaNhanVienTH == maNv)
-                        .OrderByDescending(h => h.NgayThucHien).Take(20)
-                        .Select(h => new
-                        {
-                            h.MaHoSoBaoTri,
-                            h.MaHoSoSuaChua,
-                            h.TongTien,
-                            TongSl = h.ChiTietSuDungVatTus.Sum(c => c.SoLuong),
-                            SoLoai = h.ChiTietSuDungVatTus.Select(c => c.TenVatTu).Distinct().Count()
-                        }).ToListAsync(ct);
-                    sb.AppendLine("Vat_tu_cua_toi:");
-                    foreach (var v in myVt)
-                    {
-                        var hs = v.MaHoSoBaoTri != null ? $"BT#{v.MaHoSoBaoTri}" : $"SC#{v.MaHoSoSuaChua}";
-                        sb.AppendLine($"  {hs}|sl={v.TongSl}|loai={v.SoLoai}|tien={v.TongTien:0}");
-                    }
-
-                    var buoc = await _db.TienDoBuocQuyTrinhs.AsNoTracking()
-                        .Where(t =>
-                            (t.MaHoSoBaoTri != null && maBt.Contains(t.MaHoSoBaoTri.Value)) ||
-                            (t.MaHoSoSuaChua != null && maSc.Contains(t.MaHoSoSuaChua.Value)))
-                        .OrderByDescending(t => t.ThoiDiemCapNhat).Take(100)
-                        .Select(t => new { t.MaHoSoBaoTri, t.MaHoSoSuaChua, t.SoBuoc, t.MoTaBuoc, t.TrangThai })
-                        .ToListAsync(ct);
-                    foreach (var g in buoc.GroupBy(t => t.MaHoSoBaoTri != null ? $"BT#{t.MaHoSoBaoTri}" : $"SC#{t.MaHoSoSuaChua}").Take(15))
-                    {
-                        var uniq = g.GroupBy(x => x.SoBuoc).Select(x => x.First()).OrderBy(x => x.SoBuoc);
-                        sb.AppendLine($"Buoc[{g.Key}]: {string.Join("; ", uniq.Select(x => $"B{x.SoBuoc}:{x.MoTaBuoc}({x.TrangThai})"))}");
-                    }
-                }
-            }
-
-            var text = sb.ToString();
-            if (text.Length > 28000)
-                text = text[..28000] + "\n...(truncated)";
-            return text;
-        }
-
-        // ===================== GROQ + KIẾN THỨC HỆ THỐNG =====================
-
-        private async Task<(bool ok, string? text, string? err)> GoiGroqAsync(
-            string vt,
-            string ten,
-            string cauHoi,
-            string context,
-            IReadOnlyList<(string role, string content)>? lichSu,
-            CancellationToken ct)
-        {
-            // Không khớp mẫu câu hỏi. LLM tự đọc CAU_HOI + CONTEXT_DB như người đang xem app.
-            var kienThuc = XayDungKienThucHeThong(vt);
-            var phamVi = MoTaPhamVi(vt);
-            var system =
-                "Bạn là OPC Bot — trợ lý đã «vào trong» app quản lý bảo trì/sửa chữa thiết bị cơ điện (Công ty Dược OPC).\n" +
-                "Bạn đang xem đúng dữ liệu vận hành realtime của app (CONTEXT_DB) và nắm quy trình nghiệp vụ (KIẾN THỨC).\n" +
-                $"Người hỏi: {ten}. Vai trò đăng nhập: «{vt}».\n\n" +
-                "CÁCH LÀM VIỆC (bắt buộc):\n" +
-                "1) Đọc hiểu CAU_HOI bằng tiếng Việt tự nhiên — không cần câu hỏi đúng mẫu, không cần từ khóa cố định.\n" +
-                "2) Tự xác định user muốn biết gì (danh sách, số lượng, trạng thái, quy trình, ai phụ trách, mã HS, tên máy…).\n" +
-                "3) Tự tìm câu trả lời trong CONTEXT_DB và KIẾN THỨC. Ví dụ:\n" +
-                "   - «hệ thống có những thiết bị nào?» → liệt kê từ DS_thiet_bi / Tong_thiet_bi / Danh_muc\n" +
-                "   - «máy X đang thế nào?» → tìm tên trong DS_thiet_bi\n" +
-                "   - «có bao nhiêu hồ sơ chờ duyệt?» → đếm HS_BT / HS_SC theo trạng thái\n" +
-                "   - «tôi phải làm gì tiếp?» → giải thích bước tiếp theo theo vai trò từ KIẾN THỨC\n" +
-                "4) Trả lời đúng trọng tâm, đủ ý; liệt kê thì dùng bullet; mở đầu bằng «Dạ,».\n" +
-                "5) Chỉ dùng số liệu có trong CONTEXT_DB — cấm bịa mã HS, tên thiết bị, tên người.\n" +
-                "6) Nếu CONTEXT không có dữ liệu phù hợp → nói rõ «trong dữ liệu hiện tại chưa thấy…», không bịa, không bảo user hỏi theo mẫu.\n" +
-                "7) Tôn trọng phạm vi vai trò «" + vt + "»: không làm hộ việc của role khác; có thể giải thích role nào phụ trách.\n" +
-                "8) Cấm lộ mật khẩu, API key, mã nguồn.\n\n" +
-                "KIẾN THỨC NGHIỆP VỤ:\n" + kienThuc + "\n" +
-                "PHẠM VI VAI TRÒ:\n" + phamVi;
-
-            var user = new StringBuilder();
-            user.AppendLine("CONTEXT_DB — snapshot dữ liệu app đang chạy (nguồn sự thật duy nhất cho số liệu):");
-            user.AppendLine(context);
-            if (lichSu != null && lichSu.Count > 0)
-            {
-                user.AppendLine("LICH_SU_HOI_THOAI:");
-                foreach (var (role, content) in lichSu.TakeLast(8))
-                    user.AppendLine($"- {role}: {content}");
-            }
-            user.AppendLine("CAU_HOI_CUA_NGUOI_DUNG:");
-            user.AppendLine(cauHoi);
-            user.AppendLine("Hãy phân tích câu hỏi trên và trả lời dựa trên CONTEXT_DB + kiến thức nghiệp vụ.");
-
-            // Groq OpenAI-compatible Chat Completions
-            var body = new
-            {
-                model = GroqModel,
-                temperature = 0.2,
-                max_tokens = 2048,
-                messages = new object[]
-                {
-                    new { role = "system", content = system },
-                    new { role = "user", content = user.ToString() }
-                }
-            };
-
-            const string url = "https://api.groq.com/openai/v1/chat/completions";
-
-            try
-            {
-                var client = _httpFactory.CreateClient("Groq");
-                using var req = new HttpRequestMessage(HttpMethod.Post, url);
-                req.Headers.TryAddWithoutValidation("Authorization", "Bearer " + GroqKey);
-                req.Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
-
-                using var res = await client.SendAsync(req, ct);
-                var raw = await res.Content.ReadAsStringAsync(ct);
-                if (!res.IsSuccessStatusCode)
-                {
-                    // Log đầy đủ body lỗi (model_not_found, rate_limit, invalid key...)
-                    _logger.LogWarning("Groq HTTP {Code} model={Model}: {Body}",
-                        (int)res.StatusCode, GroqModel,
-                        raw.Length > 600 ? raw[..600] : raw);
-                    string? groqMsg = null;
-                    try
-                    {
-                        using var errDoc = JsonDocument.Parse(raw);
-                        if (errDoc.RootElement.TryGetProperty("error", out var errEl)
-                            && errEl.TryGetProperty("message", out var msgEl))
-                            groqMsg = msgEl.GetString();
-                    }
-                    catch { /* ignore parse */ }
-                    return (false, null,
-                        string.IsNullOrEmpty(groqMsg)
-                            ? $"Groq {(int)res.StatusCode}"
-                            : $"Groq {(int)res.StatusCode}: {groqMsg}");
-                }
-
-                using var doc = JsonDocument.Parse(raw);
-                if (!doc.RootElement.TryGetProperty("choices", out var choices) || choices.GetArrayLength() == 0)
-                    return (false, null, "no choices");
-
-                var msg = choices[0].GetProperty("message");
-                // Ưu tiên content; một số model (gpt-oss) để câu trả lời trong reasoning
-                var text = msg.TryGetProperty("content", out var c) ? c.GetString()?.Trim() : null;
-                if (string.IsNullOrEmpty(text)
-                    && msg.TryGetProperty("reasoning", out var r))
-                    text = r.GetString()?.Trim();
-                return string.IsNullOrEmpty(text) ? (false, null, "empty") : (true, text, null);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Groq call failed model={Model}", GroqModel);
-                return (false, null, ex.Message);
-            }
-        }
-
-        // ===================== SỐ LIỆU CHÍNH XÁC (DB) =====================
-
-        /// <summary>
-        /// Chỉ trả lời SỐ LIỆU khi ý định rõ ràng (tránh cướp câu hỏi → mẫu sai).
-        /// Ưu tiên: vật tư → phân công → thiết bị → lịch BT → HS BT/SC.
-        /// Câu mơ hồ / nhiều ý → trả null để Groq + CONTEXT phân tích.
-        /// </summary>
-        private async Task<string?> TraLoiSoLieuChinhXacAsync(
-            int maNd, string vt, string q, string cauGoc, CancellationToken ct)
-        {
+            var y = new YeuCau();
             int? ngay = null, thang = null, nam = null;
             TrichNgayThangNam(q, ref ngay, ref thang, ref nam);
-            var maBt = TrichMa(q, "bt");
-            var maSc = TrichMa(q, "sc");
+            y.Ngay = ngay; y.Thang = thang; y.Nam = nam;
+            XuLyThoiGianTuongDoi(q, y);
 
-            // 1) VẬT TƯ — phải trước "hồ sơ" (tránh "hồ sơ vật tư" bị nhầm HS bảo trì)
+            y.MaBt = TrichMa(q, "bt");
+            y.MaSc = TrichMa(q, "sc");
+            y.TatCa = Co(q, "tat ca", "toan bo", "tu truoc den nay", "luy ke", "tong so", "tong cong");
+            y.CoSo = Co(q, "thuc te", "ngay hoan thanh") ? "thuc_te" : "app";
+
+            var bt = Co(q, "bao tri");
+            var sc = Co(q, "sua chua");
+            var coHs = Co(q, "ho so");
+
             if (LaHoiVatTu(q))
             {
-                // UI/DB: "Xác nhận" | "Đã xem" | "Chờ duyệt" | "Chờ gửi" | "Đã gửi GĐ"
-                string? ttVt = null;
-                if (Co(q, "xac nhan", "da xac nhan", "da xem")) ttVt = "Xác nhận";
-                else if (Co(q, "cho duyet", "da gui")) ttVt = "Chờ duyệt";
-                else if (Co(q, "cho gui")) ttVt = "Chờ gửi";
-                else if (Co(q, "tu choi")) ttVt = "Từ chối";
-                return await TraLoiVatTuAsync(maNd, vt, maBt, maSc, ttVt, ct);
+                y.ChuDe = ChuDeHoi.VatTu;
+                y.TrangThai = TrichTrangThai(q, true);
+                return y;
+            }
+            if (LaHoiPhanCong(q)) { y.ChuDe = ChuDeHoi.PhanCong; return y; }
+            if (LaHoiLichBaoTri(q)) { y.ChuDe = ChuDeHoi.LichBt; return y; }
+            if (Co(q, "buoc") && (y.MaBt != null || y.MaSc != null || Co(q, "quy trinh")))
+            {
+                y.ChuDe = ChuDeHoi.Buoc;
+                return y;
             }
 
-            // 2) PHÂN CÔNG — "lịch sử phân công" ≠ "lịch bảo trì"
-            if (LaHoiPhanCong(q))
+            y.TrangThai = TrichTrangThai(q, false);
+            var hoiDem = Co(q, "bao nhieu", "co may", "tong", "hoan thanh", "cho duyet", "dang thuc hien",
+                "tu choi", "cho xuong", "cho phan cong", "da duyet", "cho xac nhan");
+            var tbThuan = Co(q, "thiet bi", "may moc", "danh sach may", "may nen")
+                          && !coHs && !y.CoKy
+                          && !Co(q, "hoan thanh", "da bao tri", "da sua chua");
+
+            if (tbThuan)
             {
-                if (vt == "Nhân viên kỹ thuật")
-                    return await TraLoiPhanCongNvktAsync(maNd, ct);
-                if (vt is "Tổ trưởng cơ điện" or "Tổ trưởng kỹ thuật" or "Giám đốc" or "Xưởng" or "Tổ trưởng sản xuất")
-                    return await TraLoiPhanCongToTruongAsync(ct);
+                y.ChuDe = ChuDeHoi.ThietBi;
+                y.TenThietBi = TrichTenThietBi(q);
+                if (Co(q, "dang sua chua")) y.TinhTrangTb = "Sửa chữa";
+                else if (Co(q, "dang bao tri")) y.TinhTrangTb = "Bảo trì";
+                else if (Co(q, "dang san xuat")) y.TinhTrangTb = "Sản xuất";
             }
-
-            // 3) THIẾT BỊ — danh sách / có những gì / trạng thái từng máy (fallback khi Groq lỗi)
-            if (Co(q, "thiet bi", "may moc", "may nen", "danh sach may")
-                && !LaHoiVatTu(q) && !LaHoiPhanCong(q)
-                && !Co(q, "ho so bao tri", "ho so sua chua"))
+            else if ((bt || sc) && (coHs || hoiDem || y.CoKy))
             {
-                var tbs = await _db.ThietBis.AsNoTracking()
-                    .Select(t => new
-                    {
-                        t.MaThietBi,
-                        t.TenThietBi,
-                        t.LoaiThietBi,
-                        t.ViTriLapDat,
-                        t.TinhTrangHienTai,
-                        t.NgayBaoTriGanNhat,
-                        t.NgayBaoTriTiepTheo
-                    }).ToListAsync(ct);
+                if (bt && sc) { y.ChuDe = ChuDeHoi.HoSoBt; y.CaBtVaSc = true; }
+                else if (sc) y.ChuDe = ChuDeHoi.HoSoSc;
+                else y.ChuDe = ChuDeHoi.HoSoBt;
+            }
+            else if (y.MaBt != null) y.ChuDe = ChuDeHoi.HoSoBt;
+            else if (y.MaSc != null) y.ChuDe = ChuDeHoi.HoSoSc;
+            else if (coHs && (hoiDem || y.CoKy || y.TrangThai != null))
+            {
+                y.ChuDe = ChuDeHoi.HoSoBt;
+                y.CaBtVaSc = true;
+            }
+            return y;
+        }
 
-                // Hỏi 1 máy cụ thể
-                var tenGoi = TrichTenThietBi(q);
-                if (tenGoi != null)
+        /// <summary>Phân tích + nối tiếp ngữ cảnh hội thoại + áp dụng bài học đã học.</summary>
+        private YeuCau XacDinhYeuCau(VaiTroKey vk, string q, IReadOnlyList<(string role, string content)>? lichSu)
+        {
+            var y = PhanTich(q);
+
+            // Câu hỏi nối tiếp ("còn tháng 9?", "còn sửa chữa thì sao?") → kế thừa chủ đề câu trước
+            if (y.ChuDe == ChuDeHoi.Khac && q.Length <= 70)
+            {
+                var noiTiep = y.CoKy || y.TrangThai != null || y.TatCa
+                              || Co(q, "con ", "vay ", "the con", "so voi");
+                var cauTruoc = noiTiep ? TrichCauHoiTruoc(lichSu) : null;
+                if (cauTruoc != null)
                 {
-                    var hit = tbs
-                        .Select(x => new { x, sc = DiemKhop(tenGoi, x.TenThietBi) })
-                        .Where(x => x.sc >= 2)
-                        .OrderByDescending(x => x.sc)
-                        .Select(x => x.x)
-                        .FirstOrDefault();
-                    if (hit != null)
+                    var prev = PhanTich(Nghia(cauTruoc));
+                    if (prev.ChuDe != ChuDeHoi.Khac)
                     {
-                        var tt = string.IsNullOrWhiteSpace(hit.TinhTrangHienTai) ? "chưa ghi" : hit.TinhTrangHienTai;
-                        var gan = hit.NgayBaoTriGanNhat?.ToString("dd/MM/yyyy") ?? "chưa có";
-                        var tiep = hit.NgayBaoTriTiepTheo?.ToString("dd/MM/yyyy") ?? "chưa có";
-                        var vtTri = string.IsNullOrWhiteSpace(hit.ViTriLapDat) ? "chưa ghi" : hit.ViTriLapDat;
-                        return $"Dạ, **{hit.TenThietBi}** (TB#{hit.MaThietBi}).\n"
-                             + $"• Loại: {hit.LoaiThietBi ?? "—"}\n"
-                             + $"• Vị trí: {vtTri}\n"
-                             + $"• Trạng thái: **{tt}**\n"
-                             + $"• BT gần nhất: {gan} | BT tiếp theo: {tiep}";
+                        var m = prev.Clone();
+                        if (y.CoKy) { m.Ngay = y.Ngay; m.Thang = y.Thang; m.Nam = y.Nam; }
+                        if (y.TrangThai != null) m.TrangThai = y.TrangThai;
+                        if (y.TatCa) m.TatCa = true;
+                        if (m.ChuDe is ChuDeHoi.HoSoBt or ChuDeHoi.HoSoSc)
+                        {
+                            var bt = Co(q, "bao tri");
+                            var sc = Co(q, "sua chua");
+                            if (bt && sc) { m.ChuDe = ChuDeHoi.HoSoBt; m.CaBtVaSc = true; }
+                            else if (sc) { m.ChuDe = ChuDeHoi.HoSoSc; m.CaBtVaSc = false; }
+                            else if (bt) { m.ChuDe = ChuDeHoi.HoSoBt; m.CaBtVaSc = false; }
+                        }
+                        y = m;
                     }
                 }
-
-                // Hỏi danh sách / hệ thống có những thiết bị nào / gồm những gì
-                var hoiDanhSach = Co(q, "nao", "nhung", "gom", "bao gom", "danh sach", "danh muc",
-                    "he thong", "co nhung", "nhung gi", "cai gi", "nhung may");
-                var hoiDem = Co(q, "bao nhieu", "tong", "co may", "tinh trang");
-                if (hoiDanhSach || hoiDem || (Co(q, "thiet bi") && !Co(q, "ho so")))
-                {
-                    int Dem(string k) => tbs.Count(x => (x.TinhTrangHienTai ?? "")
-                        .Contains(k, StringComparison.OrdinalIgnoreCase));
-                    var sb = new StringBuilder();
-                    sb.AppendLine($"Dạ, hệ thống đang quản lý **{tbs.Count}** thiết bị.");
-                    sb.AppendLine($"Trạng thái: Sản xuất **{Dem("Sản xuất")}** | Bảo trì **{Dem("Bảo trì")}** | Sửa chữa **{Dem("Sửa chữa")}**.");
-                    foreach (var g in tbs.GroupBy(x => x.LoaiThietBi ?? "(chưa loại)").OrderBy(g => g.Key))
-                    {
-                        sb.AppendLine($"**{g.Key}** ({g.Count()}):");
-                        foreach (var t in g.OrderBy(x => x.TenThietBi))
-                            sb.AppendLine($"  • TB#{t.MaThietBi} {t.TenThietBi} — {t.TinhTrangHienTai ?? "—"}"
-                                          + (string.IsNullOrWhiteSpace(t.ViTriLapDat) ? "" : $" ({t.ViTriLapDat})"));
-                    }
-                    return sb.ToString().TrimEnd();
-                }
             }
 
-            // 4) LỊCH BẢO TRÌ DỰ KIẾN (loại "lịch sử …")
-            if (LaHoiLichBaoTri(q) && vt != "Nhân viên kỹ thuật")
+            ApDungBaiHoc(vk, q, y);
+            return y;
+        }
+
+        private static string? TrichTrangThai(string q, bool vatTu)
+        {
+            if (vatTu)
             {
-                var lich = await _db.ChiTietKeHoachBaoTris.AsNoTracking()
-                    .Where(c => c.NgayDuKienBaoTri >= DateOnly.FromDateTime(DateTime.Today))
-                    .OrderBy(c => c.NgayDuKienBaoTri).Take(15)
-                    .Select(c => new
-                    {
-                        c.NgayDuKienBaoTri,
-                        Ten = c.MaThietBiNavigation != null ? c.MaThietBiNavigation.TenThietBi : ("TB#" + c.MaThietBi)
-                    }).ToListAsync(ct);
-                if (lich.Count == 0)
-                    return "Dạ, chưa có lịch bảo trì dự kiến sắp tới trên kế hoạch.";
-                var sbL = new StringBuilder();
-                sbL.AppendLine("Dạ, lịch bảo trì dự kiến sắp tới:");
-                foreach (var c in lich)
-                    sbL.AppendLine($"• {c.NgayDuKienBaoTri:dd/MM/yyyy}: {c.Ten}");
-                return sbL.ToString().TrimEnd();
+                if (Co(q, "cho gui")) return "cho gui";
+                if (Co(q, "cho xac nhan", "cho duyet", "da gui")) return "cho xac nhan";
+                if (Co(q, "xac nhan", "da xem")) return "xac nhan";
+                if (Co(q, "tu choi")) return "tu choi";
+                return null;
             }
-
-            // 5) HỒ SƠ BẢO TRÌ / SỬA CHỮA — chỉ khi ý định rõ
-            if (vt != "Nhân viên kỹ thuật" && LaHoiHoSoBtSc(q, ngay, thang))
-            {
-                var uuSc = Co(q, "sua chua") && !Co(q, "bao tri");
-                if (Co(q, "bao tri") && Co(q, "sua chua") && Co(q, "hoan thanh", "bao nhieu", "co may"))
-                {
-                    var a = await DemHsAsync(true, ngay, thang, nam, "Đã hoàn thành", ct);
-                    var b = await DemHsAsync(false, ngay, thang, nam, "Đã hoàn thành", ct);
-                    return a + "\n\n" + b;
-                }
-
-                string? tt = null;
-                if (Co(q, "hoan thanh")) tt = "Đã hoàn thành";
-                else if (Co(q, "cho duyet", "cho gd")) tt = "Chờ duyệt";
-                else if (Co(q, "dang thuc hien")) tt = "Đang thực hiện";
-                else if (Co(q, "tu choi")) tt = "Từ chối";
-                else if (Co(q, "cho xuong", "chot ngay")) tt = "Chờ xưởng";
-                else if (Co(q, "cho phan cong", "da duyet")) tt = "Đã duyệt";
-
-                return await DemHsAsync(!uuSc, ngay, thang, nam, tt, ct);
-            }
-
-            // 6) Bước quy trình
-            if (Co(q, "buoc") && (maBt != null || maSc != null || Co(q, "quy trinh")))
-                return await TraLoiBuocAsync(maNd, vt, maBt, maSc, ct);
-
-            // Không khớp ý định rõ → null → Groq + CONTEXT
+            if (Co(q, "hoan thanh", "da bao tri", "da sua chua", "thiet bi da")) return "hoan thanh";
+            if (Co(q, "cho xac nhan")) return "cho xac nhan";
+            if (Co(q, "cho duyet", "cho gd")) return "cho duyet";
+            if (Co(q, "dang thuc hien")) return "dang thuc hien";
+            if (Co(q, "tu choi")) return "tu choi";
+            if (Co(q, "cho xuong", "chot ngay")) return "cho xuong";
+            if (Co(q, "cho phan cong", "da duyet")) return "da duyet";
             return null;
         }
 
-        private static bool LaHoiVatTu(string q) =>
-            Co(q, "vat tu", "ho so vat tu", "hs vat tu", "nguyen vat lieu", "vat lieu")
-            || (Co(q, "tong tien") && Co(q, "vat", "tien vat"));
-
-        private static bool LaHoiPhanCong(string q) =>
-            Co(q, "phan cong", "lich su phan cong", "ai duoc giao", "nv duoc giao", "nhan vien duoc giao")
-            || (Co(q, "cong viec") && Co(q, "giao", "duoc giao", "cua toi", "cua minh"));
-
-        private static bool LaHoiLichBaoTri(string q)
+        /// <summary>Khóa trạng thái HS bảo trì/sửa chữa (chịu được khác biệt «Đã hoàn thành»/«Hoàn thành», hoa/thường…).</summary>
+        private static string TtKey(string? t)
         {
-            if (Co(q, "lich su")) return false;
-            return Co(q, "lich bao tri", "lich du kien", "lich sap toi")
-                   || (Co(q, "lich") && Co(q, "bao tri", "sap toi", "du kien"));
+            var n = ChuanHoa(t ?? "");
+            if (n.Contains("hoan thanh")) return "hoan thanh";
+            if (n.Contains("tu choi")) return "tu choi";
+            if (n.Contains("cho xuong") || n.Contains("cho chot ngay")) return "cho xuong";
+            if (n.Contains("cho phan cong") || n == "da duyet" || n.Contains("phe duyet")) return "da duyet";
+            if (n.Contains("cho xac nhan")) return "cho xac nhan";
+            if (n.Contains("cho duyet") || n.Contains("cho gd")) return "cho duyet";
+            if (n.Contains("dang thuc hien")) return "dang thuc hien";
+            if (n.Contains("huy")) return "da huy";
+            if (n == "nhap") return "nhap";
+            return n.Length == 0 ? "(trong)" : n;
         }
 
-        private static bool LaHoiHoSoBtSc(string q, int? ngay, int? thang)
+        /// <summary>Khóa trạng thái hồ sơ vật tư: Chờ gửi | Chờ xác nhận | Xác nhận (+ alias cũ).</summary>
+        private static string VtKey(string? t)
         {
-            if (LaHoiVatTu(q) || LaHoiPhanCong(q) || LaHoiLichBaoTri(q)) return false;
-            if (Co(q, "ho so bao tri", "ho so sua chua", "hs bao tri", "hs sua chua", "ho so bt", "ho so sc"))
-                return true;
-            if (Co(q, "ho so") && Co(q, "bao tri", "sua chua", "hoan thanh", "cho duyet", "dang thuc hien", "cho xuong", "cho phan cong"))
-                return true;
-            if (Co(q, "bao tri", "sua chua") && Co(q, "bao nhieu", "co may", "tong", "hoan thanh", "cho duyet")
-                && (thang != null || ngay != null || Co(q, "thang", "nam", "ngay")))
-                return true;
-            return false;
+            var n = ChuanHoa(t ?? "");
+            if (n.Contains("cho gui")) return "cho gui";
+            if (n.Contains("cho xac nhan") || n.Contains("cho duyet") || n.Contains("da gui")) return "cho xac nhan";
+            if (n.Contains("tu choi")) return "tu choi";
+            if (n.Contains("xac nhan") || n == "da xem") return "xac nhan";
+            return n.Length == 0 ? "(trong)" : n;
         }
 
-        private async Task<string> DemHsAsync(
-            bool laBt, int? ngay, int? thang, int? nam, string? trangThai, CancellationToken ct)
+        private static readonly Dictionary<string, string> NhanTtMap = new()
         {
-            var y = nam ?? DateTime.Now.Year;
+            ["hoan thanh"] = "Đã hoàn thành",
+            ["cho duyet"] = "Chờ duyệt",
+            ["dang thuc hien"] = "Đang thực hiện",
+            ["tu choi"] = "Từ chối",
+            ["cho xuong"] = "Chờ xưởng",
+            ["da duyet"] = "Đã duyệt (chờ phân công)",
+            ["cho xac nhan"] = "Chờ xác nhận",
+            ["cho gui"] = "Chờ gửi",
+            ["xac nhan"] = "Xác nhận",
+            ["da huy"] = "Đã hủy",
+            ["nhap"] = "Nháp"
+        };
+
+        private static string NhanTt(string key) => NhanTtMap.TryGetValue(key, out var v) ? v : key;
+
+        private static bool DaDong(string ttKey) => ttKey is "hoan thanh" or "tu choi" or "da huy";
+
+        // =====================================================================
+        //  ĐỊNH TUYẾN → TRẢ LỜI TỪ DB
+        // =====================================================================
+
+        private async Task<string> TraLoiTheoYeuCauAsync(
+            int maNd, VaiTroKey vk, string vt, YeuCau y, CancellationToken ct)
+        {
+            if (!QuyenChuDe[vk].Contains(y.ChuDe))
+                return $"Dạ, nội dung này nằm ngoài phạm vi vai trò «{vt}». Bạn có thể hỏi về: {MoTaViecDuocHoi(vk)}.";
+
+            switch (y.ChuDe)
+            {
+                case ChuDeHoi.HoSoBt:
+                case ChuDeHoi.HoSoSc:
+                    return await TraLoiHoSoAsync(maNd, vk, y, ct);
+                case ChuDeHoi.VatTu:
+                    return await TraLoiVatTuAsync(maNd, vk, y, ct);
+                case ChuDeHoi.PhanCong:
+                    return await TraLoiPhanCongAsync(maNd, vk, y, ct);
+                case ChuDeHoi.ThietBi:
+                    return await TraLoiThietBiAsync(y, ct);
+                case ChuDeHoi.LichBt:
+                    return await TraLoiLichAsync(ct);
+                case ChuDeHoi.Buoc:
+                    return await TraLoiBuocAsync(maNd, vk, y, ct);
+                default:
+                    return MauCauHoi(vk, vt);
+            }
+        }
+
+        // ---------- Phạm vi riêng của NVKT ----------
+
+        private async Task<PhamViNv> LayPhamViNvAsync(int maNd, CancellationToken ct)
+        {
+            var pv = new PhamViNv();
+            pv.MaNv = await _db.NhanViens.AsNoTracking()
+                .Where(n => n.MaNguoiDung == maNd)
+                .Select(n => (int?)n.MaNhanVien).FirstOrDefaultAsync(ct);
+            if (pv.MaNv == null) return pv;
+
+            var maNv = pv.MaNv;
+            var pc = await _db.PhanCongCongViecs.AsNoTracking()
+                .Where(p => p.MaNhanVienThucHien == maNv)
+                .Select(p => new { p.MaHoSoBaoTri, p.MaHoSoSuaChua })
+                .ToListAsync(ct);
+            pv.Bt = pc.Where(x => x.MaHoSoBaoTri != null).Select(x => x.MaHoSoBaoTri!.Value).ToHashSet();
+            pv.Sc = pc.Where(x => x.MaHoSoSuaChua != null).Select(x => x.MaHoSoSuaChua!.Value).ToHashSet();
+            return pv;
+        }
+
+        // ---------- Hồ sơ bảo trì / sửa chữa ----------
+
+        /// <summary>
+        /// Nguồn dữ liệu HS duy nhất (cùng công thức thống kê app):
+        /// BT: ngày = ngày kế hoạch (ChiTietKeHoachBaoTri) nếu có, không thì ngày hoàn thành/duyệt/tạo.
+        /// SC: ngày = hoàn thành thực tế ?? ngày duyệt ?? ngày tạo.
+        /// </summary>
+        private async Task<List<HsRow>> LayHsAsync(bool laBt, HashSet<int>? gioiHan, CancellationToken ct)
+        {
             if (laBt)
             {
                 var raw = await _db.HoSoBaoTris.AsNoTracking()
@@ -704,40 +413,15 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     .ToListAsync(ct);
                 var dictKh = mapKh.GroupBy(x => x.Ma).ToDictionary(g => g.Key, g => g.First().NgayDuKienBaoTri);
 
-                var rows = raw.Select(h =>
-                {
-                    int d, m, n;
-                    if (dictKh.TryGetValue(h.MaHoSoBaoTri, out var nk))
-                    { d = nk.Day; m = nk.Month; n = nk.Year; }
-                    else
-                    { d = h.NgayHt.Day; m = h.NgayHt.Month; n = h.NgayHt.Year; }
-                    return new { h.MaHoSoBaoTri, h.TrangThai, h.TenTb, h.NgayHt, D = d, M = m, N = n };
-                }).AsEnumerable();
-
-                if (thang != null || ngay != null || nam != null)
-                    rows = rows.Where(x => x.N == y);
-                if (thang != null)
-                    rows = rows.Where(x => x.M == thang.Value);
-                if (ngay != null)
-                    rows = rows.Where(x => x.D == ngay.Value);
-                if (!string.IsNullOrEmpty(trangThai))
-                {
-                    if (trangThai == "Chờ xưởng")
-                        rows = rows.Where(x => x.TrangThai == "Chờ xưởng" || x.TrangThai == "Chờ chốt ngày");
-                    else
-                        rows = rows.Where(x => x.TrangThai == trangThai);
-                }
-
-                var list = rows.OrderByDescending(x => x.NgayHt).ToList();
-                var ky = FormatKy(ngay, thang, nam, y);
-                var label = trangThai ?? "tất cả trạng thái";
-                var sb = new StringBuilder();
-                sb.AppendLine($"Dạ, {ky} có **{list.Count}** hồ sơ bảo trì **{label}**.");
-                foreach (var h in list.Take(12))
-                    sb.AppendLine($"• BT#{h.MaHoSoBaoTri} | {h.TenTb} | {h.TrangThai} | {h.NgayHt:dd/MM/yyyy HH:mm}");
-                if (list.Count > 12)
-                    sb.AppendLine($"… và {list.Count - 12} hồ sơ khác.");
-                return sb.ToString().TrimEnd();
+                return raw
+                    .Where(h => gioiHan == null || gioiHan.Contains(h.MaHoSoBaoTri))
+                    .Select(h => new HsRow(
+                        h.MaHoSoBaoTri,
+                        h.TenTb ?? "",
+                        h.TrangThai,
+                        h.NgayHt,
+                        dictKh.TryGetValue(h.MaHoSoBaoTri, out var nk) ? nk : (DateOnly?)null))
+                    .ToList();
             }
             else
             {
@@ -749,68 +433,149 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                         NgayHt = h.ThoiDiemKetThucThucTe ?? h.NgayDuyet ?? h.NgayTao,
                         TenTb = h.MaThieBiNavigation != null ? h.MaThieBiNavigation.TenThietBi : ""
                     }).ToListAsync(ct);
-
-                var rows = raw.Select(h => new
-                {
-                    h.MaHoSoSuaChua,
-                    h.TrangThai,
-                    h.TenTb,
-                    h.NgayHt,
-                    D = h.NgayHt.Day,
-                    M = h.NgayHt.Month,
-                    N = h.NgayHt.Year
-                }).AsEnumerable();
-
-                if (thang != null || ngay != null || nam != null)
-                    rows = rows.Where(x => x.N == y);
-                if (thang != null)
-                    rows = rows.Where(x => x.M == thang.Value);
-                if (ngay != null)
-                    rows = rows.Where(x => x.D == ngay.Value);
-                if (!string.IsNullOrEmpty(trangThai))
-                    rows = rows.Where(x => x.TrangThai == trangThai);
-
-                var list = rows.OrderByDescending(x => x.NgayHt).ToList();
-                var ky = FormatKy(ngay, thang, nam, y);
-                var label = trangThai ?? "tất cả trạng thái";
-                var sb = new StringBuilder();
-                sb.AppendLine($"Dạ, {ky} có **{list.Count}** hồ sơ sửa chữa **{label}**.");
-                foreach (var h in list.Take(12))
-                    sb.AppendLine($"• SC#{h.MaHoSoSuaChua} | {h.TenTb} | {h.TrangThai} | {h.NgayHt:dd/MM/yyyy HH:mm}");
-                if (list.Count > 12)
-                    sb.AppendLine($"… và {list.Count - 12} hồ sơ khác.");
-                return sb.ToString().TrimEnd();
+                return raw
+                    .Where(h => gioiHan == null || gioiHan.Contains(h.MaHoSoSuaChua))
+                    .Select(h => new HsRow(h.MaHoSoSuaChua, h.TenTb ?? "", h.TrangThai, h.NgayHt, null))
+                    .ToList();
             }
         }
 
-        private static string FormatKy(int? ngay, int? thang, int? nam, int yDefault)
+        private static DateTime NgayApp(HsRow r, bool laBt, string coSo) =>
+            laBt && coSo != "thuc_te" && r.NgayKh != null
+                ? r.NgayKh.Value.ToDateTime(TimeOnly.MinValue)
+                : r.NgayHt;
+
+        /// <summary>Đọc ngày từ DateTime / DateTime? / DateOnly / DateOnly? (không phụ thuộc kiểu cột).</summary>
+        private static DateTime LayNgay(object? o) => o switch
         {
-            if (ngay != null && thang != null)
-                return $"ngày {ngay:00}/{thang:00}/{nam ?? yDefault}";
-            if (thang != null)
-                return $"tháng {thang}/{nam ?? yDefault}";
-            if (nam != null)
-                return $"năm {nam}";
+            DateTime dt => dt,
+            DateOnly d => d.ToDateTime(TimeOnly.MinValue),
+            DateTimeOffset dto => dto.DateTime,
+            _ => DateTime.MinValue
+        };
+
+        private static bool TrongKy(DateTime d, YeuCau y)
+        {
+            if (!y.CoKy) return true;
+            if (d.Year != (y.Nam ?? DateTime.Now.Year)) return false;
+            if (y.Thang != null && d.Month != y.Thang) return false;
+            if (y.Ngay != null && d.Day != y.Ngay) return false;
+            return true;
+        }
+
+        /// <summary>
+        /// Hạn chế dữ liệu cũ: câu hỏi về «hoàn thành/từ chối/không nêu trạng thái» mà không nêu thời gian
+        /// → mặc định THÁNG HIỆN TẠI. Trạng thái đang mở (chờ duyệt, đang thực hiện…) là hàng đợi hiện tại → không giới hạn.
+        /// </summary>
+        private static string? ChuanBiKy(YeuCau y)
+        {
+            if (y.CoKy) { y.Nam ??= DateTime.Now.Year; return null; }
+            if (y.TatCa) return null;
+            if (y.TrangThai == null || y.TrangThai is "hoan thanh" or "tu choi")
+            {
+                y.Thang = DateTime.Now.Month;
+                y.Nam = DateTime.Now.Year;
+                return "(Mặc định tháng hiện tại — nêu tháng/năm khác hoặc nói «tất cả» nếu bạn cần.)";
+            }
+            return null;
+        }
+
+        private static KetQuaHs TinhHs(List<HsRow> rows, bool laBt, YeuCau y)
+        {
+            var yy = y.Clone();
+            var kq = new KetQuaHs { Y = yy, GhiChuKy = ChuanBiKy(yy) };
+            var ky = rows.Where(r => TrongKy(NgayApp(r, laBt, yy.CoSo), yy)).ToList();
+            kq.TheoTt = ky.GroupBy(r => TtKey(r.TrangThai)).ToDictionary(g => g.Key, g => g.Count());
+            // Hỏi theo tháng mà không nêu trạng thái → số chính là «Đã hoàn thành» (trùng biểu đồ thống kê app)
+            kq.TtChinh = yy.TrangThai ?? (yy.TatCa ? null : "hoan thanh");
+            var loc = kq.TtChinh == null ? ky : ky.Where(r => TtKey(r.TrangThai) == kq.TtChinh).ToList();
+            kq.List = loc.OrderByDescending(r => NgayApp(r, laBt, yy.CoSo)).ToList();
+            return kq;
+        }
+
+        private async Task<string> TraLoiHoSoAsync(int maNd, VaiTroKey vk, YeuCau y, CancellationToken ct)
+        {
+            PhamViNv? pv = null;
+            if (vk == VaiTroKey.Nvkt)
+            {
+                pv = await LayPhamViNvAsync(maNd, ct);
+                if (pv.MaNv == null) return "Dạ, không xác định được nhân viên.";
+            }
+
+            var parts = new List<string>();
+            if (y.ChuDe == ChuDeHoi.HoSoBt || y.CaBtVaSc)
+                parts.Add(DinhDangHs(true, y, await LayHsAsync(true, pv?.Bt, ct)));
+            if (y.ChuDe == ChuDeHoi.HoSoSc || y.CaBtVaSc)
+                parts.Add(DinhDangHs(false, y, await LayHsAsync(false, pv?.Sc, ct)));
+            return string.Join("\n\n", parts);
+        }
+
+        private static string DinhDangHs(bool laBt, YeuCau y, List<HsRow> rows)
+        {
+            var tien = laBt ? "BT" : "SC";
+            var loai = laBt ? "bảo trì" : "sửa chữa";
+
+            // Hỏi 1 hồ sơ cụ thể
+            var ma = laBt ? y.MaBt : y.MaSc;
+            if (ma != null)
+            {
+                var r = rows.FirstOrDefault(x => x.Ma == ma);
+                if (r == null) return $"Dạ, không thấy hồ sơ {tien}#{ma} trong phạm vi của bạn.";
+                return $"Dạ, {tien}#{r.Ma}: {r.TenTb} — trạng thái **{r.TrangThai}** — ngày {NgayApp(r, laBt, y.CoSo):dd/MM/yyyy}.";
+            }
+
+            var kq = TinhHs(rows, laBt, y);
+            var yy = kq.Y;
+            var nhan = kq.TtChinh == null ? "tất cả trạng thái" : NhanTt(kq.TtChinh);
+            var sb = new StringBuilder();
+            sb.AppendLine($"Dạ, {FormatKy(yy)} có **{kq.List.Count}** hồ sơ {loai} **{nhan}**.");
+            foreach (var h in kq.List.Take(12))
+                sb.AppendLine($"• {tien}#{h.Ma} | {h.TenTb} | {h.TrangThai} | {NgayApp(h, laBt, yy.CoSo):dd/MM/yyyy}");
+            if (kq.List.Count > 12)
+                sb.AppendLine($"… và {kq.List.Count - 12} hồ sơ khác.");
+
+            if (yy.TrangThai == null && kq.TheoTt.Count > 0)
+            {
+                var khac = kq.TheoTt.Where(kv => kv.Key != kq.TtChinh)
+                    .Select(kv => $"{NhanTt(kv.Key)} {kv.Value}").ToList();
+                if (khac.Count > 0)
+                    sb.AppendLine("Trạng thái khác cùng kỳ: " + string.Join(" | ", khac));
+            }
+            if (yy.CoKy)
+                sb.AppendLine(laBt && yy.CoSo != "thuc_te"
+                    ? "(Tính theo tháng kế hoạch bảo trì — trùng thống kê trên app.)"
+                    : "(Tính theo ngày hoàn thành thực tế.)");
+            if (kq.GhiChuKy != null) sb.AppendLine(kq.GhiChuKy);
+            return sb.ToString().TrimEnd();
+        }
+
+        private static string FormatKy(YeuCau y)
+        {
+            var nam = y.Nam ?? DateTime.Now.Year;
+            if (y.Ngay != null && y.Thang != null) return $"ngày {y.Ngay:00}/{y.Thang:00}/{nam}";
+            if (y.Thang != null) return $"tháng {y.Thang}/{nam}";
+            if (y.Nam != null) return $"năm {y.Nam}";
             return "toàn hệ thống";
         }
 
-        private async Task<string> TraLoiVatTuAsync(
-            int maNd, string vt, int? maBt, int? maSc, string? trangThai, CancellationToken ct)
+        // ---------- Hồ sơ vật tư ----------
+
+        private async Task<string> TraLoiVatTuAsync(int maNd, VaiTroKey vk, YeuCau y, CancellationToken ct)
         {
             var q = _db.HoSoSuDungVatTus.AsNoTracking().AsQueryable();
-            if (vt == "Nhân viên kỹ thuật")
+            if (vk == VaiTroKey.Nvkt)
             {
-                var maNv = await _db.NhanViens.AsNoTracking()
-                    .Where(n => n.MaNguoiDung == maNd)
-                    .Select(n => (int?)n.MaNhanVien).FirstOrDefaultAsync(ct);
-                if (maNv == null) return "Dạ, không xác định được nhân viên.";
+                var pv = await LayPhamViNvAsync(maNd, ct);
+                if (pv.MaNv == null) return "Dạ, không xác định được nhân viên.";
+                var maNv = pv.MaNv;
                 q = q.Where(h => h.MaNhanVienTH == maNv);
             }
+            var maBt = y.MaBt;
+            var maSc = y.MaSc;
             if (maBt != null) q = q.Where(h => h.MaHoSoBaoTri == maBt);
             if (maSc != null) q = q.Where(h => h.MaHoSoSuaChua == maSc);
 
-            // Lấy rộng rồi lọc trạng thái trên memory (trạng thái DB có thể viết hoa/thường khác nhau)
-            var raw = await q.OrderByDescending(h => h.NgayThucHien).Take(200)
+            var raw = await q.OrderByDescending(h => h.NgayThucHien)
                 .Select(h => new
                 {
                     h.MaHoSoVatTu,
@@ -824,58 +589,51 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     TongSl = h.ChiTietSuDungVatTus.Sum(c => c.SoLuong)
                 }).ToListAsync(ct);
 
-            var list = raw.AsEnumerable();
-            if (!string.IsNullOrEmpty(trangThai))
-            {
-                list = list.Where(h =>
-                {
-                    var t = h.TrangThai ?? "";
-                    if (trangThai == "Xác nhận")
-                        return t.Contains("Xác nhận", StringComparison.OrdinalIgnoreCase)
-                               || t.Equals("Đã xem", StringComparison.OrdinalIgnoreCase);
-                    if (trangThai == "Chờ duyệt")
-                        return t.Contains("Chờ duyệt", StringComparison.OrdinalIgnoreCase)
-                               || t.Equals("Đã gửi GĐ", StringComparison.OrdinalIgnoreCase);
-                    return t.Contains(trangThai, StringComparison.OrdinalIgnoreCase);
-                });
-            }
-            var arr = list.Take(30).ToList();
+            var kyList = raw.Where(x => !y.CoKy || TrongKy(LayNgay(x.NgayThucHien), y)).ToList();
+            var theoTt = kyList.GroupBy(x => VtKey(x.TrangThai)).ToDictionary(g => g.Key, g => g.Count());
+            var list = string.IsNullOrEmpty(y.TrangThai)
+                ? kyList
+                : kyList.Where(x => VtKey(x.TrangThai) == y.TrangThai).ToList();
 
-            // Thống kê theo trạng thái (khi hỏi tổng)
-            var theoTt = raw.GroupBy(x => x.TrangThai ?? "(trống)")
-                .Select(g => $"{g.Key}: {g.Count()}")
-                .ToList();
-
-            if (arr.Count == 0)
-            {
-                var sb0 = new StringBuilder();
-                sb0.AppendLine(string.IsNullOrEmpty(trangThai)
-                    ? "Dạ, chưa có hồ sơ vật tư trong phạm vi của bạn."
-                    : $"Dạ, chưa có hồ sơ vật tư trạng thái **{trangThai}**.");
-                if (theoTt.Count > 0)
-                    sb0.AppendLine("Phân bố hiện có: " + string.Join(" | ", theoTt));
-                return sb0.ToString().TrimEnd();
-            }
-
+            var label = string.IsNullOrEmpty(y.TrangThai) ? "tất cả trạng thái" : NhanTt(y.TrangThai);
+            var pham = vk == VaiTroKey.Nvkt ? " của bạn" : "";
             var sb = new StringBuilder();
-            var label = string.IsNullOrEmpty(trangThai) ? "tất cả trạng thái" : trangThai;
-            sb.AppendLine($"Dạ, có **{arr.Count}** hồ sơ vật tư (**{label}**)" +
-                          (raw.Count > arr.Count ? $" (hiển thị {arr.Count}/{raw.Count})" : "") + ".");
-            if (theoTt.Count > 0 && string.IsNullOrEmpty(trangThai))
-                sb.AppendLine("Theo trạng thái: " + string.Join(" | ", theoTt));
-            foreach (var x in arr.Take(15))
+            if (list.Count == 0)
             {
-                var k = x.MaHoSoBaoTri != null ? $"BT#{x.MaHoSoBaoTri}" : (x.MaHoSoSuaChua != null ? $"SC#{x.MaHoSoSuaChua}" : $"VT#{x.MaHoSoVatTu}");
+                sb.AppendLine($"Dạ, {(y.CoKy ? FormatKy(y) + " " : "")}chưa có hồ sơ vật tư{pham} **{label}**.");
+                if (theoTt.Count > 0)
+                    sb.AppendLine("Hiện có: " + string.Join(" | ", theoTt.Select(kv => $"{NhanTt(kv.Key)} {kv.Value}")));
+                return sb.ToString().TrimEnd();
+            }
+
+            sb.AppendLine($"Dạ, {(y.CoKy ? FormatKy(y) + " " : "")}có **{list.Count}** hồ sơ vật tư{pham} (**{label}**).");
+            if (string.IsNullOrEmpty(y.TrangThai) && theoTt.Count > 0)
+                sb.AppendLine("Theo trạng thái: " + string.Join(" | ", theoTt.Select(kv => $"{NhanTt(kv.Key)} {kv.Value}")));
+            foreach (var x in list.Take(15))
+            {
+                var k = x.MaHoSoBaoTri != null ? $"BT#{x.MaHoSoBaoTri}"
+                    : (x.MaHoSoSuaChua != null ? $"SC#{x.MaHoSoSuaChua}" : $"VT#{x.MaHoSoVatTu}");
                 sb.AppendLine($"• {k} | {x.TenTb} | SL {x.TongSl} | {x.TongTien:N0} ₫ | {x.TrangThai} | {x.NgayThucHien:dd/MM/yyyy}");
             }
+            if (list.Count > 15) sb.AppendLine($"… và {list.Count - 15} hồ sơ khác.");
             return sb.ToString().TrimEnd();
         }
 
-        /// <summary>Lịch sử / danh sách phân công cho Tổ trưởng, GĐ, Xưởng.</summary>
-        private async Task<string> TraLoiPhanCongToTruongAsync(CancellationToken ct)
+        // ---------- Phân công ----------
+
+        private async Task<string> TraLoiPhanCongAsync(int maNd, VaiTroKey vk, YeuCau y, CancellationToken ct)
         {
-            var pcs = await _db.PhanCongCongViecs.AsNoTracking()
-                .OrderByDescending(p => p.NgayPhanCong).Take(40)
+            var q = _db.PhanCongCongViecs.AsNoTracking().AsQueryable();
+            var laNv = vk == VaiTroKey.Nvkt;
+            if (laNv)
+            {
+                var pv = await LayPhamViNvAsync(maNd, ct);
+                if (pv.MaNv == null) return "Dạ, không xác định được nhân viên.";
+                var maNv = pv.MaNv;
+                q = q.Where(p => p.MaNhanVienThucHien == maNv);
+            }
+
+            var raw = await q.OrderByDescending(p => p.NgayPhanCong).Take(300)
                 .Select(p => new
                 {
                     p.MaPhanCong,
@@ -889,46 +647,130 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                         : ("NV#" + p.MaNhanVienThucHien)
                 }).ToListAsync(ct);
 
+            var pcs = raw.Where(p => !y.CoKy || TrongKy(LayNgay(p.NgayPhanCong), y)).ToList();
             if (pcs.Count == 0)
-                return "Dạ, chưa có phân công công việc nào trên hệ thống.";
+                return laNv ? "Dạ, bạn chưa có phân công nào." : "Dạ, chưa có phân công công việc nào khớp yêu cầu.";
 
             var sb = new StringBuilder();
-            sb.AppendLine($"Dạ, có **{pcs.Count}** phân công gần đây (lịch sử phân công):");
+            sb.AppendLine(laNv
+                ? $"Dạ, bạn có **{pcs.Count}** phân công{(y.CoKy ? " " + FormatKy(y) : " gần đây")}:"
+                : $"Dạ, có **{pcs.Count}** phân công{(y.CoKy ? " " + FormatKy(y) : " gần đây")}:");
             foreach (var g in pcs.GroupBy(x => x.TrangThai ?? "(trống)"))
                 sb.AppendLine($"• Trạng thái **{g.Key}**: {g.Count()}");
-            sb.AppendLine("Chi tiết:");
-            foreach (var p in pcs.Take(20))
+            foreach (var p in pcs.Take(15))
             {
                 var hs = p.MaHoSoBaoTri != null ? $"BT#{p.MaHoSoBaoTri}" : $"SC#{p.MaHoSoSuaChua}";
-                sb.AppendLine(
-                    $"• PC#{p.MaPhanCong} | {hs} | {p.TenNv} | {p.TrangThai}"
-                    + $" | {p.NgayPhanCong:dd/MM/yyyy}"
-                    + (p.LaNguoiGhiChep ? " | ghi chép" : ""));
+                sb.AppendLine(laNv
+                    ? $"• PC#{p.MaPhanCong} | {hs} | {p.TrangThai} | {p.NgayPhanCong:dd/MM/yyyy}"
+                    : $"• PC#{p.MaPhanCong} | {hs} | {p.TenNv} | {p.TrangThai} | {p.NgayPhanCong:dd/MM/yyyy}"
+                      + (p.LaNguoiGhiChep ? " | ghi chép" : ""));
             }
-            if (pcs.Count > 20)
-                sb.AppendLine($"… và {pcs.Count - 20} phân công khác.");
+            if (pcs.Count > 15) sb.AppendLine($"… và {pcs.Count - 15} phân công khác.");
             return sb.ToString().TrimEnd();
         }
 
-        private async Task<string> TraLoiBuocAsync(int maNd, string vt, int? maBt, int? maSc, CancellationToken ct)
+        // ---------- Thiết bị ----------
+
+        private async Task<string> TraLoiThietBiAsync(YeuCau y, CancellationToken ct)
+        {
+            var tbs = await _db.ThietBis.AsNoTracking()
+                .Select(t => new
+                {
+                    t.MaThietBi,
+                    t.TenThietBi,
+                    t.LoaiThietBi,
+                    t.ViTriLapDat,
+                    t.TinhTrangHienTai,
+                    t.NgayBaoTriGanNhat,
+                    t.NgayBaoTriTiepTheo
+                }).ToListAsync(ct);
+
+            if (y.TenThietBi != null)
+            {
+                var hit = tbs
+                    .Select(x => new { x, sc = DiemKhop(y.TenThietBi, x.TenThietBi) })
+                    .Where(x => x.sc >= 2)
+                    .OrderByDescending(x => x.sc)
+                    .Select(x => x.x)
+                    .FirstOrDefault();
+                if (hit != null)
+                {
+                    var tt = string.IsNullOrWhiteSpace(hit.TinhTrangHienTai) ? "chưa ghi" : hit.TinhTrangHienTai;
+                    var gan = hit.NgayBaoTriGanNhat?.ToString("dd/MM/yyyy") ?? "chưa có";
+                    var tiep = hit.NgayBaoTriTiepTheo?.ToString("dd/MM/yyyy") ?? "chưa có";
+                    var vtTri = string.IsNullOrWhiteSpace(hit.ViTriLapDat) ? "chưa ghi" : hit.ViTriLapDat;
+                    return $"Dạ, **{hit.TenThietBi}** (TB#{hit.MaThietBi}).\n"
+                         + $"• Loại: {hit.LoaiThietBi ?? "—"}\n"
+                         + $"• Vị trí: {vtTri}\n"
+                         + $"• Trạng thái: **{tt}**\n"
+                         + $"• BT gần nhất: {gan} | BT tiếp theo: {tiep}";
+                }
+            }
+
+            int Dem(string k) => tbs.Count(x => (x.TinhTrangHienTai ?? "")
+                .Contains(k, StringComparison.OrdinalIgnoreCase));
+
+            var ds = tbs.AsEnumerable();
+            if (y.TinhTrangTb != null)
+                ds = ds.Where(x => (x.TinhTrangHienTai ?? "").Contains(y.TinhTrangTb, StringComparison.OrdinalIgnoreCase));
+            var arr = ds.ToList();
+
+            var sb = new StringBuilder();
+            if (y.TinhTrangTb != null)
+                sb.AppendLine($"Dạ, có **{arr.Count}** thiết bị đang **{y.TinhTrangTb}**.");
+            else
+            {
+                sb.AppendLine($"Dạ, hệ thống đang quản lý **{tbs.Count}** thiết bị.");
+                sb.AppendLine($"Trạng thái: Sản xuất **{Dem("Sản xuất")}** | Bảo trì **{Dem("Bảo trì")}** | Sửa chữa **{Dem("Sửa chữa")}**.");
+            }
+            foreach (var g in arr.GroupBy(x => x.LoaiThietBi ?? "(chưa loại)").OrderBy(g => g.Key))
+            {
+                sb.AppendLine($"**{g.Key}** ({g.Count()}):");
+                foreach (var t in g.OrderBy(x => x.TenThietBi))
+                    sb.AppendLine($"  • TB#{t.MaThietBi} {t.TenThietBi} — {t.TinhTrangHienTai ?? "—"}"
+                                  + (string.IsNullOrWhiteSpace(t.ViTriLapDat) ? "" : $" ({t.ViTriLapDat})"));
+            }
+            return sb.ToString().TrimEnd();
+        }
+
+        // ---------- Lịch bảo trì dự kiến ----------
+
+        private async Task<string> TraLoiLichAsync(CancellationToken ct)
+        {
+            var lich = await _db.ChiTietKeHoachBaoTris.AsNoTracking()
+                .Where(c => c.NgayDuKienBaoTri >= DateOnly.FromDateTime(DateTime.Today))
+                .OrderBy(c => c.NgayDuKienBaoTri).Take(15)
+                .Select(c => new
+                {
+                    c.NgayDuKienBaoTri,
+                    Ten = c.MaThietBiNavigation != null ? c.MaThietBiNavigation.TenThietBi : ("TB#" + c.MaThietBi)
+                }).ToListAsync(ct);
+            if (lich.Count == 0)
+                return "Dạ, chưa có lịch bảo trì dự kiến sắp tới trên kế hoạch.";
+            var sb = new StringBuilder();
+            sb.AppendLine("Dạ, lịch bảo trì dự kiến sắp tới:");
+            foreach (var c in lich)
+                sb.AppendLine($"• {c.NgayDuKienBaoTri:dd/MM/yyyy}: {c.Ten}");
+            return sb.ToString().TrimEnd();
+        }
+
+        // ---------- Bước quy trình ----------
+
+        private async Task<string> TraLoiBuocAsync(int maNd, VaiTroKey vk, YeuCau y, CancellationToken ct)
         {
             var q = _db.TienDoBuocQuyTrinhs.AsNoTracking().AsQueryable();
-            if (vt == "Nhân viên kỹ thuật")
+            if (vk == VaiTroKey.Nvkt)
             {
-                var maNv = await _db.NhanViens.AsNoTracking()
-                    .Where(n => n.MaNguoiDung == maNd)
-                    .Select(n => (int?)n.MaNhanVien).FirstOrDefaultAsync(ct);
-                if (maNv == null) return "Dạ, không xác định được nhân viên.";
-                var maBts = await _db.PhanCongCongViecs.AsNoTracking()
-                    .Where(p => p.MaNhanVienThucHien == maNv && p.MaHoSoBaoTri != null)
-                    .Select(p => p.MaHoSoBaoTri!.Value).Distinct().ToListAsync(ct);
-                var maScs = await _db.PhanCongCongViecs.AsNoTracking()
-                    .Where(p => p.MaNhanVienThucHien == maNv && p.MaHoSoSuaChua != null)
-                    .Select(p => p.MaHoSoSuaChua!.Value).Distinct().ToListAsync(ct);
+                var pv = await LayPhamViNvAsync(maNd, ct);
+                if (pv.MaNv == null) return "Dạ, không xác định được nhân viên.";
+                var maBts = pv.Bt.ToList();
+                var maScs = pv.Sc.ToList();
                 q = q.Where(t =>
                     (t.MaHoSoBaoTri != null && maBts.Contains(t.MaHoSoBaoTri.Value)) ||
                     (t.MaHoSoSuaChua != null && maScs.Contains(t.MaHoSoSuaChua.Value)));
             }
+            var maBt = y.MaBt;
+            var maSc = y.MaSc;
             if (maBt != null) q = q.Where(t => t.MaHoSoBaoTri == maBt);
             if (maSc != null) q = q.Where(t => t.MaHoSoSuaChua == maSc);
 
@@ -946,55 +788,608 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             return sb.ToString().TrimEnd();
         }
 
-        private async Task<string> TraLoiPhanCongNvktAsync(int maNd, CancellationToken ct)
+        // =====================================================================
+        //  NGƯỜI DÙNG BÁO SAI → TÍNH LẠI + HIỂU LẠI + GHI NHỚ
+        // =====================================================================
+
+        private async Task<string> XuLySuaSaiAsync(
+            int maNd, VaiTroKey vk, string vt, string ten, string cauSua,
+            IReadOnlyList<(string role, string content)>? lichSu, CancellationToken ct)
         {
-            var maNv = await _db.NhanViens.AsNoTracking()
-                .Where(n => n.MaNguoiDung == maNd)
-                .Select(n => (int?)n.MaNhanVien).FirstOrDefaultAsync(ct);
-            if (maNv == null) return "Dạ, không xác định được nhân viên.";
-            var pc = await _db.PhanCongCongViecs.AsNoTracking()
-                .Where(p => p.MaNhanVienThucHien == maNv)
-                .OrderByDescending(p => p.NgayPhanCong).Take(20)
-                .Select(p => new { p.MaPhanCong, p.MaHoSoBaoTri, p.MaHoSoSuaChua, p.TrangThai, p.NgayPhanCong })
-                .ToListAsync(ct);
-            if (pc.Count == 0) return "Dạ, bạn chưa có phân công nào.";
-            var sb = new StringBuilder();
-            sb.AppendLine($"Dạ, bạn có **{pc.Count}** phân công gần đây:");
-            foreach (var g in pc.GroupBy(x => x.TrangThai ?? "(trống)"))
-                sb.AppendLine($"• {g.Key}: {g.Count()}");
-            foreach (var p in pc.Take(10))
+            var cauTruoc = TrichCauHoiTruoc(lichSu);
+            if (cauTruoc == null)
+                return "Dạ, xin lỗi bạn. Bạn nhắc lại giúp mình câu hỏi cần kiểm tra "
+                       + "(ví dụ: «tháng 10 có bao nhiêu hồ sơ bảo trì hoàn thành») để mình đối chiếu lại với số liệu trên app nhé.";
+
+            var qTruoc = Nghia(cauTruoc);
+            var yTruoc = XacDinhYeuCau(vk, qTruoc, null);
+            var qSua = Nghia(cauSua);
+            var yMoi = yTruoc.Clone();
+            GopLoiSua(yMoi, PhanTich(qSua), qSua);
+            var soMongDoi = TrichSoMongDoi(qSua);
+
+            // Câu trước do LLM trả lời (không phải số liệu) → để LLM xem lại với dữ liệu mới
+            if (yMoi.ChuDe == ChuDeHoi.Khac)
             {
-                var hs = p.MaHoSoBaoTri != null ? $"BT#{p.MaHoSoBaoTri}" : $"SC#{p.MaHoSoSuaChua}";
-                sb.AppendLine($"• PC#{p.MaPhanCong} | {hs} | {p.TrangThai} | {p.NgayPhanCong:dd/MM/yyyy}");
+                LuuPhanHoi(vk, cauTruoc, cauSua, soMongDoi, new List<ThayDoiTruong>(), false, qTruoc);
+                if (!string.IsNullOrEmpty(GroqKey))
+                {
+                    var ctx = await NapContextGonAsync(maNd, vk, vt, ct);
+                    var (ok, text, _) = await GoiGroqAsync(vk, vt, ten, cauTruoc, ctx, lichSu, ct,
+                        "User báo câu trả lời trước SAI. Đối chiếu lại CONTEXT, nhận lỗi ngắn gọn rồi đưa câu trả lời đúng. "
+                        + "Nếu CONTEXT không có dữ liệu thì nói rõ là chưa có, không đoán.");
+                    if (ok && !string.IsNullOrWhiteSpace(text))
+                        return "Dạ, xin lỗi — mình đã kiểm tra lại:\n" + text.Trim();
+                }
+                return "Dạ, xin lỗi bạn. Bạn nói rõ giúp mình đang hỏi về loại hồ sơ nào, trạng thái nào, tháng nào "
+                       + "(ví dụ: «ý tôi là hồ sơ sửa chữa đã hoàn thành tháng 10») để mình tra lại cho đúng nhé.";
+            }
+
+            if (!QuyenChuDe[vk].Contains(yMoi.ChuDe))
+                return $"Dạ, nội dung này nằm ngoài phạm vi vai trò «{vt}». Bạn có thể hỏi về: {MoTaViecDuocHoi(vk)}.";
+
+            // Người dùng nêu số đúng trên app → tìm cách hiểu/cách tính cho ra đúng số đó
+            string? giaiThich = null;
+            if (soMongDoi != null && yMoi.ChuDe is ChuDeHoi.HoSoBt or ChuDeHoi.HoSoSc)
+            {
+                var pv = vk == VaiTroKey.Nvkt ? await LayPhamViNvAsync(maNd, ct) : null;
+                var rowsBt = await LayHsAsync(true, pv?.Bt, ct);
+                var rowsSc = await LayHsAsync(false, pv?.Sc, ct);
+                if (DemTong(yMoi, rowsBt, rowsSc) != soMongDoi.Value)
+                {
+                    var khop = TimCachKhop(yMoi, soMongDoi.Value, rowsBt, rowsSc);
+                    if (khop != null)
+                    {
+                        giaiThich = $"Số **{soMongDoi}** khớp khi hiểu theo cách này. " + MoTaThayDoi(yTruoc, khop);
+                        yMoi = khop;
+                    }
+                }
+                else
+                {
+                    giaiThich = $"Số **{soMongDoi}** của bạn khớp với dữ liệu hiện tại.";
+                }
+            }
+
+            var traLoi = await TraLoiTheoYeuCauAsync(maNd, vk, vt, yMoi, ct);
+            var deltas = TinhThayDoi(yTruoc, yMoi);
+            var doiY = !GiongYeuCau(yTruoc, yMoi);
+
+            var sb = new StringBuilder();
+            sb.AppendLine(doiY
+                ? "Dạ, xin lỗi — mình đã hiểu lại ý bạn và đối chiếu trực tiếp với dữ liệu hiện tại trên app:"
+                : "Dạ, xin lỗi — mình đã đối chiếu lại trực tiếp với dữ liệu hiện tại trên app:");
+            if (giaiThich != null)
+                sb.AppendLine(giaiThich);
+            else if (doiY)
+            {
+                var mt = MoTaThayDoi(yTruoc, yMoi);
+                if (mt.Length > 0) sb.AppendLine("(" + mt + ")");
+            }
+            sb.AppendLine();
+            sb.AppendLine(traLoi);
+
+            if (!doiY)
+            {
+                var alt = await DoiChieuCoSoAsync(maNd, vk, yMoi, ct);
+                if (alt != null) sb.AppendLine(alt);
+                sb.AppendLine("Nếu số trên app khác, bạn cho mình biết số bạn đang thấy hoặc nói «ý tôi là …» "
+                              + "(loại hồ sơ, trạng thái, tháng) để mình đối chiếu và ghi nhớ cho các lần sau.");
+                LuuPhanHoi(vk, cauTruoc, cauSua, soMongDoi, deltas, false, qTruoc);
+            }
+            else if (deltas.Count > 0)
+            {
+                sb.AppendLine("Mình đã ghi nhớ cách hiểu này cho các câu hỏi tương tự.");
+                LuuPhanHoi(vk, cauTruoc, cauSua, soMongDoi, deltas, true, qTruoc);
             }
             return sb.ToString().TrimEnd();
         }
 
-        private async Task<string> GanThongKeTheoThangAsync(string context, string vt, CancellationToken ct)
+        private static int DemTong(YeuCau y, List<HsRow> rowsBt, List<HsRow> rowsSc)
         {
-            if (vt == "Nhân viên kỹ thuật") return context;
-            var mapKh = await _db.ChiTietKeHoachBaoTris.AsNoTracking()
-                .Where(c => c.MaHoSoBaoTri != null)
-                .Select(c => new { Ma = c.MaHoSoBaoTri!.Value, c.NgayDuKienBaoTri })
-                .ToListAsync(ct);
-            var dictKh = mapKh.GroupBy(x => x.Ma).ToDictionary(g => g.Key, g => g.First().NgayDuKienBaoTri);
-            var bts = await _db.HoSoBaoTris.AsNoTracking()
-                .Select(h => new { h.MaHoSoBaoTri, h.TrangThai, NgayHt = h.ThoiDiemKetThucThucTe ?? h.NgayDuyet ?? h.NgayTao })
-                .ToListAsync(ct);
+            var n = 0;
+            if (y.ChuDe == ChuDeHoi.HoSoBt || y.CaBtVaSc) n += TinhHs(rowsBt, true, y).List.Count;
+            if (y.ChuDe == ChuDeHoi.HoSoSc || y.CaBtVaSc) n += TinhHs(rowsSc, false, y).List.Count;
+            return n;
+        }
 
-            var sb = new StringBuilder();
-            sb.AppendLine(context);
-            sb.AppendLine("THONG_KE_BT_THEO_THANG (uu tien ngay ke hoach):");
-            var groups = bts.Select(h =>
+        /// <summary>Thử các cách hiểu khác (cách tính, trạng thái, loại hồ sơ) xem cách nào ra đúng số người dùng nêu.</summary>
+        private static YeuCau? TimCachKhop(YeuCau goc, int mongDoi, List<HsRow> rowsBt, List<HsRow> rowsSc)
+        {
+            var cands = new List<YeuCau>();
+            void Them(Action<YeuCau> sua) { var c = goc.Clone(); sua(c); cands.Add(c); }
+            string Dao(string s) => s == "app" ? "thuc_te" : "app";
+
+            Them(c => c.CoSo = Dao(c.CoSo));
+            foreach (var tt in new[] { "hoan thanh", "dang thuc hien", "cho duyet", "tu choi", "cho xuong", "da duyet" })
             {
-                int m, y;
-                if (dictKh.TryGetValue(h.MaHoSoBaoTri, out var nk)) { m = nk.Month; y = nk.Year; }
-                else { m = h.NgayHt.Month; y = h.NgayHt.Year; }
-                return new { y, m, h.TrangThai };
-            }).GroupBy(x => new { x.y, x.m, x.TrangThai });
-            foreach (var g in groups.OrderByDescending(x => x.Key.y).ThenByDescending(x => x.Key.m).Take(36))
-                sb.AppendLine($"  {g.Key.m:00}/{g.Key.y}|{g.Key.TrangThai}={g.Count()}");
+                Them(c => c.TrangThai = tt);
+                Them(c => { c.TrangThai = tt; c.CoSo = Dao(c.CoSo); });
+            }
+            Them(c => { c.TrangThai = null; c.TatCa = true; });
+            Them(c => { c.ChuDe = c.ChuDe == ChuDeHoi.HoSoBt ? ChuDeHoi.HoSoSc : ChuDeHoi.HoSoBt; c.CaBtVaSc = false; });
+            Them(c => { c.ChuDe = ChuDeHoi.HoSoBt; c.CaBtVaSc = true; });
+
+            return cands.FirstOrDefault(c => DemTong(c, rowsBt, rowsSc) == mongDoi);
+        }
+
+        /// <summary>Khi cách hiểu không đổi: cho thấy cách tính khác (tháng kế hoạch vs ngày hoàn thành thực tế) ra bao nhiêu.</summary>
+        private async Task<string?> DoiChieuCoSoAsync(int maNd, VaiTroKey vk, YeuCau y, CancellationToken ct)
+        {
+            if (y.ChuDe != ChuDeHoi.HoSoBt && !y.CaBtVaSc) return null;
+            var pv = vk == VaiTroKey.Nvkt ? await LayPhamViNvAsync(maNd, ct) : null;
+            var rows = await LayHsAsync(true, pv?.Bt, ct);
+            var alt = y.Clone();
+            alt.CoSo = y.CoSo == "app" ? "thuc_te" : "app";
+            var a = TinhHs(rows, true, y).List.Count;
+            var b = TinhHs(rows, true, alt).List.Count;
+            if (a == b) return null;
+            return $"Đối chiếu thêm (hồ sơ bảo trì): tính theo {(alt.CoSo == "thuc_te" ? "ngày hoàn thành thực tế" : "tháng kế hoạch")} "
+                   + $"thì ra **{b}** hồ sơ (cách đang dùng: {a}).";
+        }
+
+        private static void GopLoiSua(YeuCau yMoi, YeuCau ySua, string qSua)
+        {
+            // Chỉ đổi loại hồ sơ khi lời sửa nhắc rõ loại, tránh «hồ sơ hoàn thành» làm lệch sang BT+SC
+            if (ySua.ChuDe != ChuDeHoi.Khac && Co(qSua, "bao tri", "sua chua", "vat tu", "phan cong", "thiet bi", "lich"))
+            {
+                yMoi.ChuDe = ySua.ChuDe;
+                yMoi.CaBtVaSc = ySua.CaBtVaSc;
+            }
+            if (ySua.TrangThai != null) yMoi.TrangThai = ySua.TrangThai;
+            if (ySua.CoKy) { yMoi.Ngay = ySua.Ngay; yMoi.Thang = ySua.Thang; yMoi.Nam = ySua.Nam; }
+            if (ySua.TatCa) yMoi.TatCa = true;
+            if (Co(qSua, "thuc te")) yMoi.CoSo = "thuc_te";
+            else if (Co(qSua, "ke hoach")) yMoi.CoSo = "app";
+        }
+
+        private static int? TrichSoMongDoi(string q)
+        {
+            var m = Regex.Match(q, @"\b(\d{1,4})\s*(?:ho so|thiet bi|cai)\b");
+            if (!m.Success) m = Regex.Match(q, @"\b(?:phai la|dung la|la|co|ra|thay)\s+(\d{1,4})\b");
+            return m.Success && int.TryParse(m.Groups[1].Value, out var n) ? n : null;
+        }
+
+        private static string DocTruong(YeuCau y, string t) => t switch
+        {
+            "chude" => y.ChuDe.ToString(),
+            "trangthai" => y.TrangThai ?? "",
+            "coso" => y.CoSo,
+            "cabtvasc" => y.CaBtVaSc ? "1" : "0",
+            "tatca" => y.TatCa ? "1" : "0",
+            _ => ""
+        };
+
+        private static void GhiTruong(YeuCau y, string t, string v)
+        {
+            switch (t)
+            {
+                case "chude": if (Enum.TryParse<ChuDeHoi>(v, out var c)) y.ChuDe = c; break;
+                case "trangthai": y.TrangThai = string.IsNullOrEmpty(v) ? null : v; break;
+                case "coso": y.CoSo = v; break;
+                case "cabtvasc": y.CaBtVaSc = v == "1"; break;
+                case "tatca": y.TatCa = v == "1"; break;
+            }
+        }
+
+        private static readonly string[] CacTruongHoc = { "chude", "trangthai", "coso", "cabtvasc", "tatca" };
+
+        private static List<ThayDoiTruong> TinhThayDoi(YeuCau a, YeuCau b)
+        {
+            var l = new List<ThayDoiTruong>();
+            foreach (var t in CacTruongHoc)
+            {
+                var x = DocTruong(a, t);
+                var z = DocTruong(b, t);
+                if (x != z) l.Add(new ThayDoiTruong { Truong = t, Truoc = x, Sau = z });
+            }
+            return l;
+        }
+
+        private static bool GiongYeuCau(YeuCau a, YeuCau b) =>
+            CacTruongHoc.All(t => DocTruong(a, t) == DocTruong(b, t))
+            && a.Ngay == b.Ngay && a.Thang == b.Thang && a.Nam == b.Nam;
+
+        private static string TenLoai(YeuCau y) =>
+            y.CaBtVaSc ? "bảo trì + sửa chữa" : y.ChuDe switch
+            {
+                ChuDeHoi.HoSoBt => "bảo trì",
+                ChuDeHoi.HoSoSc => "sửa chữa",
+                ChuDeHoi.VatTu => "vật tư",
+                ChuDeHoi.PhanCong => "phân công",
+                ChuDeHoi.ThietBi => "thiết bị",
+                _ => "khác"
+            };
+
+        private static string MoTaThayDoi(YeuCau a, YeuCau b)
+        {
+            var l = new List<string>();
+            if (a.ChuDe != b.ChuDe || a.CaBtVaSc != b.CaBtVaSc) l.Add("loại hồ sơ: " + TenLoai(b));
+            if (a.TrangThai != b.TrangThai || a.TatCa != b.TatCa)
+                l.Add("trạng thái: " + (b.TrangThai == null ? "tất cả" : NhanTt(b.TrangThai)));
+            if (a.CoSo != b.CoSo)
+                l.Add("cách tính: " + (b.CoSo == "thuc_te" ? "theo ngày hoàn thành thực tế" : "theo tháng kế hoạch"));
+            if (a.Thang != b.Thang || a.Nam != b.Nam || a.Ngay != b.Ngay) l.Add("kỳ: " + FormatKy(b));
+            return l.Count == 0 ? "" : "Đã điều chỉnh " + string.Join("; ", l) + ".";
+        }
+
+        // ---------- Học: lưu & áp dụng bài học ----------
+
+        private static readonly HashSet<string> TuBoQua = new()
+        {
+            "co", "bao", "nhieu", "la", "gi", "cua", "toi", "minh", "va", "cho", "trong", "nay", "do", "the", "nao",
+            "thang", "nam", "ngay", "duoc", "khong", "xin", "vui", "long", "hay", "giup", "em", "anh", "chi", "oi", "nhe", "voi"
+        };
+
+        private static HashSet<string> TokenChuDe(string qNghia) =>
+            Regex.Split(qNghia, @"[^a-z0-9]+")
+                .Where(t => t.Length >= 2 && !TuBoQua.Contains(t) && !t.All(char.IsDigit))
+                .ToHashSet();
+
+        private static void LuuPhanHoi(
+            VaiTroKey vk, string cauTruoc, string loiSua, int? soMongDoi,
+            List<ThayDoiTruong> deltas, bool daGiaiQuyet, string qTruoc)
+        {
+            ChatbotBaiHocStore.Them(new BaiHoc
+            {
+                VaiTro = vk.ToString(),
+                CauGoc = cauTruoc.Length > 300 ? cauTruoc[..300] : cauTruoc,
+                LoiSua = loiSua.Length > 300 ? loiSua[..300] : loiSua,
+                SoMongDoi = soMongDoi,
+                Tokens = TokenChuDe(qTruoc).ToList(),
+                ThayDoi = deltas,
+                DaGiaiQuyet = daGiaiQuyet && deltas.Count > 0
+            });
+        }
+
+        /// <summary>
+        /// Câu hỏi mới giống (đủ nhiều từ khóa chung) câu từng bị báo sai → nếu parser lại ra đúng cách hiểu sai cũ
+        /// thì sửa theo cách hiểu đã được xác nhận. Đổi cách hỏi vẫn khớp vì so khớp theo từ khóa chủ đề đã chuẩn hóa đồng nghĩa.
+        /// </summary>
+        private static void ApDungBaiHoc(VaiTroKey vk, string q, YeuCau y)
+        {
+            var tk = TokenChuDe(q);
+            if (tk.Count == 0) return;
+            BaiHoc? best = null;
+            double bestScore = 0;
+            foreach (var b in ChatbotBaiHocStore.TatCa())
+            {
+                if (!b.DaGiaiQuyet || b.ThayDoi.Count == 0 || b.VaiTro != vk.ToString()) continue;
+                var tb = new HashSet<string>(b.Tokens);
+                var inter = tk.Count(tb.Contains);
+                var union = tk.Count + tb.Count - inter;
+                if (inter < 2 || union == 0) continue;
+                var score = (double)inter / union;
+                if (score >= 0.5 && score > bestScore) { best = b; bestScore = score; }
+            }
+            if (best == null) return;
+
+            var dung = false;
+            foreach (var d in best.ThayDoi)
+            {
+                if (DocTruong(y, d.Truong) == d.Truoc)
+                {
+                    GhiTruong(y, d.Truong, d.Sau);
+                    dung = true;
+                }
+            }
+            if (dung) ChatbotBaiHocStore.TangSuDung(best.Id);
+        }
+
+        private static bool LaBaoCauTraLoiSai(string q)
+        {
+            if (q.Length > 160) return false;
+            var khang = Co(q, "sai roi", "tra loi sai", "cau tra loi sai", "ban sai", "sai mat", "khong dung", "chua dung",
+                "sai so", "sai du lieu", "so lieu sai", "khong khop", "lech so", "khac voi app", "khong giong app");
+            var xemLai = Co(q, "xem lai", "kiem tra lai", "doi chieu lai");
+            return khang || (xemLai && q.Length <= 60);
+        }
+
+        private static string? TrichCauHoiTruoc(IReadOnlyList<(string role, string content)>? lichSu)
+        {
+            if (lichSu == null || lichSu.Count == 0) return null;
+            for (var i = lichSu.Count - 1; i >= 0; i--)
+            {
+                var r = (lichSu[i].role ?? "").Trim().ToLowerInvariant();
+                if (r is "user" or "người dùng" or "human")
+                {
+                    var c = lichSu[i].content?.Trim();
+                    if (!string.IsNullOrWhiteSpace(c) && !LaBaoCauTraLoiSai(Nghia(c)))
+                        return c;
+                }
+            }
+            return null;
+        }
+
+        // =====================================================================
+        //  LLM (Groq) — chỉ cho câu hỏi giải thích / quy trình
+        // =====================================================================
+
+        /// <summary>Context GỌN: chỉ chủ đề được phép của vai trò, hàng đợi đang mở + tháng hiện tại. Không đổ lịch sử cũ.</summary>
+        private async Task<string> NapContextGonAsync(int maNd, VaiTroKey vk, string vt, CancellationToken ct)
+        {
+            var quyen = QuyenChuDe[vk];
+            var now = DateTime.Now;
+            var sb = new StringBuilder();
+            sb.AppendLine($"Vai_tro: {vt}");
+            sb.AppendLine($"Thoi_diem: {now:yyyy-MM-dd HH:mm}");
+            sb.AppendLine("Chu_de_duoc_phep: " + string.Join(", ", quyen));
+
+            PhamViNv? pv = null;
+            if (vk == VaiTroKey.Nvkt)
+            {
+                pv = await LayPhamViNvAsync(maNd, ct);
+                sb.AppendLine("Ghi_chu: chỉ dữ liệu gắn phân công của chính người dùng này.");
+            }
+
+            foreach (var laBt in new[] { true, false })
+            {
+                if (!quyen.Contains(laBt ? ChuDeHoi.HoSoBt : ChuDeHoi.HoSoSc)) continue;
+                var tien = laBt ? "BT" : "SC";
+                var rows = await LayHsAsync(laBt, pv == null ? null : (laBt ? pv.Bt : pv.Sc), ct);
+
+                var dangMo = rows.Where(r => !DaDong(TtKey(r.TrangThai))).ToList();
+                sb.AppendLine($"HS_{tien}_dang_mo (hàng đợi hiện tại, mọi thời điểm): {dangMo.Count}");
+                foreach (var g in dangMo.GroupBy(r => TtKey(r.TrangThai)))
+                    sb.AppendLine($"  {tien}[{NhanTt(g.Key)}]={g.Count()}");
+                foreach (var r in dangMo.OrderByDescending(r => r.NgayHt).Take(15))
+                    sb.AppendLine($"  {tien}#{r.Ma}|{r.TenTb}|tt={r.TrangThai}|ngay={NgayApp(r, laBt, "app"):dd/MM/yyyy}");
+
+                var thangNay = rows.Where(r =>
+                {
+                    var d = NgayApp(r, laBt, "app");
+                    return d.Year == now.Year && d.Month == now.Month;
+                }).ToList();
+                sb.AppendLine($"HS_{tien}_thang_{now.Month:00}/{now.Year}: {thangNay.Count}");
+                foreach (var g in thangNay.GroupBy(r => TtKey(r.TrangThai)))
+                    sb.AppendLine($"  {tien}_thang[{NhanTt(g.Key)}]={g.Count()}");
+            }
+
+            if (quyen.Contains(ChuDeHoi.VatTu))
+            {
+                var qv = _db.HoSoSuDungVatTus.AsNoTracking().AsQueryable();
+                if (pv?.MaNv != null)
+                {
+                    var maNv = pv.MaNv;
+                    qv = qv.Where(h => h.MaNhanVienTH == maNv);
+                }
+                var vts = await qv.Select(h => new { h.TrangThai }).ToListAsync(ct);
+                sb.AppendLine($"HS_vat_tu_tong: {vts.Count}");
+                foreach (var g in vts.GroupBy(x => VtKey(x.TrangThai)))
+                    sb.AppendLine($"  VT[{NhanTt(g.Key)}]={g.Count()}");
+            }
+
+            if (quyen.Contains(ChuDeHoi.PhanCong))
+            {
+                var qp = _db.PhanCongCongViecs.AsNoTracking().AsQueryable();
+                if (pv?.MaNv != null)
+                {
+                    var maNv = pv.MaNv;
+                    qp = qp.Where(p => p.MaNhanVienThucHien == maNv);
+                }
+                var pcs = await qp.OrderByDescending(p => p.NgayPhanCong).Take(100)
+                    .Select(p => new { p.TrangThai }).ToListAsync(ct);
+                sb.AppendLine($"Phan_cong_gan_day: {pcs.Count}");
+                foreach (var g in pcs.GroupBy(x => x.TrangThai ?? "(trống)"))
+                    sb.AppendLine($"  PC[{g.Key}]={g.Count()}");
+            }
+
+            if (quyen.Contains(ChuDeHoi.ThietBi))
+            {
+                var tt = await _db.ThietBis.AsNoTracking()
+                    .GroupBy(t => t.TinhTrangHienTai)
+                    .Select(g => new { Tt = g.Key, C = g.Count() })
+                    .ToListAsync(ct);
+                sb.AppendLine($"Tong_thiet_bi: {tt.Sum(x => x.C)}");
+                foreach (var g in tt) sb.AppendLine($"  TB[{g.Tt ?? "(trống)"}]={g.C}");
+            }
+
             return sb.ToString();
+        }
+
+        private async Task<(bool ok, string? text, string? err)> GoiGroqAsync(
+            VaiTroKey vk,
+            string vt,
+            string ten,
+            string cauHoi,
+            string context,
+            IReadOnlyList<(string role, string content)>? lichSu,
+            CancellationToken ct,
+            string? ghiChuThem = null)
+        {
+            var system =
+                "Bạn là OPC Bot — chatbot nội bộ app bảo trì/sửa chữa thiết bị cơ điện (OPC).\n" +
+                $"Đây là chatbot của ĐÚNG vai trò «{vt}» (user: {ten}). Chỉ dùng dữ liệu trong CONTEXT; KHÔNG trả lời hộ vai trò khác.\n\n" +
+                "SỐ LIỆU: Cấm bịa, cấm suy diễn, cấm lấy số cũ. Chỉ nêu con số có sẵn trong CONTEXT. " +
+                "Nếu cần số liệu mà CONTEXT không có → nói chưa có và gợi ý hỏi theo mẫu, ví dụ «tháng 10 có bao nhiêu hồ sơ bảo trì hoàn thành».\n" +
+                "Nếu thiếu thông tin về luồng nghiệp vụ → nói chưa có thông tin, không đoán.\n\n" +
+                "Trả lời tiếng Việt, mở đầu «Dạ,», ngắn gọn, dùng gạch đầu dòng khi liệt kê.\n\n" +
+                "KIẾN THỨC:\n" + XayDungKienThucHeThong(vk) + "\nPHẠM VI:\n" + MoTaPhamVi(vk) +
+                (ghiChuThem != null ? "\nGHI CHÚ: " + ghiChuThem : "");
+
+            var user = new StringBuilder();
+            user.AppendLine("CONTEXT:");
+            user.AppendLine(context);
+            if (lichSu != null && lichSu.Count > 0)
+            {
+                user.AppendLine("LICH_SU_HOI_THOAI:");
+                foreach (var (role, content) in lichSu.TakeLast(8))
+                    user.AppendLine($"- {role}: {content}");
+            }
+            user.AppendLine("CAU_HOI:");
+            user.AppendLine(cauHoi);
+
+            var body = new
+            {
+                model = GroqModel,
+                temperature = 0.1,
+                max_tokens = 1500,
+                messages = new object[]
+                {
+                    new { role = "system", content = system },
+                    new { role = "user", content = user.ToString() }
+                }
+            };
+
+            const string url = "https://api.groq.com/openai/v1/chat/completions";
+            try
+            {
+                var client = _httpFactory.CreateClient("Groq");
+                using var req = new HttpRequestMessage(HttpMethod.Post, url);
+                req.Headers.TryAddWithoutValidation("Authorization", "Bearer " + GroqKey);
+                req.Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
+
+                using var res = await client.SendAsync(req, ct);
+                var raw = await res.Content.ReadAsStringAsync(ct);
+                if (!res.IsSuccessStatusCode)
+                {
+                    _logger.LogWarning("Groq HTTP {Code} model={Model}: {Body}",
+                        (int)res.StatusCode, GroqModel, raw.Length > 600 ? raw[..600] : raw);
+                    string? groqMsg = null;
+                    try
+                    {
+                        using var errDoc = JsonDocument.Parse(raw);
+                        if (errDoc.RootElement.TryGetProperty("error", out var errEl)
+                            && errEl.TryGetProperty("message", out var msgEl))
+                            groqMsg = msgEl.GetString();
+                    }
+                    catch { /* bỏ qua */ }
+                    return (false, null, string.IsNullOrEmpty(groqMsg)
+                        ? $"Groq {(int)res.StatusCode}"
+                        : $"Groq {(int)res.StatusCode}: {groqMsg}");
+                }
+
+                using var doc = JsonDocument.Parse(raw);
+                if (!doc.RootElement.TryGetProperty("choices", out var choices) || choices.GetArrayLength() == 0)
+                    return (false, null, "no choices");
+
+                var msg = choices[0].GetProperty("message");
+                var text = msg.TryGetProperty("content", out var c) ? c.GetString() : null;
+                // Một số model (qwen…) chèn phần suy nghĩ trong <think>…</think> → bỏ đi, không đưa cho người dùng
+                if (text != null)
+                    text = Regex.Replace(text, @"<think>[\s\S]*?</think>", "", RegexOptions.IgnoreCase).Trim();
+                return string.IsNullOrEmpty(text) ? (false, null, "empty") : (true, text, null);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Groq call failed model={Model}", GroqModel);
+                return (false, null, ex.Message);
+            }
+        }
+
+        // =====================================================================
+        //  KIẾN THỨC / PHẠM VI THEO VAI TRÒ
+        // =====================================================================
+
+        private static VaiTroKey LayVaiTroKey(string vt)
+        {
+            var s = ChuanHoa(vt);
+            if (s.Contains("nhan vien ky thuat")) return VaiTroKey.Nvkt;
+            if (s.Contains("to truong co dien") || s.Contains("to truong ky thuat")) return VaiTroKey.ToTruong;
+            if (s.Contains("xuong") || s.Contains("to truong san xuat")) return VaiTroKey.Xuong;
+            if (s.Contains("giam doc")) return VaiTroKey.GiamDoc;
+            return VaiTroKey.Khac;
+        }
+
+        private static string MoTaViecDuocHoi(VaiTroKey vk) => vk switch
+        {
+            VaiTroKey.ToTruong => "hồ sơ bảo trì/sửa chữa, phân công NVKT, vật tư, thiết bị, lịch bảo trì, bước quy trình",
+            VaiTroKey.Xuong => "hồ sơ bảo trì/sửa chữa, vật tư, thiết bị, lịch bảo trì, bước quy trình",
+            VaiTroKey.GiamDoc => "hồ sơ chờ duyệt, thống kê bảo trì/sửa chữa, vật tư, thiết bị, lịch bảo trì",
+            VaiTroKey.Nvkt => "việc được phân công cho bạn, hồ sơ bảo trì/sửa chữa của bạn, bước quy trình, vật tư của bạn",
+            _ => "thông tin gắn với tài khoản đang đăng nhập"
+        };
+
+        private static string MauCauHoi(VaiTroKey vk, string vt)
+        {
+            var vd = vk == VaiTroKey.Nvkt
+                ? "• Việc được phân công của tôi?\n• Các bước còn lại của BT#12?\n• Hồ sơ vật tư của tôi chờ xác nhận?"
+                : "• Tháng 10 có bao nhiêu hồ sơ bảo trì hoàn thành?\n• Hồ sơ bảo trì nào đang chờ duyệt?\n• Hồ sơ vật tư chờ xác nhận?";
+            return $"Dạ, mình chưa hiểu rõ ý bạn (vai trò «{vt}»). Bạn thử hỏi theo mẫu:\n{vd}\n"
+                   + $"Mình hỗ trợ: {MoTaViecDuocHoi(vk)}.";
+        }
+
+        private static string XayDungKienThucHeThong(VaiTroKey vk)
+        {
+            var chung =
+                "APP: 2 chức năng — Bảo trì và Sửa chữa thiết bị cơ điện. Vai trò: Tổ trưởng cơ điện, Xưởng, Giám đốc, Nhân viên kỹ thuật (NVKT).\n"
+                + "Trạng thái hồ sơ: Chờ duyệt | Đang thực hiện | Hoàn thành | Từ chối. Hồ sơ vật tư: Chờ gửi | Chờ xác nhận | Xác nhận.\n\n"
+                + "LUỒNG BẢO TRÌ:\n"
+                + "1) Tổ trưởng cơ điện tạo hồ sơ (thiết bị, danh mục, tháng bảo trì, ngày dự kiến bắt đầu–kết thúc). Ngày tổ trưởng chọn chỉ là DỰ KIẾN.\n"
+                + "2) Gửi Xưởng; Xưởng xem/chỉnh (Xưởng CHỐT ngày bảo trì cuối cùng) rồi gửi Giám đốc duyệt.\n"
+                + "3) Giám đốc duyệt → mở khóa phân công cho Tổ trưởng.\n"
+                + "4) Tổ trưởng phân công một hoặc nhiều NVKT (NVKT có thể nhận nhiều thiết bị; bận thì tổ trưởng bỏ chọn, trao đổi ngoài hệ thống).\n"
+                + "5) NVKT thấy yêu cầu bảo trì trên tài khoản → «Tiến hành bảo trì» → chọn vật tư theo từng bước (Lưu → thành hồ sơ vật tư ở Quản lý hồ sơ vật tư của Tổ trưởng) "
+                + "→ ghi kết quả từng bước → «Hoàn thành» → yêu cầu của NVKT và hồ sơ bảo trì chuyển «Hoàn thành».\n"
+                + "6) Tổ trưởng vào Quản lý hồ sơ vật tư, gửi hồ sơ vật tư cho Giám đốc → trạng thái «Chờ xác nhận».\n"
+                + "CHƯA CÓ THÔNG TIN CHẮC CHẮN: luồng sửa chữa chi tiết; điều gì xảy ra khi Giám đốc từ chối; ai xác nhận hồ sơ vật tư và sau đó ra sao. "
+                + "Gặp câu hỏi này → nói chưa có thông tin, không bịa.\n";
+
+            var rieng = vk switch
+            {
+                VaiTroKey.ToTruong => "VAI TRÒ NÀY (Tổ trưởng cơ điện): tạo HS bảo trì, gửi Xưởng, phân công NVKT sau khi Giám đốc duyệt, quản lý hồ sơ vật tư. Không chốt ngày thay Xưởng, không duyệt thay Giám đốc.\n",
+                VaiTroKey.Xuong => "VAI TRÒ NÀY (Xưởng): xem/chỉnh và chốt ngày bảo trì, gửi Giám đốc. Không phân công NVKT, không duyệt thay Giám đốc.\n",
+                VaiTroKey.GiamDoc => "VAI TRÒ NÀY (Giám đốc): duyệt hồ sơ, xem thống kê. Không phân công NVKT, không chốt ngày thay Xưởng.\n",
+                VaiTroKey.Nvkt => "VAI TRÒ NÀY (NVKT): chỉ thấy việc được phân công cho mình; chọn vật tư, ghi kết quả từng bước, bấm Hoàn thành. Không xem dữ liệu toàn công ty, không duyệt, không phân công.\n",
+                _ => "VAI TRÒ NÀY: chỉ thông tin gắn tài khoản đang đăng nhập.\n"
+            };
+            return chung + rieng;
+        }
+
+        private static string MoTaPhamVi(VaiTroKey vk) =>
+            "- Được hỏi: " + MoTaViecDuocHoi(vk) + ".\n- Ngoài phạm vi này → từ chối lịch sự và nói vai trò nào phụ trách.";
+
+        private static string? TuChoiVuotVaiTro(VaiTroKey vk, string q)
+        {
+            if (vk == VaiTroKey.Nvkt)
+            {
+                if (Co(q, "toan bo", "tat ca nhan vien", "toan cong ty"))
+                    return "Dạ, NVKT chỉ xem công việc được phân công trên tài khoản của bạn.";
+                if (Co(q, "duyet") && Co(q, "ho so", "giam doc"))
+                    return "Dạ, phê duyệt hồ sơ thuộc Giám đốc — NVKT không thực hiện được.";
+                if (Co(q, "chot ngay"))
+                    return "Dạ, chốt ngày bảo trì thuộc Xưởng.";
+                if (Co(q, "phan cong") && Co(q, "nhan vien", "to truong") && Co(q, "cho", "giup", "thay"))
+                    return "Dạ, phân công nhân viên thuộc Tổ trưởng cơ điện.";
+            }
+            if (vk == VaiTroKey.ToTruong)
+            {
+                if (Co(q, "thay giam doc") || (Co(q, "toi duyet", "duyet ho") && Co(q, "giam doc")))
+                    return "Dạ, Tổ trưởng không duyệt hộ Giám đốc. Sau khi Giám đốc duyệt, bạn mới phân công NVKT.";
+                if (Co(q, "chot ngay") && Co(q, "thay", "ho"))
+                    return "Dạ, chốt ngày bảo trì thuộc Xưởng.";
+            }
+            if (vk == VaiTroKey.Xuong)
+            {
+                if (Co(q, "phan cong") && Co(q, "thay to truong", "ho to truong", "toi phan cong", "giup phan cong"))
+                    return "Dạ, phân công NVKT thuộc Tổ trưởng cơ điện. Xưởng chốt ngày bảo trì.";
+            }
+            if (vk == VaiTroKey.GiamDoc)
+            {
+                if (Co(q, "phan cong nhan vien") && Co(q, "thay", "ho"))
+                    return "Dạ, phân công thuộc Tổ trưởng cơ điện (sau khi bạn duyệt hồ sơ).";
+                if (Co(q, "chot ngay") && Co(q, "thay", "ho"))
+                    return "Dạ, chốt ngày thuộc Xưởng.";
+            }
+            return null;
+        }
+
+        // =====================================================================
+        //  HELPERS CHUNG
+        // =====================================================================
+
+        private static bool LaHoiVatTu(string q) =>
+            Co(q, "vat tu", "ho so vat tu", "hs vat tu", "nguyen vat lieu")
+            || (Co(q, "tong tien") && Co(q, "vat", "tien vat"));
+
+        private static bool LaHoiPhanCong(string q) =>
+            Co(q, "phan cong", "lich su phan cong", "ai duoc giao", "nv duoc giao", "nhan vien duoc giao")
+            || (Co(q, "cong viec") && Co(q, "giao", "duoc giao", "cua toi", "cua minh"));
+
+        private static bool LaHoiLichBaoTri(string q)
+        {
+            if (Co(q, "lich su")) return false;
+            return Co(q, "lich bao tri", "lich du kien", "lich sap toi")
+                   || (Co(q, "lich") && Co(q, "bao tri", "sap toi", "du kien"));
         }
 
         private static string? TrichTenThietBi(string q)
@@ -1004,7 +1399,8 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             {
                 "thiet bi", "trang thai", "tinh trang", "dang o", "la gi", "bao tri", "sua chua",
                 "gan nhat", "tiep theo", "lich", "ngay", "cua", "bao nhieu", "co may", "danh muc",
-                "thang", "nam", "ho so", "da", "duoc", "hien", "tai", "va", "cho", "toi", "minh", "sap toi"
+                "thang", "nam", "ho so", "da", "duoc", "hien", "tai", "va", "cho", "toi", "minh", "sap toi",
+                "nhung", "nao", "gom", "danh sach", "he thong", "co", "gi", "dang", "san xuat"
             };
             foreach (var b in bo)
                 s = Regex.Replace(s, $@"\b{Regex.Escape(b)}\b", " ");
@@ -1029,204 +1425,24 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             return t.Split(' ', StringSplitOptions.RemoveEmptyEntries).Count(w => w.Length >= 2 && q.Contains(w));
         }
 
-        // ===================== FALLBACK =====================
-
-
-        private async Task<string> FallbackRuleAsync(string vt, string q, CancellationToken ct)
+        private static void XuLyThoiGianTuongDoi(string q, YeuCau y)
         {
-            int? ngay = null, thang = null, nam = null;
-            TrichNgayThangNam(q, ref ngay, ref thang, ref nam);
-
-            // Danh sách thiết bị khi Groq lỗi — không bắt buộc từ khóa «bao nhiêu»
-            if (Co(q, "thiet bi", "may moc") && !Co(q, "ho so"))
+            var now = DateTime.Now;
+            if (Co(q, "hom nay")) { y.Ngay = now.Day; y.Thang = now.Month; y.Nam = now.Year; return; }
+            if (y.Thang == null)
             {
-                var tbs = await _db.ThietBis.AsNoTracking()
-                    .Select(t => new { t.MaThietBi, t.TenThietBi, t.LoaiThietBi, t.TinhTrangHienTai, t.ViTriLapDat })
-                    .OrderBy(t => t.LoaiThietBi).ThenBy(t => t.TenThietBi)
-                    .ToListAsync(ct);
-                if (tbs.Count == 0)
-                    return "Dạ, trong hệ thống hiện chưa có thiết bị nào được ghi nhận.";
-                var sbTb = new StringBuilder();
-                sbTb.AppendLine($"Dạ, hệ thống đang quản lý **{tbs.Count}** thiết bị:");
-                foreach (var g in tbs.GroupBy(x => x.LoaiThietBi ?? "(chưa loại)"))
+                if (Co(q, "thang nay")) { y.Thang = now.Month; y.Nam ??= now.Year; }
+                else if (Co(q, "thang truoc", "thang vua roi", "thang qua"))
                 {
-                    sbTb.AppendLine($"**{g.Key}** ({g.Count()}):");
-                    foreach (var t in g)
-                        sbTb.AppendLine($"  • TB#{t.MaThietBi} {t.TenThietBi} — {t.TinhTrangHienTai ?? "—"}");
+                    var d = now.AddMonths(-1);
+                    y.Thang = d.Month; y.Nam = d.Year;
                 }
-                return sbTb.ToString().TrimEnd();
             }
-
-            // Fallback chỉ khi đúng ý hỏi HS BT/SC — không nuốt vật tư / phân công
-            if (vt != "Nhân viên kỹ thuật" && LaHoiHoSoBtSc(q, ngay, thang))
+            if (y.Nam == null)
             {
-                var canHt = Co(q, "hoan thanh");
-                var raw = await _db.HoSoBaoTris.AsNoTracking()
-                    .Select(h => new
-                    {
-                        h.MaHoSoBaoTri,
-                        h.TrangThai,
-                        NgayHt = h.ThoiDiemKetThucThucTe ?? h.NgayDuyet ?? h.NgayTao,
-                        TenTb = h.MaThieBiNavigation != null ? h.MaThieBiNavigation.TenThietBi : ""
-                    }).ToListAsync(ct);
-                var mapKh = await _db.ChiTietKeHoachBaoTris.AsNoTracking()
-                    .Where(c => c.MaHoSoBaoTri != null)
-                    .Select(c => new { Ma = c.MaHoSoBaoTri!.Value, c.NgayDuKienBaoTri })
-                    .ToListAsync(ct);
-                var dictKh = mapKh.GroupBy(x => x.Ma).ToDictionary(g => g.Key, g => g.First().NgayDuKienBaoTri);
-                var y = nam ?? DateTime.Now.Year;
-
-                var list = raw.Select(h =>
-                {
-                    int d, m, n;
-                    if (dictKh.TryGetValue(h.MaHoSoBaoTri, out var nk))
-                    { d = nk.Day; m = nk.Month; n = nk.Year; }
-                    else
-                    { d = h.NgayHt.Day; m = h.NgayHt.Month; n = h.NgayHt.Year; }
-                    return new { h.MaHoSoBaoTri, h.TrangThai, h.TenTb, h.NgayHt, D = d, M = m, N = n };
-                }).Where(x => x.N == y
-                              && (thang == null || x.M == thang)
-                              && (ngay == null || x.D == ngay)
-                              && (!canHt || x.TrangThai == "Đã hoàn thành"))
-                    .OrderByDescending(x => x.NgayHt).ToList();
-
-                var ky = ngay != null && thang != null ? $"ngày {ngay:00}/{thang:00}/{y}"
-                    : thang != null ? $"tháng {thang}/{y}"
-                    : nam != null ? $"năm {y}" : "toàn hệ thống";
-                var sb = new StringBuilder();
-                sb.AppendLine($"Dạ, {ky} có **{list.Count}** hồ sơ bảo trì{(canHt ? " **Đã hoàn thành**" : "")}.");
-                foreach (var h in list.Take(10))
-                    sb.AppendLine($"• BT#{h.MaHoSoBaoTri} | {h.TenTb} | {h.TrangThai} | {h.NgayHt:dd/MM/yyyy}");
-                return sb.ToString().TrimEnd();
+                if (Co(q, "nam nay")) y.Nam = now.Year;
+                else if (Co(q, "nam ngoai", "nam truoc", "nam qua")) y.Nam = now.Year - 1;
             }
-
-            return "Dạ, hiện chưa tìm thấy dữ liệu khớp câu hỏi trong hệ thống (hoặc dịch vụ AI tạm gián đoạn). "
-                   + "Bạn thử hỏi lại theo nội dung đang có trên app — ví dụ thiết bị, hồ sơ bảo trì/sửa chữa, "
-                   + "phân công, vật tư, trạng thái — mình sẽ tra đúng dữ liệu đang vận hành.";
-        }
-
-        // ===================== ROLE + HELPERS =====================
-
-        /// <summary>
-        /// Kiến thức domain toàn hệ thống (không phải Q&amp;A mẫu).
-        /// LLM dùng để hiểu luồng/app; phạm vi trả lời vẫn bị khóa theo vai trò.
-        /// </summary>
-        private static string XayDungKienThucHeThong(string vt)
-        {
-            var chung =
-                "APP: 2 chức năng chính — Bảo trì định kỳ và Sửa chữa sự cố thiết bị cơ điện.\n"
-                + "VAI TRÒ: Tổ trưởng cơ điện | Xưởng | Giám đốc (Phó giám đốc) | Nhân viên kỹ thuật | Admin hệ thống.\n\n"
-                + "LUỒNG BẢO TRÌ (tuần tự):\n"
-                + "1) Tổ trưởng cơ điện TẠO hồ sơ bảo trì (gắn thiết bị, nội dung, thời gian dự kiến).\n"
-                + "2) Tổ trưởng GỬI hồ sơ → Xưởng.\n"
-                + "3) Xưởng CHỐT NGÀY bảo trì trong tháng đó.\n"
-                + "4) Xưởng GỬI hồ sơ → Giám đốc duyệt.\n"
-                + "5) Giám đốc TỪ CHỐI → trả Xưởng chỉnh sửa; Giám đốc DUYỆT → mở khóa phân công cho Tổ trưởng.\n"
-                + "6) Tổ trưởng PHÂN CÔNG một hoặc nhiều NVKT (NV bận thì Tổ trưởng cập nhật lại trên hệ thống).\n"
-                + "7) Mỗi NVKT nhận việc trên tài khoản mình → chọn các bước quy trình → đủ bước thì HOÀN THÀNH → gửi Xưởng.\n"
-                + "8) Xưởng xác nhận kết quả hoàn thành.\n\n"
-                + "LUỒNG SỬA CHỮA (tóm tắt):\n"
-                + "- Xưởng tạo hồ sơ sửa chữa (mô tả hư hỏng, phương án) → gửi Giám đốc duyệt → sau duyệt Tổ trưởng phân công NVKT → NVKT thực hiện bước → hoàn thành gửi Xưởng.\n\n"
-                + "TỪ ĐIỂN TRẠNG THÁI HỒ SƠ BT (thường gặp):\n"
-                + "Nháp | Chờ xưởng | Chờ GĐ duyệt / Chờ duyệt | Từ chối | Đã duyệt | Chờ phân công | Đang thực hiện | Chờ xác nhận | Đã hoàn thành | Đã hủy.\n"
-                + "Ý nghĩa: «Đã duyệt»/«Chờ phân công» = GĐ đã duyệt, Tổ trưởng được phân công NVKT.\n"
-                + "«Đang thực hiện» = NVKT đã nhận/tiến hành. «Chờ xác nhận» = NVKT hoàn thành, chờ Xưởng.\n\n"
-                + "PHÂN CÔNG: 1 HS có thể gắn nhiều NVKT; có thể có người ghi chép (LaNguoiGhiChep).\n"
-                + "BƯỚC QUY TRÌNH: lấy từ catalog QuyTrinhThietBi theo thiết bị; tiến độ lưu TienDoBuocQuyTrinh (SoBuoc, MoTaBuoc, TrangThai).\n"
-                + "VẬT TƯ: hồ sơ sử dụng vật tư gắn HS BT hoặc SC; trạng thái có thể gồm chờ xác nhận / Xác nhận / Đã xem.\n"
-                + "THIẾT BỊ: TinhTrangHienTai ví dụ Sản xuất | Bảo trì | Sửa chữa; có NgayBaoTriGanNhat / NgayBaoTriTiepTheo.\n";
-
-            // Bổ sung kiến thức sâu hơn cho đúng role đang chat (vẫn trong khung hệ thống)
-            var theoRole = vt switch
-            {
-                "Tổ trưởng cơ điện" or "Tổ trưởng kỹ thuật" =>
-                    "CHI TIẾT CHO TỔ TRƯỞNG CƠ ĐIỆN:\n"
-                    + "- Tạo HS BT, gửi Xưởng; sau GĐ duyệt mới phân công.\n"
-                    + "- Phân công nhiều NV; cập nhật khi NV bận.\n"
-                    + "- Theo dõi bước, vật tư, lịch sử phân công, thiết bị, kế hoạch BT.\n"
-                    + "- Không chốt ngày thay Xưởng; không duyệt thay Giám đốc.\n",
-                "Xưởng" or "Tổ trưởng sản xuất" =>
-                    "CHI TIẾT CHO XƯỞNG:\n"
-                    + "- Nhận HS BT từ Tổ trưởng → chốt ngày trong tháng → gửi Giám đốc.\n"
-                    + "- GĐ từ chối → Xưởng chỉnh sửa rồi gửi lại.\n"
-                    + "- Tạo HS sửa chữa; xác nhận kết quả khi NVKT hoàn thành.\n"
-                    + "- Không phân công NVKT; không phê duyệt cuối như GĐ.\n",
-                "Giám đốc" or "Phó giám đốc" =>
-                    "CHI TIẾT CHO GIÁM ĐỐC / PHÓ GIÁM ĐỐC:\n"
-                    + "- Duyệt hoặc từ chối HS bảo trì / sửa chữa / vật tư (theo phân quyền).\n"
-                    + "- Xem thống kê, lịch sử phê duyệt, trạng thái toàn hệ thống.\n"
-                    + "- Không phân công NVKT; không chốt ngày Xưởng.\n",
-                "Nhân viên kỹ thuật" =>
-                    "CHI TIẾT CHO NHÂN VIÊN KỸ THUẬT:\n"
-                    + "- Chỉ thấy việc được phân công cho mình.\n"
-                    + "- Chọn bước bảo trì/sửa chữa; khi đủ bước bấm hoàn thành → gửi Xưởng.\n"
-                    + "- Có thể ghi nhận vật tư sử dụng theo bước.\n"
-                    + "- Không xem toàn công ty; không duyệt; không chốt ngày; không phân công người khác.\n",
-                _ => "CHI TIẾT: chỉ thông tin gắn tài khoản đang đăng nhập.\n"
-            };
-
-            return chung + theoRole;
-        }
-
-        private static string MoTaPhamVi(string vt) => vt switch
-        {
-            "Tổ trưởng cơ điện" or "Tổ trưởng kỹ thuật" =>
-                "- Được hỏi/trả lời: tạo & theo dõi HS bảo trì, phân công NVKT, NV rảnh/bận, HS chờ phân công,\n"
-                + "  bước quy trình, vật tư gắn HS, thiết bị, lịch/kế hoạch BT, thống kê liên quan tổ.\n"
-                + "- CẤM: duyệt hộ GĐ, chốt ngày hộ Xưởng, xem hộ việc riêng tư không liên quan.\n"
-                + "- Khi user hỏi «tôi làm gì?» / «quy trình của tôi» → giải thích đúng bước 1–2 và 6 của luồng BT.",
-            "Xưởng" or "Tổ trưởng sản xuất" =>
-                "- Được hỏi/trả lời: HS chờ xưởng, chốt ngày BT, gửi GĐ, HS bị từ chối cần sửa,\n"
-                + "  tạo/theo dõi HS sửa chữa, xác nhận hoàn thành từ NVKT, trạng thái liên quan xưởng.\n"
-                + "- CẤM: phân công NVKT, phê duyệt cuối như GĐ.\n"
-                + "- Khi hỏi quy trình xưởng → nhấn mạnh bước 3–4–5 và xác nhận bước 8.",
-            "Giám đốc" or "Phó giám đốc" =>
-                "- Được hỏi/trả lời: HS chờ duyệt, duyệt/từ chối, lịch sử phê duyệt, thống kê toàn hệ thống,\n"
-                + "  trạng thái BT/SC/vật tư tổng hợp.\n"
-                + "- CẤM: phân công NVKT, chốt ngày Xưởng.\n"
-                + "- Khi hỏi quy trình GĐ → nhấn mạnh bước 5 (duyệt/từ chối).",
-            "Nhân viên kỹ thuật" =>
-                "- CHỈ dữ liệu của tài khoản này: phân công của tôi, HS của tôi, bước/vật tư của tôi.\n"
-                + "- Được hỏi: việc đang làm, bước còn lại, cách hoàn thành gửi Xưởng.\n"
-                + "- CẤM: toàn công ty, duyệt, chốt ngày, phân công người khác.",
-            _ => "- Chỉ thông tin gắn tài khoản đang đăng nhập."
-        };
-
-        private static string? TuChoiVuotVaiTro(string vt, string q)
-        {
-            // Chặn sớm các yêu cầu vượt quyền rõ ràng (Groq vẫn nhận kiến thức hệ thống để giải thích đúng ai phụ trách)
-            if (vt == "Nhân viên kỹ thuật")
-            {
-                if (Co(q, "toan bo", "tat ca nhan vien", "toan cong ty"))
-                    return "Dạ, NVKT chỉ xem công việc được phân công trên tài khoản của bạn.";
-                if (Co(q, "duyet") && Co(q, "ho so", "giam doc"))
-                    return "Dạ, phê duyệt hồ sơ thuộc Giám đốc — NVKT không thực hiện được.";
-                if (Co(q, "chot ngay"))
-                    return "Dạ, chốt ngày bảo trì thuộc Xưởng.";
-                if (Co(q, "phan cong") && Co(q, "nhan vien", "to truong"))
-                    return "Dạ, phân công nhân viên thuộc Tổ trưởng cơ điện.";
-            }
-            if (vt is "Tổ trưởng cơ điện" or "Tổ trưởng kỹ thuật")
-            {
-                if (Co(q, "thay giam doc") || (Co(q, "toi duyet", "duyet ho") && Co(q, "giam doc")))
-                    return "Dạ, Tổ trưởng không duyệt hộ Giám đốc. Sau khi GĐ duyệt, bạn mới phân công NVKT.";
-                if (Co(q, "chot ngay") && Co(q, "thay", "ho"))
-                    return "Dạ, chốt ngày bảo trì trong tháng thuộc Xưởng.";
-            }
-            if (vt is "Xưởng" or "Tổ trưởng sản xuất")
-            {
-                // Chỉ chặn khi Xưởng muốn tự phân công thay Tổ trưởng
-                if (Co(q, "phan cong") && Co(q, "thay to truong", "ho to truong", "toi phan cong", "giup phan cong"))
-                    return "Dạ, phân công NVKT thuộc Tổ trưởng cơ điện. Xưởng chốt ngày và xác nhận hoàn thành.";
-            }
-            if (vt is "Giám đốc" or "Phó giám đốc")
-            {
-                if (Co(q, "phan cong nhan vien") && Co(q, "thay", "ho"))
-                    return "Dạ, phân công thuộc Tổ trưởng cơ điện (sau khi bạn duyệt hồ sơ).";
-                if (Co(q, "chot ngay") && Co(q, "thay", "ho"))
-                    return "Dạ, chốt ngày thuộc Xưởng.";
-            }
-            return null;
         }
 
         private static void TrichNgayThangNam(string q, ref int? ngay, ref int? thang, ref int? nam)
@@ -1272,6 +1488,29 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     sb.Append(c);
             }
             return sb.ToString().Normalize(NormalizationForm.FormC).Replace('đ', 'd');
+        }
+
+        /// <summary>Từ đồng nghĩa → dạng chuẩn, để đổi cách hỏi vẫn hiểu như nhau.</summary>
+        private static readonly (Regex re, string den)[] DongNghia = new (string tu, string den)[]
+        {
+            ("bao duong", "bao tri"),
+            ("hoan tat", "hoan thanh"), ("lam xong", "hoan thanh"), ("da xong", "hoan thanh"), ("xong", "hoan thanh"),
+            ("hs", "ho so"), ("phieu", "ho so"),
+            ("hu hong", "sua chua"), ("su co", "sua chua"), ("khac phuc", "sua chua"),
+            ("bi tra lai", "tu choi"), ("bi tra", "tu choi"), ("bi loai", "tu choi"), ("khong duyet", "tu choi"),
+            ("cho giam doc duyet", "cho duyet"), ("cho giam doc", "cho duyet"), ("cho gd duyet", "cho duyet"), ("cho phe duyet", "cho duyet"),
+            ("dang lam", "dang thuc hien"), ("dang tien hanh", "dang thuc hien"), ("dang xu ly", "dang thuc hien"),
+            ("phu tung", "vat tu"), ("linh kien", "vat tu"), ("vat lieu", "vat tu"),
+            ("giao viec", "phan cong"), ("duoc giao", "phan cong")
+        }.Select(x => (new Regex($@"\b{Regex.Escape(x.tu)}\b", RegexOptions.Compiled), x.den)).ToArray();
+
+        /// <summary>Chuẩn hóa không dấu + thay từ đồng nghĩa.</summary>
+        private static string Nghia(string input)
+        {
+            var s = ChuanHoa(input);
+            foreach (var (re, den) in DongNghia)
+                s = re.Replace(s, den);
+            return s;
         }
 
         private static bool Co(string q, params string[] keys) => keys.Any(k => q.Contains(k));

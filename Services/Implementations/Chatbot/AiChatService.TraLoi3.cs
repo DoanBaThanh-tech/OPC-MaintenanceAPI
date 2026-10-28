@@ -12,7 +12,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
         {
             var hoiSc = Co(q, "sua chua") && !Co(q, "bao tri");
             var hoiCaHai = Co(q, "sua chua") && Co(q, "bao tri");
-            var hoiLietKe = Co(q, "liet ke", "danh sach", "nhung ho so", "ho so nao", "ten", "gom");
+            var hoiLietKe = LaYeuCauLietKe(q);
 
             string? trangThai = null;
             if (Co(q, "hoan thanh")) trangThai = "Đã hoàn thành";
@@ -188,7 +188,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 sb.Append($", từ chối **{tuChoi.Count}** hồ sơ");
             sb.Append('.');
 
-            if (Co(q, "nao", "liet ke", "danh sach", "ho so nao") && duyet.Count > 0)
+            if (LaYeuCauLietKe(q) && duyet.Count > 0)
             {
                 sb.AppendLine();
                 sb.AppendLine("Hồ sơ đã duyệt:");
@@ -308,7 +308,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (maSc != null) label += $" của SC#{maSc}";
             if (pcMatch.Success) label += $" khớp PC#{pcMatch.Groups[1].Value}";
             var period = khoang.CoNgay ? " trong " + khoang.MoTa + " (theo ngày phân công)" : " đến hiện tại";
-            var chiDem = Co(q, "bao nhieu", "co may", "tong", "so luong") && !Co(q, "liet ke", "danh sach", "nao", "ten", "gom");
+            var chiDem = Co(q, "bao nhieu", "co may", "tong", "so luong") && !LaYeuCauLietKe(q);
             if (chiDem)
             {
                 // COUNT trên toàn query đã lọc, không đếm trang đầu hoặc Take(30).

@@ -160,6 +160,17 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             return null;
         }
 
+        /// <summary>
+        /// “Liệt kê số lượng”, “cho biết số lượng”, “có bao nhiêu” là đếm — không liệt kê chi tiết.
+        /// Chỉ liệt kê khi có từ chỉ danh sách mà không có từ chỉ số lượng.
+        /// </summary>
+        private static bool LaYeuCauLietKe(string q)
+        {
+            var coDanhSach = Co(q, "liet ke", "danh sach", "nhung ho so", "ho so nao", "ten", "gom");
+            var coSoLuong = Co(q, "bao nhieu", "co may", "may cai", "tong so", "tong cong", "so luong", "dem");
+            return coDanhSach && !coSoLuong;
+        }
+
         private static bool LaHoiTheoTrangThaiHoSo(string q, NhomTrangThai? nhom)
         {
             if (nhom == null) return false;
@@ -472,7 +483,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             var uuTienKeHoach = UuTienNgayKeHoach(q);
             var laNvkt = vt == "Nhân viên kỹ thuật";
             var chiDem = Co(q, "bao nhieu", "co may", "tong so", "tong cong", "so luong", "dem")
-                         && !Co(q, "liet ke", "danh sach", "nhung", "nao", "ten", "gom");
+                         && !LaYeuCauLietKe(q);
 
             HashSet<int>? btScope = null;
             HashSet<int>? scScope = null;
@@ -687,7 +698,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             sb.Append(string.Join("; ", phan));
             sb.Append('.');
 
-            if (khoang.CoNgay && nhom == null && hoiBt && !uuTienKeHoach)
+            if (!chiDem && khoang.CoNgay && nhom == null && hoiBt && !uuTienKeHoach)
             {
                 var soKeHoach = btList.Count(x => x.Khop.Any(m => m.Nhan == "kế hoạch"));
                 if (soKeHoach > 0)
@@ -696,7 +707,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                         : $" Có ngày kế hoạch trong kỳ: **{soKeHoach}** hồ sơ bảo trì.");
             }
 
-            if (khoang.CoNgay && nhom == null)
+            if (!chiDem && khoang.CoNgay && nhom == null)
             {
                 if (hoiBt && btList.Count > 0)
                 {

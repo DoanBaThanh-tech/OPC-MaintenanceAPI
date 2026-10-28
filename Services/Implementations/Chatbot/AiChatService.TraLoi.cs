@@ -48,6 +48,14 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             // Guard điều phối: chạy cả khi học/báo sai gọi trực tiếp; không thay logic hàm đếm.
             var chan = await KiemTraPhamViAsync(maNd, vt, q, ct);
             if (chan != null) return new KetQuaXuLy(true, chan, "chan_pham_vi");
+            // Quy trình phải đứng trước các nhánh đếm/chi tiết hồ sơ và danh mục thiết bị.
+            if (LaHoiQuyTrinhHoSo(q))
+                return await TraLoiQuyTrinhHoSoAsync(maNd, vt, q, ct);
+            if (LaHoiQuyTrinhThietBi(q))
+            {
+                var quyTrinh = await TraLoiQuyTrinhThietBiAsync(vt, q, ct);
+                if (quyTrinh.DaXuLy) return quyTrinh;
+            }
             if (LaHoiThongKeVatTu(q)) return await TraLoiThongKeVatTuAsync(vt, q, ct);
             if (LaHoiDuyetHoSoCuThe(q)) return await TraLoiDuyetHoSoCuTheAsync(maNd, vt, q, khoang, ct);
             // Lịch sử/yêu cầu PC không phải hồ sơ chờ phân công; lọc trước các nhánh hồ sơ chung.
@@ -90,7 +98,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
             // Hoàn thành theo tháng (khớp thống kê app) — chỉ khi hỏi số lượng,
             // không hỏi một ngày cụ thể và không yêu cầu liệt kê.
-            var hoiLietKeHoanThanh = Co(q, "liet ke", "danh sach", "nhung ho so", "ho so nao", "nao", "ten", "gom");
+            var hoiLietKeHoanThanh = LaYeuCauLietKe(q);
             if (Co(q, "hoan thanh") && !khoang.LaNgayCuThe && !hoiLietKeHoanThanh
                 && (thang != null || Co(q, "thang nay", "thang truoc", "thang")))
                 return await TraLoiDemHoanThanhAsync(q, thang, nam, vt, boQuaTriNho, ct);
@@ -303,8 +311,8 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             var soNho = await LaySoNhoAsync(vt, "cho_phan_cong_bt", boQuaTriNho, ct);
             var so = soNho ?? ds.Count;
             var ky = thang != null ? $" trong tháng {thang}/{nam ?? DateTime.Now.Year}" : "";
-            var chiDem = Co(q, "bao nhieu", "co may", "tong")
-                         && !Co(q, "liet ke", "danh sach", "nhung", "nao", "ten", "gom");
+            var chiDem = Co(q, "bao nhieu", "co may", "tong", "so luong", "dem")
+                         && !LaYeuCauLietKe(q);
 
             if (so == 0)
             {
@@ -323,7 +331,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
             if (chiDem)
                 return new KetQuaXuLy(true,
-                    $"Dạ, {ky.TrimStart()} có **{so}** hồ sơ bảo trì đang chờ phân công.",
+                    $"Dạ, {(string.IsNullOrWhiteSpace(ky) ? "" : ky.TrimStart() + " ")}có **{so}** hồ sơ bảo trì đang chờ phân công.",
                     "cho_phan_cong_bt", so);
 
             var sbList = new StringBuilder();

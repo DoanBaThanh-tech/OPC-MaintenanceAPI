@@ -17,12 +17,12 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 + "→ Giám đốc từ chối thì Xưởng chỉnh sửa; duyệt thì Tổ trưởng mở khóa phân công "
                 + "→ Tổ trưởng chọn một hoặc nhiều NVKT → NVKT nhận việc, chọn các bước đã làm, đủ thì bấm hoàn thành gửi Xưởng "
                 + "→ Xưởng xác nhận hoàn thành.\n"
-                + "LUỒNG SỬA CHỮA: Xưởng tạo hồ sơ → Giám đốc duyệt → Tổ trưởng phân công NVKT → NVKT thực hiện các bước "
-                + "→ gửi Xưởng xác nhận.\n"
+                + "LUỒNG SỬA CHỮA HIỆN TẠI: Xưởng tạo hồ sơ → gửi Tổ trưởng phân công trực tiếp (không qua Giám đốc) "
+                + "→ NVKT thực hiện các bước → gửi Xưởng xác nhận. Không suy rằng SC đã qua duyệt chỉ từ trạng thái đang thực hiện/hoàn thành.\n"
                 + "TRẠNG THÁI BT thường gặp: Chờ xưởng, Chờ duyệt, Từ chối, Đã duyệt, Đang thực hiện, Chờ xác nhận, Đã hoàn thành (ẩn: Nháp, Đã hủy).\n"
                 + "MÀN HÌNH: danh sách thiết bị; danh sách HS bảo trì; chi tiết HS bảo trì (thiết bị, nội dung, thời gian, trạng thái, người duyệt, phân công, bước, vật tư); "
                 + "danh sách HS sửa chữa; chi tiết HS sửa chữa; phân công; thống kê.\n"
-                + "CÁCH ĐẾM THỐNG KÊ: HS bảo trì Đã hoàn thành tính theo THÁNG NGÀY KẾ HOẠCH bảo trì; HS sửa chữa Đã hoàn thành tính theo THÁNG HOÀN THÀNH thực tế.\n";
+                + "SỐ LIỆU: chỉ kết quả các hàm đếm trong code có thẩm quyền. Hàm đếm hoàn thành theo tháng hiện dùng ngày hoàn thành thực tế, fallback ngày duyệt/ngày tạo; không tự đổi sang ngày kế hoạch.\n";
 
             var theoRole = vt switch
             {
@@ -35,7 +35,8 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     + "Giám đốc từ chối thì chỉnh sửa và gửi lại; tạo HS sửa chữa; xác nhận kết quả khi NVKT hoàn thành. "
                     + "Không phân công NVKT, không phê duyệt cuối thay Giám đốc.\n",
                 "Giám đốc" or "Phó giám đốc" =>
-                    "GIÁM ĐỐC: duyệt hoặc từ chối HS bảo trì/sửa chữa/vật tư; xem thống kê và lịch sử phê duyệt. "
+                    "GIÁM ĐỐC: duyệt hoặc từ chối HS bảo trì/vật tư; xem trạng thái sửa chữa, thống kê và lịch sử phê duyệt. "
+                    + "Luồng tạo sửa chữa hiện chuyển trực tiếp tới Tổ trưởng; dữ liệu duyệt sửa chữa cũ nếu có phải kiểm tra riêng. "
                     + "Không phân công NVKT, không chốt ngày thay Xưởng.\n",
                 "Nhân viên kỹ thuật" =>
                     "NHÂN VIÊN KỸ THUẬT: chỉ thấy việc được phân công cho mình; chọn các bước đã thực hiện; "
@@ -70,7 +71,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             {
                 if (Co(q, "toan bo", "tat ca nhan vien", "toan cong ty"))
                     return "Dạ, tài khoản NVKT chỉ xem công việc được phân công cho bạn.";
-                if (Co(q, "duyet") && Co(q, "ho so", "giam doc"))
+                if (Co(q, "toi duyet", "duyet ho", "huong dan duyet", "cach duyet", "duyet giup") && Co(q, "ho so", "giam doc"))
                     return "Dạ, phê duyệt hồ sơ thuộc Giám đốc — NVKT không thực hiện được.";
                 if (Co(q, "chot ngay"))
                     return "Dạ, chốt ngày bảo trì thuộc Xưởng.";
@@ -99,10 +100,14 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             return null;
         }
 
+        private static bool LaHoiVaiTro(string q) => Co(q, "vai tro")
+            && Co(q, "lam", "la gi", "cong viec", "phu trach", "nhiem vu", "trach nhiem", "chuc nang", "huong dan")
+            && !CanSoLieuDb(q) && !Co(q, "ho so", "hs", "phan cong cho ai");
+
         /// <summary>Câu hỏi về quy trình/chức năng — trả lời bằng kiến thức, không cần số liệu.</summary>
         private static string? TraLoiKienThuc(string vt, string q)
         {
-            if (!Co(q, "quy trinh", "cac buoc", "lam the nao", "toi can lam gi", "minh can lam gi",
+            if (!LaHoiVaiTro(q) && !Co(q, "quy trinh", "cac buoc", "lam the nao", "toi can lam gi", "minh can lam gi",
                     "vai tro cua toi", "chuc nang", "su dung app", "huong dan"))
                 return null;
 
@@ -115,7 +120,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                        + "4) Sau khi duyệt, Tổ trưởng phân công một hoặc nhiều NVKT.\n"
                        + "5) NVKT nhận việc, chọn các bước đã làm; đủ bước thì bấm hoàn thành gửi Xưởng.\n"
                        + "6) Xưởng xác nhận hoàn thành hồ sơ.\n"
-                       + "Sửa chữa tương tự, nhưng Xưởng tạo hồ sơ và Giám đốc duyệt trước khi Tổ trưởng phân công.";
+                       + "Sửa chữa hiện gửi trực tiếp từ Xưởng tới Tổ trưởng phân công, không có bước Giám đốc duyệt trong luồng tạo hồ sơ.";
             }
 
             return vt switch
@@ -128,7 +133,8 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     "Dạ, việc của Xưởng gồm: nhận hồ sơ bảo trì từ Tổ trưởng, chốt ngày bảo trì trong tháng, gửi Giám đốc duyệt; "
                     + "chỉnh sửa và gửi lại khi Giám đốc từ chối; tạo hồ sơ sửa chữa; xác nhận hoàn thành khi NVKT gửi kết quả.",
                 "Giám đốc" or "Phó giám đốc" =>
-                    "Dạ, việc của Giám đốc gồm: duyệt hoặc từ chối hồ sơ bảo trì/sửa chữa/vật tư; theo dõi lịch sử phê duyệt và thống kê. "
+                    "Dạ, việc của Giám đốc gồm: duyệt hoặc từ chối hồ sơ bảo trì/vật tư; xem trạng thái sửa chữa, lịch sử phê duyệt và thống kê. "
+                    + "Luồng tạo sửa chữa hiện gửi trực tiếp tới Tổ trưởng phân công. "
                     + "Bước chốt ngày do Xưởng phụ trách, bước phân công do Tổ trưởng phụ trách.",
                 "Nhân viên kỹ thuật" =>
                     "Dạ, việc của NVKT gồm: mở việc được phân công, chọn các bước đã thực hiện, ghi nhận vật tư nếu có; "
@@ -153,11 +159,16 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             return sb.ToString().Normalize(NormalizationForm.FormC).Replace('đ', 'd');
         }
 
-        /// <summary>Khớp THEO TỪ nguyên vẹn (không khớp chuỗi con): «lien» không còn khớp «liên quan».</summary>
+        /// <summary>Khớp cụm từ nguyên vẹn; ghi từ khóa khớp vào trace của riêng request.</summary>
         private static bool Co(string q, params string[] keys)
         {
-            var padded = " " + Regex.Replace(q ?? "", @"[^\p{L}\p{N}]+", " ").Trim() + " ";
-            return keys.Any(k => padded.Contains(" " + k + " "));
+            static string Pad(string value) => " " + Regex.Replace(ChuanHoa(value), @"[^\p{L}\p{N}]+", " ").Trim() + " ";
+            var padded = Pad(q ?? "");
+            var hits = keys.Where(k => !string.IsNullOrWhiteSpace(k) && padded.Contains(Pad(k), StringComparison.Ordinal)).ToList();
+            var trace = VetHienTai.Value;
+            if (trace != null)
+                foreach (var key in hits.Take(32)) trace.TuKhoa.Add(key);
+            return hits.Count > 0;
         }
 
         private static bool LaNhayCam(string q)
@@ -198,7 +209,8 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 var c = lichSu[i].content?.Trim();
                 if (string.IsNullOrWhiteSpace(c)) continue;
                 var qc = ChuanHoa(c);
-                if (LaBaoCauTraLoiSai(qc, c)) continue;
+                if (LaBaoCauTraLoiSai(qc, c) || TrichSoTuNhien(qc) != null
+                    && !Regex.IsMatch(qc, @"\b(?:bt|sc|hs)\s*#\s*\d+\b")) continue;
                 if (Co(qc, "cau tra loi vua roi", "hay kiem tra lai so lieu", "bao sai"))
                     continue;
                 return c;

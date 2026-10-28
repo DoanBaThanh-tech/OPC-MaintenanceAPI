@@ -488,8 +488,12 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                         "Dạ, mình chưa xác định được tài khoản nhân viên của bạn.", "ho_so_theo_bo_loc", 0);
 
                 var pcCuaToi = await _db.PhanCongCongViecs.AsNoTracking()
-                    .Where(p => p.MaNhanVienThucHien == maNv)
-                    .Select(p => new { p.MaHoSoBaoTri, p.MaHoSoSuaChua })
+                    .Where(p => p.MaNhanVienThucHien == maNv && p.TrangThai != "Đã hủy")
+                    .Select(p => new
+                    {
+                        MaHoSoBaoTri = p.MaHoSoBaoTri ?? (p.HoSoBaoTri != null ? (int?)p.HoSoBaoTri.MaHoSoBaoTri : null),
+                        MaHoSoSuaChua = p.MaHoSoSuaChua ?? (p.HoSoSuaChua != null ? (int?)p.HoSoSuaChua.MaHoSoSuaChua : null)
+                    })
                     .ToListAsync(ct);
 
                 btScope = pcCuaToi.Where(x => x.MaHoSoBaoTri != null)
@@ -503,8 +507,14 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             HashSet<int> daPhanCongSc = new();
             if (nhom?.Ma == "cho_phan_cong")
             {
+                // Đọc thêm inverse legacy như endpoint app, không đổi tiêu chí loại PC.
                 var pcs = await _db.PhanCongCongViecs.AsNoTracking()
-                    .Select(p => new { p.MaHoSoBaoTri, p.MaHoSoSuaChua, p.TrangThai })
+                    .Select(p => new
+                    {
+                        MaHoSoBaoTri = p.MaHoSoBaoTri ?? (p.HoSoBaoTri != null ? (int?)p.HoSoBaoTri.MaHoSoBaoTri : null),
+                        MaHoSoSuaChua = p.MaHoSoSuaChua ?? (p.HoSoSuaChua != null ? (int?)p.HoSoSuaChua.MaHoSoSuaChua : null),
+                        p.TrangThai
+                    })
                     .ToListAsync(ct);
                 foreach (var p in pcs)
                 {

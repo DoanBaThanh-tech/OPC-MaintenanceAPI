@@ -14,6 +14,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
             var mapNgayKeHoach = await _db.ChiTietKeHoachBaoTris.AsNoTracking()
                 .Where(c => c.MaHoSoBaoTri != null)
+                .OrderBy(c => c.MaChiTietKeHoach)
                 .Select(c => new { MaHoSo = c.MaHoSoBaoTri!.Value, c.NgayDuKienBaoTri })
                 .ToListAsync();
             var dictKeHoach = mapNgayKeHoach
@@ -55,87 +56,15 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
             var mapScThang = scAll.ToDictionary(x => x.MaHoSoSuaChua, x => (x.Thang, x.Nam));
 
-            // --- Vật tư: CHỈ sau khi Giám đốc xác nhận ---
-            // Trạng thái sau XacNhanHoSoVatTuAsync = "Xác nhận" (và biến thể)
-            var trangThaiGdXacNhan = new[] { "Xác nhận", "Đã xác nhận", "Đã duyệt", "Xac nhan", "Da duyet" };
-            var vtRaw = await _db.HoSoSuDungVatTus.AsNoTracking()
-                .Where(h => trangThaiGdXacNhan.Contains(h.TrangThai))
-                .Select(h => new
-                {
-                    h.MaHoSoVatTu,
-                    h.MaHoSoBaoTri,
-                    h.MaHoSoSuaChua,
-                    h.NgayThucHien,
-                    h.NgayGuiGiamDoc,
-                    h.TongTien
-                })
-                .ToListAsync();
-
-            var maVtIds = vtRaw.Select(x => x.MaHoSoVatTu).ToList();
-            var chiTietSl = await _db.ChiTietSuDungVatTus.AsNoTracking()
-                .Where(c => maVtIds.Contains(c.MaHoSoVatTu))
-                .GroupBy(c => c.MaHoSoVatTu)
-                .Select(g => new { MaHoSoVatTu = g.Key, SoLuong = g.Sum(x => x.SoLuong) })
-                .ToListAsync();
-            var dictSl = chiTietSl.ToDictionary(x => x.MaHoSoVatTu, x => x.SoLuong);
-
-            var vtTheoThang = new List<(int Thang, int Nam, int SoLuong, decimal TongTien)>();
-            foreach (var h in vtRaw)
+            // --- Vật tư: cùng nguồn và mốc ngày với chatbot; giữ quy tắc phụ thuộc năm của app ---
+            var vtTheoNgay = await ThongKeVatTuDongBo.LayTheoNgayAsync(_db, nam);
+            var vtTheoThang = vtTheoNgay.Select(x => new
             {
-                int thang;
-                int namHs;
-                var coThang = false;
-
-                // Ưu tiên tháng của HS BT/SC đã hoàn thành (cùng thiết bị/quy trình)
-                if (h.MaHoSoBaoTri is int maBt && mapBtThang.TryGetValue(maBt, out var btT))
-                {
-                    thang = btT.Thang;
-                    namHs = btT.Nam;
-                    coThang = true;
-                }
-                else if (h.MaHoSoSuaChua is int maSc && mapScThang.TryGetValue(maSc, out var scT))
-                {
-                    thang = scT.Thang;
-                    namHs = scT.Nam;
-                    coThang = true;
-                }
-                else if (h.MaHoSoBaoTri is int maBt2)
-                {
-                    // HS chưa nằm trong map năm đang xem — lấy năm/tháng hoàn thành thực tế nếu HS đã HT
-                    var bt = btDone.FirstOrDefault(x => x.MaHoSoBaoTri == maBt2);
-                    if (bt != null)
-                    {
-                        thang = bt.NgayHt.Month;
-                        namHs = bt.NgayHt.Year;
-                        coThang = true;
-                    }
-                    else continue; // quy trình chưa hoàn thành → chưa đưa VT vào TK (theo yêu cầu)
-                }
-                else if (h.MaHoSoSuaChua is int maSc2)
-                {
-                    var sc = scDone.FirstOrDefault(x => x.MaHoSoSuaChua == maSc2);
-                    if (sc != null)
-                    {
-                        thang = sc.NgayHt.Month;
-                        namHs = sc.NgayHt.Year;
-                        coThang = true;
-                    }
-                    else continue;
-                }
-                else
-                {
-                    // Không gắn HS → dùng ngày gửi GĐ / thực hiện
-                    var ngay = h.NgayGuiGiamDoc ?? h.NgayThucHien;
-                    thang = ngay.Month;
-                    namHs = ngay.Year;
-                    coThang = true;
-                }
-
-                if (!coThang || namHs != nam) continue;
-
-                var soLuong = dictSl.TryGetValue(h.MaHoSoVatTu, out var sl) ? sl : 0;
-                vtTheoThang.Add((thang, namHs, soLuong, h.TongTien));
-            }
+                Thang = x.Ngay.Month,
+                Nam = x.Ngay.Year,
+                SoLuong = checked((long)x.SoLuong),
+                x.TongTien
+            }).ToList();
 
             var theoThang = new List<object>();
             for (var m = 1; m <= 12; m++)

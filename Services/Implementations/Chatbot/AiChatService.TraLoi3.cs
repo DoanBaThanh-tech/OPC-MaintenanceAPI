@@ -233,38 +233,97 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
         // ===================== LỊCH SỬ PHÂN CÔNG =====================
 
-        private async Task<KetQuaXuLy> TraLoiLichSuPhanCongAsync(string vt, CancellationToken ct)
+        private async Task<KetQuaXuLy> TraLoiLichSuPhanCongAsync(int maNd, string vt, string q, KhoangNgay khoang, CancellationToken ct)
         {
-            var pcs = await _db.PhanCongCongViecs.AsNoTracking()
-                .OrderByDescending(p => p.NgayPhanCong).Take(30)
+            if (vt == "Nhân viên kỹ thuật")
+                return new(true, "Tài khoản NVKT không xem lịch sử phân công chung.", "chan_pham_vi");
+            if (NgayNhapKhongHopLe(q))
+                return new(true, "Ngày bạn nhập không hợp lệ; bạn gửi lại ngày/tháng/năm giúp mình nhé.", "lich_su_phan_cong");
+            if (Co(q, "da huy", "bi huy") && !Co(q, "khong tinh", "loai", "tru", "bo qua"))
+                return new(true, "Tab lịch sử phân công của app không hiển thị yêu cầu đã hủy; mình không gộp những yêu cầu này vào tổng đang hiện diện.", "lich_su_phan_cong");
+            if (Co(q, "cua toi") && !Co(q, "toi phan cong", "do toi", "toi giao"))
+                return new(true, "Bạn muốn đếm yêu cầu do bạn phân công hay yêu cầu được giao cho bạn?", "lich_su_phan_cong");
+            if (Co(q, "nhan vien", "nv") && !Co(q, "nhan vien duoc giao", "nv duoc giao", "cho ai", "cua toi"))
+                return new(true, "Bạn gửi mã BT#/SC#/PC# muốn xem người được giao giúp mình nhé.", "lich_su_phan_cong");
+            // Khớp GET WorkOrder/phan-cong: mỗi PC là một yêu cầu cho một NV, loại Đã hủy.
+            // Giữ cả liên kết nhiều NV và inverse legacy; BT ưu tiên khi một PC có cả hai loại.
+            var source = _db.PhanCongCongViecs.AsNoTracking().Where(p => p.TrangThai != "Đã hủy");
+            var ownEmployees = _db.NhanViens.AsNoTracking().Where(n => n.MaNguoiDung == maNd).Select(n => n.MaNhanVien);
+            var ownAssigned = Co(q, "toi phan cong", "do toi phan cong", "toi giao", "do toi giao");
+            var ownReceived = Co(q, "giao cho toi", "phan cong cho toi");
+            if (ownAssigned) source = source.Where(p => ownEmployees.Contains(p.MaNhanVienPhanCong));
+            if (ownReceived) source = source.Where(p => ownEmployees.Contains(p.MaNhanVienThucHien));
+            var query = source
                 .Select(p => new
                 {
                     p.MaPhanCong,
-                    p.MaHoSoBaoTri,
-                    p.MaHoSoSuaChua,
-                    p.TrangThai,
-                    p.NgayPhanCong,
+                    MaBt = p.MaHoSoBaoTriNavigation != null ? (int?)p.MaHoSoBaoTriNavigation.MaHoSoBaoTri
+                        : p.HoSoBaoTri != null ? (int?)p.HoSoBaoTri.MaHoSoBaoTri : p.MaHoSoBaoTri,
+                    MaSc = p.MaHoSoSuaChuaNavigation != null ? (int?)p.MaHoSoSuaChuaNavigation.MaHoSoSuaChua
+                        : p.HoSoSuaChua != null ? (int?)p.HoSoSuaChua.MaHoSoSuaChua : p.MaHoSoSuaChua,
+                    p.TrangThai, p.NgayPhanCong,
                     TenNv = p.MaNhanVienThucHienNavigation != null
-                        ? p.MaNhanVienThucHienNavigation.HoTen
-                        : ("NV#" + p.MaNhanVienThucHien)
-                })
-                .ToListAsync(ct);
-
-            if (pcs.Count == 0)
-                return new KetQuaXuLy(true, "Dạ, chưa có phân công công việc nào.", "chung", 0);
-
-            var sb = new StringBuilder();
-            sb.AppendLine("Dạ, đây là **lịch sử phân công** (PC#), không phải danh sách hồ sơ chờ phân công:");
-            sb.AppendLine(string.Join(" · ", pcs.GroupBy(x => x.TrangThai ?? "(trống)")
-                .OrderBy(g => g.Key).Select(g => $"{g.Key}: {g.Count()}")));
-            foreach (var p in pcs.Take(10))
+                        ? p.MaNhanVienThucHienNavigation.HoTen : ("NV#" + p.MaNhanVienThucHien)
+                });
+            var (bt, sc) = LoaiHoSoTrongCau(q);
+            if (bt && !sc) query = query.Where(p => p.MaBt != null);
+            if (sc && !bt) query = query.Where(p => p.MaBt == null && p.MaSc != null);
+            var maBt = TrichMa(q, "bt");
+            var maSc = TrichMa(q, "sc");
+            var pcMatch = System.Text.RegularExpressions.Regex.Match(q, @"\bpc\s*#?\s*(\d+)\b");
+            if (maBt != null) query = query.Where(p => p.MaBt == maBt);
+            if (maSc != null) query = query.Where(p => p.MaBt == null && p.MaSc == maSc);
+            if (pcMatch.Success)
             {
-                var hs = p.MaHoSoBaoTri != null ? $"BT#{p.MaHoSoBaoTri}" : $"SC#{p.MaHoSoSuaChua}";
-                sb.AppendLine($"• PC#{p.MaPhanCong} | {hs} | {p.TenNv} | {p.TrangThai} | {p.NgayPhanCong:dd/MM/yyyy}");
+                if (!int.TryParse(pcMatch.Groups[1].Value, out var pcId))
+                    return new(true, "Bạn gửi mã PC# hợp lệ giúp mình nhé.", "lich_su_phan_cong");
+                query = query.Where(p => p.MaPhanCong == pcId);
             }
-            if (pcs.Count > 10)
-                sb.AppendLine($"… và {pcs.Count - 10} phân công khác trong lịch sử gần đây.");
-            return new KetQuaXuLy(true, sb.ToString().TrimEnd(), "chung", pcs.Count);
+            string? status = null;
+            if (Co(q, "tu choi")) status = "Từ chối";
+            else if (Co(q, "cho xac nhan")) status = "Chờ xác nhận";
+            else if (Co(q, "hoan thanh")) status = "Hoàn thành";
+            else if (Co(q, "da phan cong")) status = "Đã phân công";
+            else if (Co(q, "xac nhan")) status = "Xác nhận";
+            if (Co(q, "dang thuc hien", "dang lam"))
+                return new(true, "Bạn muốn lọc trạng thái yêu cầu PC# (Đã phân công, Xác nhận, Chờ xác nhận, Từ chối, Hoàn thành) hay trạng thái hồ sơ BT#/SC# đang thực hiện?", "lich_su_phan_cong");
+            if (status != null) query = query.Where(p => p.TrangThai == status);
+            if (khoang.Tu is { } tu && khoang.Den is { } den)
+            {
+                var start = tu.ToDateTime(TimeOnly.MinValue);
+                var end = den.AddDays(1).ToDateTime(TimeOnly.MinValue);
+                query = query.Where(p => p.NgayPhanCong >= start && p.NgayPhanCong < end);
+            }
+            else
+            {
+                if (khoang.Ngay != null) query = query.Where(p => p.NgayPhanCong.Day == khoang.Ngay);
+                if (khoang.Thang != null) query = query.Where(p => p.NgayPhanCong.Month == khoang.Thang);
+                if (khoang.Nam != null) query = query.Where(p => p.NgayPhanCong.Year == khoang.Nam);
+            }
+            var label = bt && !sc ? "yêu cầu phân công bảo trì" : sc && !bt ? "yêu cầu phân công sửa chữa" : "yêu cầu phân công";
+            if (status != null) label += $" trạng thái **{status}**";
+            if (ownAssigned) label += " do bạn phân công";
+            if (ownReceived) label += " được giao cho bạn";
+            if (maBt != null) label += $" của BT#{maBt}";
+            if (maSc != null) label += $" của SC#{maSc}";
+            if (pcMatch.Success) label += $" khớp PC#{pcMatch.Groups[1].Value}";
+            var period = khoang.CoNgay ? " trong " + khoang.MoTa + " (theo ngày phân công)" : " đến hiện tại";
+            var chiDem = Co(q, "bao nhieu", "co may", "tong", "so luong") && !Co(q, "liet ke", "danh sach", "nao", "ten", "gom");
+            if (chiDem)
+            {
+                // COUNT trên toàn query đã lọc, không đếm trang đầu hoặc Take(30).
+                var total = await query.CountAsync(ct);
+                return new(true, $"Có **{total}** {label}{period}, không tính yêu cầu đã hủy. Mỗi PC# là một yêu cầu như tab lịch sử của app.", "lich_su_phan_cong", total);
+            }
+            // Một lần đọc projection mới; giới hạn chỉ ở phần hiển thị, không ở tổng.
+            var pcs = await query.OrderByDescending(p => p.NgayPhanCong).ThenByDescending(p => p.MaPhanCong).ToListAsync(ct);
+            var sb = new StringBuilder();
+            sb.AppendLine($"Có **{pcs.Count}** {label}{period}, không tính yêu cầu đã hủy.");
+            sb.AppendLine("Đây là lịch sử PC#, không phải hồ sơ đang chờ phân công.");
+            foreach (var p in pcs.Take(10))
+                sb.AppendLine($"• PC#{p.MaPhanCong} | {(p.MaBt != null ? "BT#" + p.MaBt : p.MaSc != null ? "SC#" + p.MaSc : "—")} | {p.TenNv} | {p.TrangThai} | {p.NgayPhanCong:dd/MM/yyyy}");
+            if (pcs.Count > 10) sb.AppendLine($"… còn {pcs.Count - 10} yêu cầu khác.");
+            return new(true, sb.ToString().TrimEnd(), "lich_su_phan_cong", pcs.Count);
         }
 
         // ===================== VẬT TƯ =====================

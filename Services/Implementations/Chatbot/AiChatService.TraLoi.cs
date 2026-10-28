@@ -33,6 +33,8 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             CancellationToken ct,
             bool boQuaTriNho = false)
         {
+            // «sửa chữa hoàn thành» không phải phủ định «chưa hoàn thành» khi bỏ dấu.
+            q = LamRoTuKhoa(q);
             var (ngay, thang, nam) = TrichKy(q);
             var khoang = TrichKhoangNgay(q);
             var nhomTt = NhomTrangThaiCua(q);
@@ -42,6 +44,18 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             var maBt = TrichMa(q, "bt");
             var maSc = TrichMa(q, "sc");
             var hoiSc = Co(q, "sua chua") || CoTu(q, "sc");
+
+            // Guard điều phối: chạy cả khi học/báo sai gọi trực tiếp; không thay logic hàm đếm.
+            var chan = await KiemTraPhamViAsync(maNd, vt, q, ct);
+            if (chan != null) return new KetQuaXuLy(true, chan, "chan_pham_vi");
+            if (LaHoiThongKeVatTu(q)) return await TraLoiThongKeVatTuAsync(vt, q, ct);
+            if (LaHoiDuyetHoSoCuThe(q)) return await TraLoiDuyetHoSoCuTheAsync(maNd, vt, q, khoang, ct);
+            // Lịch sử/yêu cầu PC không phải hồ sơ chờ phân công; lọc trước các nhánh hồ sơ chung.
+            if (LaHoiYeuCauPhanCong(q) || LaHoiLichSuPhanCong(q))
+                return await TraLoiLichSuPhanCongAsync(maNd, vt, q, khoang, ct);
+            if (laNvkt && !LaHoiVatTu(q) && !Co(q, "buoc", "quy trinh")
+                && (hoiTheoNgay || hoiTheoTrangThai || LaHoiHoSoBtSc(q)))
+                return await TraLoiHoSoTheoBoLocAsync(maNd, vt, q, khoang, nhomTt, ct);
 
             // Vật tư phải đứng trước "hồ sơ" để không nhầm hồ sơ vật tư với hồ sơ bảo trì.
             if (LaHoiVatTu(q))
@@ -98,10 +112,6 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (!laNvkt && LaHoiLichBaoTri(q) && !hoiTheoNgay)
                 return await TraLoiLichBaoTriAsync(ct);
 
-            // Chỉ khi hỏi rõ lịch sử phân công mới liệt kê PC#.
-            if (LaHoiLichSuPhanCong(q))
-                return await TraLoiLichSuPhanCongAsync(vt, ct);
-
             if (!laNvkt && LaHoiHoSoBtSc(q))
                 return await TraLoiHoSoBtScAsync(vt, ngay, thang, nam, q, ct);
 
@@ -120,6 +130,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
         /// <summary>Hỏi danh sách/số lượng HỒ SƠ đang chờ Tổ trưởng phân công (không phải lịch sử PC).</summary>
         private static bool LaHoiChoPhanCong(string q)
         {
+            if (Co(q, "yeu cau phan cong", "lich su phan cong")) return false;
             if (Co(q, "cho phan cong", "cho to truong phan cong", "da duyet cho phan cong",
                     "hs cho phan cong", "ho so cho phan cong"))
                 return true;
@@ -215,9 +226,14 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
             var ids = hs.Select(x => x.MaHoSoBaoTri).ToList();
 
+            // Chỉ bổ sung liên kết inverse legacy; giữ nguyên tiêu chí và thuật toán đếm.
             var pcs = await _db.PhanCongCongViecs.AsNoTracking()
+                .Select(p => new
+                {
+                    MaHoSoBaoTri = p.MaHoSoBaoTri ?? (p.HoSoBaoTri != null ? (int?)p.HoSoBaoTri.MaHoSoBaoTri : null),
+                    p.TrangThai
+                })
                 .Where(p => p.MaHoSoBaoTri != null && ids.Contains(p.MaHoSoBaoTri.Value))
-                .Select(p => new { p.MaHoSoBaoTri, p.TrangThai })
                 .ToListAsync(ct);
 
             var plans = await _db.ChiTietKeHoachBaoTris.AsNoTracking()

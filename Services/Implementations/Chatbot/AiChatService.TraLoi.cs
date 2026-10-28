@@ -56,8 +56,11 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 var quyTrinh = await TraLoiQuyTrinhThietBiAsync(vt, q, ct);
                 if (quyTrinh.DaXuLy) return quyTrinh;
             }
+            if (LaHoiThietBiCanBaoTriTheoKy(q, khoang))
+                return await TraLoiThietBiCanBaoTriTheoKyAsync(q, khoang, ct);
             if (LaHoiThongKeVatTu(q)) return await TraLoiThongKeVatTuAsync(vt, q, ct);
-            if (LaHoiDuyetHoSoCuThe(q)) return await TraLoiDuyetHoSoCuTheAsync(maNd, vt, q, khoang, ct);
+            if (LaHoiDuyetHoSoCuThe(q) || LaHoiDuyetHoSoTheoKy(q, vt, khoang))
+                return await TraLoiDuyetHoSoCuTheAsync(maNd, vt, q, khoang, ct);
             // Lịch sử/yêu cầu PC không phải hồ sơ chờ phân công; lọc trước các nhánh hồ sơ chung.
             if (LaHoiYeuCauPhanCong(q) || LaHoiLichSuPhanCong(q))
                 return await TraLoiLichSuPhanCongAsync(maNd, vt, q, khoang, ct);
@@ -336,7 +339,9 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
             var sbList = new StringBuilder();
             sbList.AppendLine($"Dạ, có **{so}** hồ sơ bảo trì đang chờ phân công{ky}:");
-            foreach (var h in ds.Take(5))
+            var soCanLietKe = TrichSoLuongLietKe(q);
+            var hien = Math.Min(ds.Count, soCanLietKe ?? ds.Count);
+            foreach (var h in ds.Take(hien))
             {
                 var ngayTxt = h.NgayKeHoach?.ToString("dd/MM/yyyy")
                               ?? h.Ngay?.ToString("dd/MM/yyyy") ?? "—";
@@ -344,8 +349,10 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     $"• {h.Ma} | {h.TenTb} | {h.TrangThai} | {ngayTxt}"
                     + (h.TuChoiPhanCong ? " | NV từ chối, cần phân công lại" : ""));
             }
-            if (ds.Count > 5)
-                sbList.AppendLine($"… còn {ds.Count - 5} hồ sơ khác.");
+            if (soCanLietKe == null && ds.Count > hien)
+                sbList.AppendLine($"… còn {ds.Count - hien} hồ sơ khác.");
+            if (soCanLietKe != null && soCanLietKe > hien)
+                sbList.AppendLine($"Hiện chỉ có {hien} hồ sơ phù hợp, ít hơn {soCanLietKe} hồ sơ bạn yêu cầu.");
             return new KetQuaXuLy(true, sbList.ToString().TrimEnd(), "cho_phan_cong_bt", so);
         }
 

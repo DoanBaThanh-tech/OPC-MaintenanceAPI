@@ -171,6 +171,13 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             return coDanhSach && !coSoLuong;
         }
 
+        /// <summary>“liệt kê 5 hồ sơ”, “cho tôi 3 hồ sơ”, “5 cái” — giới hạn đúng số người dùng yêu cầu.</summary>
+        private static int? TrichSoLuongLietKe(string q)
+        {
+            var m = Regex.Match(ChuanHoa(q), @"\b(\d{1,3})\s*(?:ho so|hs|muc|dong|ket qua|cai)\b");
+            return m.Success && int.TryParse(m.Groups[1].Value, out var so) && so > 0 ? so : null;
+        }
+
         private static bool LaHoiTheoTrangThaiHoSo(string q, NhomTrangThai? nhom)
         {
             if (nhom == null) return false;
@@ -729,26 +736,34 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (canLietKe)
             {
                 var caHai = hoiBt && hoiSc && btList.Count > 0 && scList.Count > 0;
+                var soCanLietKe = TrichSoLuongLietKe(q);
+                var conLai = soCanLietKe ?? int.MaxValue;
+                var btHien = Math.Min(btList.Count, conLai);
+                conLai -= btHien;
+                var scHien = Math.Min(scList.Count, conLai);
 
-                if (hoiBt && btList.Count > 0)
+                if (hoiBt && btHien > 0)
                 {
                     sb.AppendLine();
-                    if (caHai) sb.AppendLine($"Hồ sơ bảo trì ({btList.Count}):");
-                    foreach (var h in btList.Take(6))
+                    if (caHai) sb.AppendLine($"Hồ sơ bảo trì ({btHien}/{btList.Count}):");
+                    foreach (var h in btList.Take(btHien))
                         sb.AppendLine($"• {h.Ma} | {h.TenTb} | {h.TrangThai} | {MoTaNgay(h, khoang, uuTienKeHoach, nhom?.Ma)}");
-                    if (btList.Count > 6)
-                        sb.AppendLine($"… còn {btList.Count - 6} hồ sơ bảo trì khác.");
+                    if (soCanLietKe == null && btList.Count > btHien)
+                        sb.AppendLine($"… còn {btList.Count - btHien} hồ sơ bảo trì khác.");
                 }
 
-                if (hoiSc && scList.Count > 0)
+                if (hoiSc && scHien > 0)
                 {
                     sb.AppendLine();
-                    if (caHai) sb.AppendLine($"Hồ sơ sửa chữa ({scList.Count}):");
-                    foreach (var h in scList.Take(6))
+                    if (caHai) sb.AppendLine($"Hồ sơ sửa chữa ({scHien}/{scList.Count}):");
+                    foreach (var h in scList.Take(scHien))
                         sb.AppendLine($"• {h.Ma} | {h.TenTb} | {h.TrangThai} | {MoTaNgay(h, khoang, false, nhom?.Ma)}");
-                    if (scList.Count > 6)
-                        sb.AppendLine($"… còn {scList.Count - 6} hồ sơ sửa chữa khác.");
+                    if (soCanLietKe == null && scList.Count > scHien)
+                        sb.AppendLine($"… còn {scList.Count - scHien} hồ sơ sửa chữa khác.");
                 }
+
+                if (soCanLietKe != null && soCanLietKe > btHien + scHien)
+                    sb.AppendLine($"Kỳ này chỉ có {btHien + scHien} hồ sơ phù hợp, ít hơn {soCanLietKe} hồ sơ bạn yêu cầu.");
             }
 
             if (uuTienKeHoach && lichChuaGan.Count > 0)

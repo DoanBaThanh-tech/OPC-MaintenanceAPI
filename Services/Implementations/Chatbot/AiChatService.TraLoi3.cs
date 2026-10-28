@@ -71,10 +71,14 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 {
                     sb.AppendLine($"Dạ, có **{rows.Count}** hồ sơ bảo trì"
                                   + (trangThai != null ? $" **{trangThai}**" : "") + ":");
-                    foreach (var h in rows.OrderByDescending(x => x.Ngay).Take(8))
+                    var soCan = TrichSoLuongLietKe(q);
+                    var hien = Math.Min(rows.Count, soCan ?? rows.Count);
+                    foreach (var h in rows.OrderByDescending(x => x.Ngay).Take(hien))
                         sb.AppendLine($"• BT#{h.MaHoSoBaoTri} | {h.TenTb} | {h.TrangThai} | {h.Ngay:dd/MM/yyyy}");
-                    if (rows.Count > 8)
-                        sb.AppendLine($"… còn {rows.Count - 8} hồ sơ khác.");
+                    if (soCan == null && rows.Count > hien)
+                        sb.AppendLine($"… còn {rows.Count - hien} hồ sơ khác.");
+                    if (soCan != null && soCan > hien)
+                        sb.AppendLine($"Hiện chỉ có {hien} hồ sơ phù hợp, ít hơn {soCan} hồ sơ bạn yêu cầu.");
                 }
                 else if (trangThai != null)
                 {
@@ -122,10 +126,14 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 {
                     sb.AppendLine($"Dạ, có **{rowsSc.Count}** hồ sơ sửa chữa"
                                   + (trangThai != null ? $" **{trangThai}**" : "") + ":");
-                    foreach (var h in rowsSc.OrderByDescending(x => x.Ngay).Take(8))
+                    var soCan = TrichSoLuongLietKe(q);
+                    var hien = Math.Min(rowsSc.Count, soCan ?? rowsSc.Count);
+                    foreach (var h in rowsSc.OrderByDescending(x => x.Ngay).Take(hien))
                         sb.AppendLine($"• SC#{h.MaHoSoSuaChua} | {h.TenTb} | {h.TrangThai} | {h.Ngay:dd/MM/yyyy}");
-                    if (rowsSc.Count > 8)
-                        sb.AppendLine($"… còn {rowsSc.Count - 8} hồ sơ khác.");
+                    if (soCan == null && rowsSc.Count > hien)
+                        sb.AppendLine($"… còn {rowsSc.Count - hien} hồ sơ khác.");
+                    if (soCan != null && soCan > hien)
+                        sb.AppendLine($"Hiện chỉ có {hien} hồ sơ phù hợp, ít hơn {soCan} hồ sơ bạn yêu cầu.");
                 }
                 else if (trangThai != null)
                 {

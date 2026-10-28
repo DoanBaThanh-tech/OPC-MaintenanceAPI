@@ -153,7 +153,12 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             return sb.ToString().Normalize(NormalizationForm.FormC).Replace('đ', 'd');
         }
 
-        private static bool Co(string q, params string[] keys) => keys.Any(k => q.Contains(k));
+        /// <summary>Khớp THEO TỪ nguyên vẹn (không khớp chuỗi con): «lien» không còn khớp «liên quan».</summary>
+        private static bool Co(string q, params string[] keys)
+        {
+            var padded = " " + Regex.Replace(q ?? "", @"[^\p{L}\p{N}]+", " ").Trim() + " ";
+            return keys.Any(k => padded.Contains(" " + k + " "));
+        }
 
         private static bool LaNhayCam(string q)
         {

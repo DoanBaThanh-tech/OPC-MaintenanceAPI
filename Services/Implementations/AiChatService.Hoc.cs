@@ -51,24 +51,33 @@ namespace OPC.MaintenanceAPI.Services.Implementations
         /// <summary>Dấu vân tay dữ liệu — số người dùng xác nhận chỉ dùng khi dữ liệu chưa đổi.</summary>
         private async Task<string> TinhFingerprintAsync(CancellationToken ct)
         {
-            var bt = await _db.HoSoBaoTris.AsNoTracking().Select(h => h.TrangThai).ToListAsync(ct);
-            var sc = await _db.HoSoSuaChuas.AsNoTracking().Select(h => h.TrangThai).ToListAsync(ct);
-            var pc = await _db.PhanCongCongViecs.AsNoTracking().Select(p => p.TrangThai).ToListAsync(ct);
-            var tb = await _db.ThietBis.AsNoTracking().Select(t => t.TinhTrangHienTai).ToListAsync(ct);
-            var kh = await _db.ChiTietKeHoachBaoTris.AsNoTracking()
-                .Select(c => new { c.MaHoSoBaoTri, c.NgayDuKienBaoTri }).ToListAsync(ct);
+            // Truy vấn tổng hợp tại DB (GROUP BY / COUNT), không nạp toàn bộ bảng.
+            var bt = (await _db.HoSoBaoTris.AsNoTracking()
+                .GroupBy(h => h.TrangThai).Select(g => new { K = g.Key, N = g.Count() }).ToListAsync(ct))
+                .Select(x => (K: (string?)x.K, N: x.N)).ToList();
+            var sc = (await _db.HoSoSuaChuas.AsNoTracking()
+                .GroupBy(h => h.TrangThai).Select(g => new { K = g.Key, N = g.Count() }).ToListAsync(ct))
+                .Select(x => (K: (string?)x.K, N: x.N)).ToList();
+            var pc = (await _db.PhanCongCongViecs.AsNoTracking()
+                .GroupBy(p => p.TrangThai).Select(g => new { K = g.Key, N = g.Count() }).ToListAsync(ct))
+                .Select(x => (K: (string?)x.K, N: x.N)).ToList();
+            var tb = (await _db.ThietBis.AsNoTracking()
+                .GroupBy(t => t.TinhTrangHienTai).Select(g => new { K = g.Key, N = g.Count() }).ToListAsync(ct))
+                .Select(x => (K: (string?)x.K, N: x.N)).ToList();
 
             var now = DateTime.Now;
-            var khThang = kh.Count(c => c.MaHoSoBaoTri != null
-                                        && c.NgayDuKienBaoTri.Year == now.Year
-                                        && c.NgayDuKienBaoTri.Month == now.Month);
+            var khThang = await _db.ChiTietKeHoachBaoTris.AsNoTracking()
+                .CountAsync(c => c.MaHoSoBaoTri != null
+                                 && c.NgayDuKienBaoTri.Year == now.Year
+                                 && c.NgayDuKienBaoTri.Month == now.Month, ct);
 
-            static string Nhom(IEnumerable<string?> ds) =>
-                string.Join(",", ds.GroupBy(x => x ?? "")
-                    .OrderBy(g => g.Key)
-                    .Select(g => $"{g.Key}:{g.Count()}"));
+            static string Nhom(List<(string? K, int N)> ds) =>
+                string.Join(",", ds.GroupBy(x => x.K ?? "")
+                    .OrderBy(g => g.Key, StringComparer.Ordinal)
+                    .Select(g => $"{g.Key}:{g.Sum(x => x.N)}"));
 
-            return $"bt={Nhom(bt)}|sc={Nhom(sc)}|pc={Nhom(pc)}|tb={Nhom(tb)}|kh={khThang}";
+            // v=3: tính bằng truy vấn tổng hợp tại DB → các số đã xác nhận ở v=2 tự hết hiệu lực một lần.
+            return $"v=3|bt={Nhom(bt)}|sc={Nhom(sc)}|pc={Nhom(pc)}|tb={Nhom(tb)}|kh={khThang}";
         }
 
         private async Task<int?> LaySoNhoAsync(string vt, string chuDe, bool boQua, CancellationToken ct)
@@ -172,7 +181,10 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
                 var lai = await XuLyYDinhAsync(maNd, vt, ten, qLai, cauTruoc, ct, boQuaTriNho: true);
                 if (lai.DaXuLy && !string.IsNullOrWhiteSpace(lai.TraLoi))
-                    return "Dạ, mình hiểu rồi — bạn đang hỏi **hồ sơ bảo trì chờ phân công**, không phải lịch sử phân công. Mình đã ghi nhớ.\n"
+                    return MauXoayVong("hieu_lai",
+                               "Dạ, mình hiểu rồi — bạn đang hỏi **hồ sơ bảo trì chờ phân công**, không phải lịch sử phân công. Mình đã ghi nhớ.\n",
+                               "Dạ, ra là bạn muốn xem **hồ sơ bảo trì đang chờ phân công**, mình hiểu lầm sang lịch sử phân công rồi. Mình nhớ ý này rồi nhé.\n",
+                               "Dạ, mình nhầm ý bạn: bạn hỏi **hồ sơ chờ phân công** chứ không phải bản ghi phân công. Mình đã ghi nhớ, tra lại đây:\n")
                            + lai.TraLoi;
             }
 
@@ -188,10 +200,22 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
             var so = TrichSoTuNhien(q);
             if (so == null)
-                return "Dạ, mình xin lỗi vì câu trả lời trước chưa đúng. Bạn cho mình biết con số đúng "
-                       + "hoặc trạng thái đúng để mình ghi nhớ và trả lời lại nhé.";
+                return MauXoayVong("can_so_dung",
+                    "Dạ, mình xin lỗi vì câu trả lời trước chưa đúng. Bạn cho mình biết con số hoặc trạng thái đúng để mình đối chiếu và trả lời lại nhé.",
+                    "Dạ, mình trả lời chưa đúng ý bạn rồi. Bạn cho mình biết số (hoặc trạng thái) bạn thấy trên app, mình đối chiếu ngay.",
+                    "Dạ, xin lỗi bạn, mình sẽ kiểm tra lại. Trên app bạn đang thấy con số nào, ở màn hình hoặc bộ lọc nào để mình soi cùng?");
 
-            await LuuSoDaXacNhanAsync(vt, chuDeTruoc, cauTruoc, so.Value, ct);
+            // Đối chiếu lại bằng dữ liệu app TRƯỚC khi ghi nhớ — không tự đổi số cho vừa lòng người dùng.
+            var kiemTra = await XuLyYDinhAsync(maNd, vt, ten, qTruoc, cauTruoc, ct, boQuaTriNho: true);
+            if (!kiemTra.DaXuLy || kiemTra.SoLuong == null)
+                return $"Dạ, phần \"{MoTaChuDe(chuDeTruoc)}\" mình chưa tự đối chiếu được với dữ liệu app nên chưa ghi nhớ con số {so.Value} để tránh lưu sai. "
+                       + "Bạn đang xem màn hình hoặc bộ lọc nào (tháng, trạng thái) để mình đối chiếu cùng bạn nhé?";
+
+            if (kiemTra.SoLuong.Value != so.Value)
+                return $"Dạ, mình vừa đếm lại từ dữ liệu app thì {MoTaChuDe(chuDeTruoc)} đang là **{kiemTra.SoLuong.Value}**, khác với {so.Value} bạn nói. "
+                       + "Bạn đang xem màn hình hoặc bộ lọc nào (tháng, trạng thái) để mình đối chiếu cùng bạn nhé? Mình chưa ghi nhớ con số này để tránh lưu sai.";
+
+            await LuuSoDaXacNhanAsync(vt, chuDeTruoc, cauTruoc, kiemTra.SoLuong.Value, ct);
             ChatbotTriNhoStore.GhiNhan(new TriNhoChat
             {
                 VaiTro = vt,
@@ -199,11 +223,13 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 CauHoiMau = cauTruoc,
                 Tokens = KhoaTokens(qTruoc),
                 Loai = "hieu_ngu_canh",
-                GhiChu = $"Người dùng xác nhận {MoTaChuDe(chuDeTruoc)} là {so.Value}."
+                GhiChu = $"Đã đối chiếu dữ liệu app: {MoTaChuDe(chuDeTruoc)} khớp {kiemTra.SoLuong.Value}."
             });
 
-            return $"Dạ, mình đã ghi nhớ chỉnh sửa của bạn: {MoTaChuDe(chuDeTruoc)} là **{so.Value}**. "
-                   + "Lần sau hỏi lại mình sẽ trả lời theo con số này.";
+            return MauXoayVong("da_ghi_nho",
+                $"Dạ, mình đếm lại rồi — khớp với bạn: {MoTaChuDe(chuDeTruoc)} là **{kiemTra.SoLuong.Value}**. Mình đã ghi nhớ.",
+                $"Dạ, đúng như bạn nói, {MoTaChuDe(chuDeTruoc)} đang là **{kiemTra.SoLuong.Value}** trên app. Mình nhớ rồi, lần sau hỏi mình trả lời theo số này.",
+                $"Dạ, mình đối chiếu xong: {MoTaChuDe(chuDeTruoc)} = **{kiemTra.SoLuong.Value}**, khớp ý bạn. Mình đã ghi nhớ.");
         }
 
         /// <summary>
@@ -221,8 +247,10 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 : TrichCauHoiTruocTuLichSu(lichSu);
 
             if (string.IsNullOrWhiteSpace(cauGoc))
-                return "Dạ, mình xin lỗi vì câu trả lời trước chưa đúng. "
-                       + "Bạn nhắc lại giúp mình câu hỏi muốn kiểm tra (hồ sơ/tháng/trạng thái) nhé.";
+                return MauXoayVong("bao_sai_thieu_cau",
+                    "Dạ, mình xin lỗi vì câu trước chưa đúng. Bạn nhắc lại giúp mình câu hỏi muốn kiểm tra (hồ sơ, tháng hay trạng thái nào) nhé.",
+                    "Dạ, mình trả lời chưa đúng rồi, nhưng giờ mình không tìm lại được câu hỏi gốc. Bạn nhắc mình câu đó với nhé.",
+                    "Dạ, xin lỗi bạn. Bạn hỏi lại câu cần kiểm tra giúp mình, mình đối chiếu với dữ liệu app liền.");
 
             var qGoc = ChuanHoa(cauGoc);
             var chuDe = ChuDeCua(qGoc);
@@ -248,24 +276,24 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 {
                     var s = LamSachTraLoi(text!);
                     body = LaKhongBiet(s)
-                        ? "Mình đã đối chiếu lại nhưng chưa xác định được con số đúng cho câu này nên không dám đoán bừa. "
-                          + "Bạn cho mình biết mốc cần xem (tháng/trạng thái/hồ sơ) nhé."
+                        ? await DienDatKhongBietAsync(vt, ten, cauGoc, lichSu, ct, daDoiChieu: true)
                         : s;
                 }
                 else
                 {
                     _logger.LogWarning("Groq báo sai lỗi: {Err}", err);
-                    body = "Mình đã đối chiếu lại nhưng chưa xác định được con số đúng cho câu này nên không dám đoán bừa. "
-                           + "Bạn cho mình biết mốc cần xem (tháng/trạng thái/hồ sơ) nhé.";
+                    body = await DienDatKhongBietAsync(vt, ten, cauGoc, lichSu, ct, daDoiChieu: true);
                 }
             }
             else
             {
-                body = "Mình đã đối chiếu lại nhưng chưa xác định được con số đúng cho câu này nên không dám đoán bừa. "
-                       + "Bạn cho mình biết mốc cần xem (tháng/trạng thái/hồ sơ) nhé.";
+                body = await DienDatKhongBietAsync(vt, ten, cauGoc, lichSu, ct, daDoiChieu: true);
             }
 
-            return "Dạ, mình xin lỗi vì câu trả lời trước chưa đúng. Mình đã đối chiếu lại ngay:\n" + body;
+            return MauXoayVong("bao_sai_mo_dau",
+                       "Dạ, mình xin lỗi vì câu trước chưa đúng. Mình đối chiếu lại ngay đây:\n",
+                       "Dạ, cảm ơn bạn đã nhắc, mình kiểm tra lại với dữ liệu app rồi:\n",
+                       "Dạ, mình trả lời chưa chuẩn lúc nãy. Mình đếm lại và thấy như sau:\n") + body;
         }
     }
 }

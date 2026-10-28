@@ -66,38 +66,60 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             var cauHienTai = string.IsNullOrWhiteSpace(cauHoi) ? "" : cauHoi.Trim();
             var q = ChuanHoa(cauHienTai);
 
+            // Log truy vết: mỗi câu trả lời đi qua NHÁNH nào (để biết vì sao bot trả lời nẻo / lặp).
+            (bool, string?, string?) Tra(string nhanh, string text)
+            {
+                _logger.LogInformation("OPCBot vt={Vt} nhanh={Nhanh} q={Q}",
+                    vt, nhanh, q.Length > 80 ? q[..80] : q);
+                return (true, text, null);
+            }
+
             if (LaNhayCam(q))
-                return (true, "Dạ, mình không chia sẻ thông tin bảo mật của app.", null);
+                return Tra("nhay_cam", "Dạ, mình không chia sẻ thông tin bảo mật của app.");
 
             try
             {
                 // 1) Người dùng bấm «Báo sai» → bỏ đáp án cũ, đối chiếu lại từ dữ liệu app.
                 if (baoSai || LaBaoCauTraLoiSai(q, cauHienTai))
-                    return (true, await XuLyBaoSaiAsync(maNguoiDung, vt, ten, cauHoiGoc, lichSu, ct), null);
+                    return Tra("bao_sai", await XuLyBaoSaiAsync(maNguoiDung, vt, ten, cauHoiGoc, lichSu, ct));
 
-                // 2) Người dùng chỉnh lại cách hiểu / con số → ghi nhớ rồi trả lời lại.
+                // 2) Người dùng chỉnh lại cách hiểu / con số → đối chiếu DB rồi mới ghi nhớ.
                 var hoc = await XuLyDayTuUserAsync(maNguoiDung, vt, ten, q, lichSu, ct);
                 if (!string.IsNullOrWhiteSpace(hoc))
-                    return (true, hoc, null);
+                    return Tra("hoc_tu_user", hoc);
 
                 // 3) Ranh giới vai trò (chỉ chặn thao tác hộ vai trò khác).
                 var chan = TuChoiVuotVaiTro(vt, q);
                 if (!string.IsNullOrWhiteSpace(chan))
-                    return (true, chan, null);
+                    return Tra("chan_vai_tro", chan);
 
                 if (LaChaoHoi(q))
-                    return (true,
+                    return Tra("chao", MauXoayVong("chao",
                         $"Dạ, chào {ten}! Mình là OPC Bot. Bạn muốn xem hồ sơ, thiết bị, phân công hay tiến độ công việc?",
-                        null);
+                        $"Dạ, chào {ten}! Hôm nay bạn cần mình tra gì — hồ sơ, thiết bị hay phân công?",
+                        $"Dạ, mình đây {ten}. Bạn cần xem gì cứ nói, mình tra liền."));
                 if (LaCamOn(q))
-                    return (true, "Dạ, có gì bạn cứ hỏi mình nhé.", null);
+                    return Tra("cam_on", MauXoayVong("cam_on",
+                        "Dạ, có gì bạn cứ hỏi mình nhé.",
+                        "Dạ, không có chi! Cần gì thêm bạn cứ nhắn mình.",
+                        "Dạ, vui là giúp được bạn. Cần tra gì nữa cứ hỏi mình nhé."));
 
                 // 4) Định tuyến ý định + dữ liệu thật trong app.
+                string? ruleTraLoi = null;
+                string ruleChuDe = "";
                 var kq = await XuLyYDinhAsync(maNguoiDung, vt, ten, q, cauHienTai, ct);
                 if (kq.DaXuLy && !string.IsNullOrWhiteSpace(kq.TraLoi))
-                    return (true, ThemGiongDieu(kq.TraLoi!, q, kq.SoLuong), null);
+                {
+                    // Chống lặp: câu hỏi đã khác mà đáp án y hệt lượt trước → thử LLM trước.
+                    if (!LaLapLaiDapAnCu(kq.TraLoi!, cauHienTai, lichSu))
+                        return Tra("rule:" + kq.ChuDe, ThemGiongDieu(kq.TraLoi!, q, kq.SoLuong));
 
-                // 5) LLM chỉ nhận CONTEXT + câu hỏi hiện tại (không nhận đáp án cũ để khỏi copy).
+                    ruleTraLoi = kq.TraLoi;
+                    ruleChuDe = kq.ChuDe;
+                    _logger.LogWarning("Rule '{ChuDe}' trả đáp án trùng lượt trước dù câu hỏi khác → thử LLM.", kq.ChuDe);
+                }
+
+                // 5) LLM nhận CONTEXT + lịch sử hội thoại thật (đáp án cũ chỉ ở dạng tóm tắt).
                 if (!string.IsNullOrEmpty(GroqKey))
                 {
                     var context = await NapContextVaiTroAsync(maNguoiDung, vt, ct);
@@ -106,7 +128,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     {
                         var s = LamSachTraLoi(text!);
                         if (!LaKhongBiet(s) && !LaLapLaiDapAnCu(s, cauHienTai, lichSu))
-                            return (true, s, null);
+                            return Tra("llm", s);
                         _logger.LogWarning("Groq trả lời không dùng được (không biết hoặc lặp đáp án cũ).");
                     }
                     else
@@ -115,13 +137,21 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     }
                 }
 
-                // 6) Câu hỏi quy trình → kiến thức nghiệp vụ; còn lại xin lỗi, không đoán.
+                // Rule đã tra đúng dữ liệu app nhưng trùng lượt trước: vẫn trả (số liệu khớp app), nói rõ để không giống lặp máy móc.
+                if (ruleTraLoi != null)
+                    return Tra("rule_trung_luot_truoc:" + ruleChuDe, MauXoayVong("lap",
+                            "Dạ, mình đối chiếu lại thì kết quả vẫn như lượt trước:\n",
+                            "Dạ, mình tra lại một lần nữa, dữ liệu trên app vẫn là:\n",
+                            "Dạ, mình kiểm tra lại rồi, kết quả không đổi:\n") + BoChuDa(ruleTraLoi));
+
+                // 6) Câu hỏi quy trình → kiến thức nghiệp vụ; còn lại tự diễn đạt, không đoán.
                 var kt = TraLoiKienThuc(vt, q);
                 if (!string.IsNullOrWhiteSpace(kt))
-                    return (true, kt, null);
+                    return Tra("kien_thuc", kt);
 
-                return (true, CauTraLoiKhongBiet(), null);
+                return Tra("khong_biet", await DienDatKhongBietAsync(vt, ten, cauHienTai, lichSu, ct));
             }
+            catch (OperationCanceledException) { throw; }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Chatbot lỗi khi xử lý câu hỏi");
@@ -137,6 +167,12 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             sb.AppendLine($"Vai_tro: {vt}");
             sb.AppendLine($"Hom_nay: {DateTime.Now:dd/MM/yyyy HH:mm}");
             sb.AppendLine("Pham_vi: chỉ dữ liệu phục vụ vai trò này.");
+            sb.AppendLine("Quy_uoc_ngay: mỗi hồ sơ có ngày tạo, ngày duyệt, bắt đầu, hoàn thành; "
+                          + "riêng BT có thêm ngày kế hoạch. Hỏi «ngày cụ thể» là đối chiếu TẤT CẢ các mốc này, "
+                          + "không tự đổi sang tháng và không bỏ qua hồ sơ chỉ vì mốc khác tháng.");
+            sb.AppendLine("Quy_uoc_trang_thai: BT có Chờ duyệt/Chờ xưởng/Chờ gửi/Chờ GĐ duyệt, Đã duyệt, "
+                          + "Chờ phân công, Đang thực hiện/Chờ xác nhận, Đã hoàn thành, Từ chối. "
+                          + "SC tương tự; «Chờ xác nhận» của SC hiển thị là Đang thực hiện trên app.");
 
             var tbs = await _db.ThietBis.AsNoTracking()
                 .Select(t => new { t.MaThietBi, t.TenThietBi, t.LoaiThietBi, t.ViTriLapDat, t.TinhTrangHienTai })
@@ -153,6 +189,10 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     h.MaHoSoBaoTri,
                     h.TrangThai,
                     Ngay = h.ThoiDiemKetThucThucTe ?? h.NgayDuyet ?? h.NgayTao,
+                    h.NgayTao,
+                    h.NgayDuyet,
+                    h.ThoiDiemBatDauThucTe,
+                    h.ThoiDiemKetThucThucTe,
                     TenTb = h.MaThieBiNavigation != null ? h.MaThieBiNavigation.TenThietBi : ""
                 }).ToListAsync(ct))
                 .Where(h => !LaTrangThaiAnTrenApp(h.TrangThai)).ToList();
@@ -160,7 +200,11 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             foreach (var g in bts.GroupBy(x => x.TrangThai).OrderBy(g => g.Key))
                 sb.AppendLine($"  BT_TT[{g.Key}]={g.Count()}");
             foreach (var h in bts.OrderByDescending(x => x.Ngay).Take(40))
-                sb.AppendLine($"  BT#{h.MaHoSoBaoTri}|{h.TenTb}|tt={h.TrangThai}|ngay={h.Ngay:dd/MM/yyyy}");
+                sb.AppendLine($"  BT#{h.MaHoSoBaoTri}|{h.TenTb}|tt={h.TrangThai}"
+                              + $"|tao={h.NgayTao:dd/MM/yyyy}"
+                              + $"|duyet={(h.NgayDuyet != null ? h.NgayDuyet.Value.ToString("dd/MM/yyyy") : "-")}"
+                              + $"|bd={(h.ThoiDiemBatDauThucTe != null ? h.ThoiDiemBatDauThucTe.Value.ToString("dd/MM/yyyy") : "-")}"
+                              + $"|kt={(h.ThoiDiemKetThucThucTe != null ? h.ThoiDiemKetThucThucTe.Value.ToString("dd/MM/yyyy") : "-")}");
 
             var scs = (await _db.HoSoSuaChuas.AsNoTracking()
                 .Select(h => new
@@ -168,6 +212,10 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     h.MaHoSoSuaChua,
                     h.TrangThai,
                     Ngay = h.ThoiDiemKetThucThucTe ?? h.NgayDuyet ?? h.NgayTao,
+                    h.NgayTao,
+                    h.NgayDuyet,
+                    h.ThoiDiemBatDauThucTe,
+                    h.ThoiDiemKetThucThucTe,
                     TenTb = h.MaThieBiNavigation != null ? h.MaThieBiNavigation.TenThietBi : ""
                 }).ToListAsync(ct))
                 .Where(h => !LaTrangThaiAnTrenApp(h.TrangThai)).ToList();
@@ -175,7 +223,11 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             foreach (var g in scs.GroupBy(x => x.TrangThai).OrderBy(g => g.Key))
                 sb.AppendLine($"  SC_TT[{g.Key}]={g.Count()}");
             foreach (var h in scs.OrderByDescending(x => x.Ngay).Take(30))
-                sb.AppendLine($"  SC#{h.MaHoSoSuaChua}|{h.TenTb}|tt={h.TrangThai}|ngay={h.Ngay:dd/MM/yyyy}");
+                sb.AppendLine($"  SC#{h.MaHoSoSuaChua}|{h.TenTb}|tt={h.TrangThai}"
+                              + $"|tao={h.NgayTao:dd/MM/yyyy}"
+                              + $"|duyet={(h.NgayDuyet != null ? h.NgayDuyet.Value.ToString("dd/MM/yyyy") : "-")}"
+                              + $"|bd={(h.ThoiDiemBatDauThucTe != null ? h.ThoiDiemBatDauThucTe.Value.ToString("dd/MM/yyyy") : "-")}"
+                              + $"|kt={(h.ThoiDiemKetThucThucTe != null ? h.ThoiDiemKetThucThucTe.Value.ToString("dd/MM/yyyy") : "-")}");
 
             var kh = await _db.ChiTietKeHoachBaoTris.AsNoTracking()
                 .Where(c => c.NgayDuKienBaoTri >= DateOnly.FromDateTime(DateTime.Today.AddMonths(-1)))
@@ -283,84 +335,41 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 "7) Câu không dấu → hiểu theo nghĩa tiếng Việt; nếu cần thì nhắc lại ý bằng tiếng Việt có dấu trong câu trả lời.\n" +
                 "8) Người dùng gấp/khó chịu → một câu trấn an ngắn rồi trả đúng việc, không giảng dài.\n" +
                 "9) Không mô tả thao tác thuộc vai trò khác; chỉ nói vai trò nào phụ trách bước đó.\n" +
-                "10) Xưng «mình», gọi người dùng «bạn». Có thể dùng **đậm** và gạch đầu dòng •, không dùng bảng.\n\n" +
+                "10) Xưng «mình», gọi người dùng «bạn». Có thể dùng **đậm** và gạch đầu dòng •, không dùng bảng.\n" +
+                "11) Hỏi «có hồ sơ nào ở trạng thái X» → đếm đúng hồ sơ đang ở trạng thái X trong CONTEXT, không đổi sang lịch sử duyệt.\n" +
+                "12) Hỏi «ngày cụ thể» → đối chiếu ngày tạo, ngày duyệt, bắt đầu, hoàn thành và ngày kế hoạch; nêu rõ mốc khớp, không tự quy về tháng.\n" +
+                "13) Bạn nhận LỊCH SỬ hội thoại thật (câu hỏi người dùng + «tóm tắt câu trả lời trước»). Dùng để hiểu câu nối tiếp («còn tháng trước?», «cái đó»), " +
+                "nhưng KHÔNG chép lại câu trả lời cũ; mỗi câu trả lời viết mới theo câu hỏi hiện tại.\n" +
+                "14) Người dùng đã sửa/dạy trong GHI_NHO_NGUOI_DUNG hoặc trong lịch sử → áp dụng ngay, không lặp lại lỗi cũ.\n\n" +
                 "KIẾN THỨC NGHIỆP VỤ:\n" + XayDungKienThucHeThong(vt) + "\n" +
                 "PHẠM VI VAI TRÒ:\n" + MoTaPhamVi(vt) +
                 (suaSai ? "\n[CHE_DO_SUA_SAI: câu trả lời trước sai — cấm lặp lại số liệu cũ]" : "");
 
-            var user = new StringBuilder();
-            user.AppendLine("CONTEXT:");
-            user.AppendLine(context);
+            var messages = new List<object> { new { role = "system", content = system } };
 
-            // Chỉ gửi câu hỏi trước của người dùng — tuyệt đối không gửi đáp án cũ để tránh copy.
-            var cauHoiTruoc = (lichSu ?? Array.Empty<(string role, string content)>())
-                .Where(x => string.Equals(x.role, "user", StringComparison.OrdinalIgnoreCase))
-                .Select(x => x.content?.Trim())
-                .Where(x => !string.IsNullOrWhiteSpace(x))
-                .TakeLast(3)
-                .ToList();
-            if (cauHoiTruoc.Count > 0)
+            // Gửi lượt hội thoại thật (tối đa 6): câu hỏi giữ nguyên, đáp án cũ chỉ ở dạng tóm tắt.
+            foreach (var (r, c) in (lichSu ?? Array.Empty<(string role, string content)>()).TakeLast(6))
             {
-                user.AppendLine("CÂU HỎI TRƯỚC (chỉ để hiểu mạch hội thoại, KHÔNG phải đáp án mẫu):");
-                foreach (var c in cauHoiTruoc)
-                    user.AppendLine("- " + c);
+                var nd = (c ?? "").Trim();
+                if (nd.Length == 0) continue;
+                if (string.Equals(r, "assistant", StringComparison.OrdinalIgnoreCase))
+                    messages.Add(new { role = "assistant", content = RutGonDapAn(nd) });
+                else
+                    messages.Add(new { role = "user", content = nd.Length > 300 ? nd[..300] : nd });
             }
 
-            user.AppendLine("CÂU HỎI HIỆN TẠI (chỉ trả lời câu này):");
-            user.AppendLine(cauHoi);
-            user.AppendLine("Nếu CONTEXT không đủ, trả đúng: KHONG_BIET");
-
-            var body = new
+            messages.Add(new
             {
-                model = GroqModel,
-                temperature = suaSai ? 0.05 : 0.1,
-                max_tokens = 800,
-                messages = new object[]
-                {
-                    new { role = "system", content = system },
-                    new { role = "user", content = user.ToString() }
-                }
-            };
+                role = "user",
+                content = "CONTEXT:\n" + context
+                          + "\n\nCÂU HỎI HIỆN TẠI (chỉ trả lời câu này):\n" + cauHoi
+                          + "\nNếu CONTEXT không đủ, trả đúng: KHONG_BIET"
+            });
 
-            const string url = "https://api.groq.com/openai/v1/chat/completions";
-            try
-            {
-                var client = _httpFactory.CreateClient("Groq");
-                using var req = new HttpRequestMessage(HttpMethod.Post, url);
-                req.Headers.TryAddWithoutValidation("Authorization", "Bearer " + GroqKey);
-                req.Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
-
-                using var res = await client.SendAsync(req, ct);
-                var raw = await res.Content.ReadAsStringAsync(ct);
-                if (!res.IsSuccessStatusCode)
-                {
-                    _logger.LogWarning("Groq HTTP {Code} model={Model}: {Body}",
-                        (int)res.StatusCode, GroqModel, raw.Length > 500 ? raw[..500] : raw);
-                    return (false, null, $"Groq {(int)res.StatusCode}");
-                }
-
-                using var doc = JsonDocument.Parse(raw);
-                if (!doc.RootElement.TryGetProperty("choices", out var choices) || choices.GetArrayLength() == 0)
-                    return (false, null, "no choices");
-
-                var msg = choices[0].GetProperty("message");
-                var text = msg.TryGetProperty("content", out var c) ? c.GetString()?.Trim() : null;
-                if (string.IsNullOrEmpty(text) && msg.TryGetProperty("reasoning", out var r))
-                    text = r.GetString()?.Trim();
-                return string.IsNullOrEmpty(text) ? (false, null, "empty") : (true, text, null);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Groq call failed model={Model}", GroqModel);
-                return (false, null, ex.Message);
-            }
+            return await PostGroqAsync(messages, suaSai ? 0.05 : 0.1, 800, ct);
         }
 
         // ===================== TIỆN ÍCH TRẢ LỜI =====================
-
-        private static string CauTraLoiKhongBiet() =>
-            "Dạ, mình xin lỗi — câu này mình chưa hiểu đủ để trả lời chính xác nên không dám đoán bừa. "
-            + "Bạn nói rõ hơn giúp mình nhé: muốn xem hồ sơ nào, tháng nào, hay trạng thái nào?";
 
         private static bool LaKhongBiet(string s) =>
             string.IsNullOrWhiteSpace(s)
@@ -369,7 +378,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
 
         private static string LamSachTraLoi(string s)
         {
-            var t = s.Trim();
+            var t = BoSuyNghi(s);
             if (t.StartsWith("```", StringComparison.Ordinal))
             {
                 var firstNl = t.IndexOf('\n');

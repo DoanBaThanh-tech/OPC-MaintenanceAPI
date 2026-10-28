@@ -108,40 +108,43 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             var m = thang ?? now.Month;
             var y = nam ?? now.Year;
 
-            var btDone = await _db.HoSoBaoTris.AsNoTracking()
-                .Where(h => h.TrangThai == "Đã hoàn thành")
-                .Select(h => new
-                {
-                    h.MaHoSoBaoTri,
-                    h.ThoiDiemKetThucThucTe,
-                    h.NgayDuyet,
-                    h.NgayTao
-                })
-                .ToListAsync(ct);
-            var plans = await _db.ChiTietKeHoachBaoTris.AsNoTracking()
-                .Where(c => c.MaHoSoBaoTri != null)
-                .Select(c => new { Ma = c.MaHoSoBaoTri!.Value, c.NgayDuKienBaoTri })
-                .ToListAsync(ct);
-            var dictPlan = plans.GroupBy(x => x.Ma)
-                .ToDictionary(g => g.Key, g => g.First().NgayDuKienBaoTri);
-
-            var btThang = btDone.Count(h =>
-            {
-                DateTime d = dictPlan.TryGetValue(h.MaHoSoBaoTri, out var nk)
-                    ? nk.ToDateTime(TimeOnly.MinValue)
-                    : (h.ThoiDiemKetThucThucTe ?? h.NgayDuyet ?? h.NgayTao);
-                return d.Month == m && d.Year == y;
-            });
-
-            var soNho = await LaySoNhoAsync(vt, "bt_hoan_thanh_thang", boQuaTriNho, ct);
-            var so = soNho ?? btThang;
+            var hoiSc = Co(q, "sua chua") || CoTu(q, "sc");
+            var hoiBt = Co(q, "bao tri") || !hoiSc;
 
             var sb = new StringBuilder();
-            sb.Append($"Dạ, tháng {m}/{y} có **{so}** hồ sơ bảo trì **Đã hoàn thành** "
-                      + "(tính theo ngày kế hoạch bảo trì — khớp biểu đồ thống kê).");
-            sb.Append($"\nTrên app hiện có tổng **{btDone.Count}** hồ sơ bảo trì Đã hoàn thành.");
+            var tongTraLoi = 0;
+            var chuDe = "bt_hoan_thanh_thang";
 
-            if (Co(q, "sua chua"))
+            if (hoiBt)
+            {
+                var btDone = await _db.HoSoBaoTris.AsNoTracking()
+                    .Where(h => h.TrangThai == "Đã hoàn thành")
+                    .Select(h => new
+                    {
+                        h.MaHoSoBaoTri,
+                        h.ThoiDiemKetThucThucTe,
+                        h.NgayDuyet,
+                        h.NgayTao
+                    })
+                    .ToListAsync(ct);
+
+                // Đếm theo NGÀY HOÀN THÀNH thực tế (không phải ngày kế hoạch).
+                var btThang = btDone.Count(h =>
+                {
+                    var d = h.ThoiDiemKetThucThucTe ?? h.NgayDuyet ?? h.NgayTao;
+                    return d.Month == m && d.Year == y;
+                });
+
+                var soNho = await LaySoNhoAsync(vt, "bt_hoan_thanh_thang", boQuaTriNho, ct);
+                var so = soNho ?? btThang;
+
+                sb.Append($"Dạ, tháng {m}/{y} có **{so}** hồ sơ bảo trì **Đã hoàn thành** "
+                          + "(tính theo ngày hoàn thành thực tế).");
+                sb.Append($"\nTrên app hiện có tổng **{btDone.Count}** hồ sơ bảo trì Đã hoàn thành.");
+                tongTraLoi = so;
+            }
+
+            if (hoiSc)
             {
                 var scDone = await _db.HoSoSuaChuas.AsNoTracking()
                     .Where(h => h.TrangThai == "Đã hoàn thành")
@@ -152,10 +155,26 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     var d = h.ThoiDiemKetThucThucTe ?? h.NgayDuyet ?? h.NgayTao;
                     return d.Month == m && d.Year == y;
                 });
-                sb.Append($"\nSửa chữa Đã hoàn thành trong tháng (theo ngày hoàn thành thực tế): **{scThang}** hồ sơ.");
+
+                if (sb.Length > 0)
+                {
+                    sb.AppendLine();
+                    sb.Append($"Tháng {m}/{y} có **{scThang}** hồ sơ sửa chữa **Đã hoàn thành** "
+                              + "(tính theo ngày hoàn thành thực tế).");
+                }
+                else
+                {
+                    sb.Append($"Dạ, tháng {m}/{y} có **{scThang}** hồ sơ sửa chữa **Đã hoàn thành** "
+                              + "(tính theo ngày hoàn thành thực tế).");
+                }
+                if (!hoiBt)
+                {
+                    chuDe = "sc_hoan_thanh_thang";
+                    tongTraLoi = scThang;
+                }
             }
 
-            return new KetQuaXuLy(true, sb.ToString(), "bt_hoan_thanh_thang", so);
+            return new KetQuaXuLy(true, sb.ToString().TrimEnd(), chuDe, tongTraLoi);
         }
 
         // ===================== BƯỚC QUY TRÌNH =====================

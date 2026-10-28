@@ -34,9 +34,14 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             bool boQuaTriNho = false)
         {
             var (ngay, thang, nam) = TrichKy(q);
+            var khoang = TrichKhoangNgay(q);
+            var nhomTt = NhomTrangThaiCua(q);
+            var hoiTheoNgay = LaHoiTheoNgayHoSo(q, khoang);
+            var hoiTheoTrangThai = LaHoiTheoTrangThaiHoSo(q, nhomTt);
             var laNvkt = vt == "Nhân viên kỹ thuật";
             var maBt = TrichMa(q, "bt");
             var maSc = TrichMa(q, "sc");
+            var hoiSc = Co(q, "sua chua") || CoTu(q, "sc");
 
             // Vật tư phải đứng trước "hồ sơ" để không nhầm hồ sơ vật tư với hồ sơ bảo trì.
             if (LaHoiVatTu(q))
@@ -57,7 +62,9 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (LaHoiChiTietHoSo(q) && Co(q, "ho so", "bao tri", "sua chua"))
                 return await TraLoiChiTietHoSoAsync(vt, ngay, thang, nam, ct);
 
-            if (!laNvkt && hoiPending)
+            // Chờ phân công của hồ sơ BẢO TRÌ có luồng riêng (PC «Từ chối» không tính là đã phân công).
+            // Nếu câu có cả sửa chữa hoặc hỏi một NGÀY cụ thể thì để bộ lọc chung xử lý.
+            if (!laNvkt && hoiPending && !hoiSc && !khoang.LaNgayCuThe)
                 return await TraLoiChoPhanCongAsync(vt, ngay, thang, nam, q, ct, boQuaTriNho);
 
             if (!laNvkt && LaHoiNhanVienDangPhanCong(q))
@@ -67,8 +74,11 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (Co(q, "thiet bi", "may moc") && !Co(q, "ho so", "vat tu"))
                 return await TraLoiThietBiAsync(q, ct);
 
-            // Hoàn thành theo tháng (khớp thống kê app).
-            if (Co(q, "hoan thanh") && (thang != null || Co(q, "thang nay", "thang truoc", "thang")))
+            // Hoàn thành theo tháng (khớp thống kê app) — chỉ khi hỏi số lượng,
+            // không hỏi một ngày cụ thể và không yêu cầu liệt kê.
+            var hoiLietKeHoanThanh = Co(q, "liet ke", "danh sach", "nhung ho so", "ho so nao", "nao", "ten", "gom");
+            if (Co(q, "hoan thanh") && !khoang.LaNgayCuThe && !hoiLietKeHoanThanh
+                && (thang != null || Co(q, "thang nay", "thang truoc", "thang")))
                 return await TraLoiDemHoanThanhAsync(q, thang, nam, vt, boQuaTriNho, ct);
 
             // Bước quy trình.
@@ -77,11 +87,15 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     || Co(q, "con bao nhieu", "chua xong", "tien do", "dang thuc hien")))
                 return await TraLoiBuocAsync(maNd, vt, maBt, maSc, q, ct);
 
+            // Hồ sơ theo trạng thái hoặc theo ngày cụ thể (mọi cách diễn đạt).
+            if (hoiTheoNgay || hoiTheoTrangThai)
+                return await TraLoiHoSoTheoBoLocAsync(maNd, vt, q, khoang, nhomTt, ct);
+
             // Duyệt / từ chối (không kèm chốt ngày).
             if (!laNvkt && LaHoiPheDuyet(q))
                 return await TraLoiPheDuyetAsync(vt, thang, nam, q, ct);
 
-            if (!laNvkt && LaHoiLichBaoTri(q))
+            if (!laNvkt && LaHoiLichBaoTri(q) && !hoiTheoNgay)
                 return await TraLoiLichBaoTriAsync(ct);
 
             // Chỉ khi hỏi rõ lịch sử phân công mới liệt kê PC#.

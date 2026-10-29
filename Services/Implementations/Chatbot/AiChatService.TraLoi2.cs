@@ -273,13 +273,14 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             tt is "DaXong" or "DaCapNhat";
 
         private static bool LaBuocCon(string? tt) =>
-            tt is "DuocChon" or "DangLam";
+            tt is "DuocChon" or "DangLam" or "BuocMoi";
 
         private static string MoTaTrangThaiBuoc(string? tt) => tt switch
         {
             "DaXong" => "Đã xong",
             "DaCapNhat" => "Đã cập nhật",
             "DangLam" => "Đang làm",
+            "BuocMoi" => "Bước mới (NVKT tự thêm)",
             "DuocChon" => "Đã chọn",
             "BoChon" => "Bỏ chọn",
             null or "" => "Chưa rõ",

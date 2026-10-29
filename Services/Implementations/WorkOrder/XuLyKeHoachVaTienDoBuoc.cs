@@ -159,8 +159,8 @@ namespace OPC.MaintenanceAPI.Services.Implementations
             if (nv == null) return (false, "Không xác định được nhân viên.", null);
 
             var trangThai = (dto.TrangThai ?? "DangLam").Trim();
-            // DangLam | DaXong | DaCapNhat | BoChon (hủy bước về chưa chọn)
-            if (trangThai is not ("DangLam" or "DaXong" or "DaCapNhat" or "BoChon"))
+            // DangLam | DaXong | DaCapNhat | BoChon (hủy bước) | BuocMoi (NVKT tự thêm, chưa xong)
+            if (trangThai is not ("DangLam" or "DaXong" or "DaCapNhat" or "BoChon" or "BuocMoi"))
                 trangThai = "DangLam";
 
             TienDoBuocQuyTrinh? existing = null;
@@ -175,7 +175,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     .FirstOrDefaultAsync(t => t.MaHoSoSuaChua == dto.MaHoSoSuaChua && t.SoBuoc == dto.SoBuoc);
             }
 
-            // Bỏ chọn bước → xóa tiến độ (về trạng thái chưa tích)
+            // Bỏ chọn bước → xóa tiến độ + vật tư đã ghi của bước (về trạng thái chưa tích)
             if (trangThai == "BoChon")
             {
                 if (existing != null)
@@ -190,8 +190,12 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                         return (false, $"Không thể bỏ bước {dto.SoBuoc} — do {ten} phụ trách.", null);
                     }
                     _db.TienDoBuocQuyTrinhs.Remove(existing);
-                    await _db.SaveChangesAsync();
                 }
+                // Luôn dọn vật tư của bước, kể cả khi bước chỉ có vật tư mà chưa có
+                // dòng tiến độ. Chỉ xóa tiến độ thì màn chi tiết còn ghép từ hồ sơ
+                // vật tư nên bước đã bỏ vẫn hiện lại thành "đã chọn / nháp".
+                await XoaVatTuCuaBuocAsync(dto.MaHoSoBaoTri, dto.MaHoSoSuaChua, dto.SoBuoc);
+                await _db.SaveChangesAsync();
                 return (true, null, new { SoBuoc = dto.SoBuoc, TrangThai = "BoChon" });
             }
 
@@ -214,7 +218,10 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 existing.MaNhanVien = nv.MaNhanVien;
                 existing.TenNhanVien = nv.HoTen;
                 existing.MoTaBuoc = dto.MoTaBuoc ?? existing.MoTaBuoc;
-                existing.TrangThai = trangThai;
+                // DangLam: giữ nhãn BuocMoi nếu NVKT đã tự thêm bước này từ trước.
+                existing.TrangThai = trangThai == "DangLam" && existing.TrangThai == "BuocMoi"
+                    ? "BuocMoi"
+                    : trangThai;
                 if (dto.JsonVatTu != null)
                     existing.JsonVatTu = dto.JsonVatTu;
                 existing.ThoiDiemCapNhat = DateTime.Now;
@@ -238,7 +245,9 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 MoTaBuoc = dto.MoTaBuoc ?? "",
                 MaNhanVien = nv.MaNhanVien,
                 TenNhanVien = nv.HoTen,
-                TrangThai = trangThai,
+                // Không có dòng DuocChon nào trước đó = NVKT tự thêm bước chưa xong
+                // → đánh dấu BuocMoi để Tổ trưởng/Xưởng/Giám đốc thấy đây là bước mới.
+                TrangThai = trangThai == "DangLam" ? "BuocMoi" : trangThai,
                 JsonVatTu = dto.JsonVatTu,
                 ThoiDiemCapNhat = DateTime.Now
             };
@@ -252,6 +261,37 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                 row.TenNhanVien,
                 row.TrangThai
             });
+        }
+
+        /// <summary>
+        /// Xóa vật tư đã ghi cho một bước khi NVKT bỏ bước.
+        /// Chỉ xóa tiến độ là chưa đủ: màn chi tiết còn ghép từ hồ sơ vật tư
+        /// nên bước đã bỏ sẽ hiện lại thành "đã chọn / nháp".
+        /// </summary>
+        private async Task XoaVatTuCuaBuocAsync(int? maHoSoBaoTri, int? maHoSoSuaChua, int soBuoc)
+        {
+            var hoSo = maHoSoBaoTri != null
+                ? await _db.HoSoSuDungVatTus
+                    .Include(h => h.ChiTietSuDungVatTus)
+                    .FirstOrDefaultAsync(h => h.MaHoSoBaoTri == maHoSoBaoTri)
+                : await _db.HoSoSuDungVatTus
+                    .Include(h => h.ChiTietSuDungVatTus)
+                    .FirstOrDefaultAsync(h => h.MaHoSoSuaChua == maHoSoSuaChua);
+            if (hoSo == null) return;
+
+            var xoa = hoSo.ChiTietSuDungVatTus.Where(c => c.SoBuoc == soBuoc).ToList();
+            if (xoa.Count == 0) return;
+
+            var conLai = hoSo.ChiTietSuDungVatTus.Where(c => c.SoBuoc != soBuoc).ToList();
+            if (conLai.Count == 0)
+            {
+                // Không còn dòng vật tư nào → bỏ luôn hồ sơ vật tư rỗng (cascade chi tiết)
+                _db.HoSoSuDungVatTus.Remove(hoSo);
+                return;
+            }
+
+            _db.ChiTietSuDungVatTus.RemoveRange(xoa);
+            hoSo.TongTien = conLai.Sum(c => (decimal)c.SoLuong * c.DonGia);
         }
     }
 }

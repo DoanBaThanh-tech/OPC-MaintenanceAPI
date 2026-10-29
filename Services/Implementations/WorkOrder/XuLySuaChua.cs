@@ -102,6 +102,17 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     .Select(p => p.TrangThai)
                     .FirstOrDefault();
 
+                // Cùng quy tắc với chi tiết SC: bỏ PC Đã hủy, gộp theo người, giữ PC mới nhất.
+                var dsTenNv = dsPc
+                    .Where(p => p.TrangThai is not "Đã hủy")
+                    .GroupBy(p => p.MaNhanVienThucHien)
+                    .Select(g => g.OrderByDescending(x => x.MaPhanCong).First())
+                    .Select(p => p.MaNhanVienThucHienNavigation?.HoTen)
+                    .Where(t => !string.IsNullOrWhiteSpace(t))
+                    .Select(t => t!.Trim())
+                    .Distinct()
+                    .ToList();
+
                 ketQua.Add(new
                 {
                     h.MaHoSoSuaChua,
@@ -112,6 +123,7 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     h.TrangThai,
                     h.NgayTao,
                     TenNhanVienTao = h.MaNhanVienTaoNavigation?.HoTen,
+                    TenNhanVienThucHiens = string.Join(", ", dsTenNv),
                     h.MaPhanCong,
                     TrangThaiPhanCong = ttPc,
                     ChoXuongXacNhanQuyTrinh = (h.TrangThai is "Đang thực hiện" or "Chờ xác nhận")

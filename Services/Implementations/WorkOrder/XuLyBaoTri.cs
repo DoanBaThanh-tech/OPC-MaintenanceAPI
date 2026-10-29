@@ -278,12 +278,25 @@ namespace OPC.MaintenanceAPI.Services.Implementations
                     .FirstOrDefault()
                     ?? h.MaPhanCongNavigation?.TrangThai;
 
+                // Tên NVKT bên ngoài danh sách phải khớp chi tiết hồ sơ:
+                // lấy phân công còn hiệu lực (bỏ Đã hủy), gộp theo người, giữ PC mới nhất.
+                var dsTenNv = dsPcList
+                    .Where(p => p.TrangThai is not "Đã hủy")
+                    .GroupBy(p => p.MaNhanVienThucHien)
+                    .Select(g => g.OrderByDescending(x => x.MaPhanCong).First())
+                    .Select(p => p.MaNhanVienThucHienNavigation?.HoTen)
+                    .Where(t => !string.IsNullOrWhiteSpace(t))
+                    .Select(t => t!.Trim())
+                    .Distinct()
+                    .ToList();
+
                 ketQua.Add(new
                 {
                     h.MaHoSoBaoTri,
                     MaThietBi = h.MaThieBi,
                     TenThietBi = h.MaThieBiNavigation?.TenThietBi,
                     TenNhanVienTao = h.MaNhanVienTaoNavigation?.HoTen,
+                    TenNhanVienThucHiens = string.Join(", ", dsTenNv),
                     h.NoiDungCongViec, h.ThoiGianDuKien, h.TrangThai, h.NgayTao,
                     h.MaPhanCong,
                     TrangThaiPhanCong = ttPc,
